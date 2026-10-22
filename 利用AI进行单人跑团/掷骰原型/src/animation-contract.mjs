@@ -3,12 +3,13 @@ import { physicalDice } from './rolls.mjs';
 export function animationDice(record) {
   const dice = physicalDice(record);
   // Upstream groups matching dice types even when they are not adjacent.
-  return record.sides === 100 ? [...dice.filter(die => die.sides === 100), ...dice.filter(die => die.sides === 10)] : dice;
+  return [...new Set(dice.map(die => die.sides))].flatMap(sides => dice.filter(die => die.sides === sides));
 }
 
 export function notationFor(record) {
   const dice = animationDice(record);
-  const notation = record.sides === 100 ? `${record.count}d100+${record.count}d10` : `${record.count}d${record.sides}`;
+  const notation = [...new Set(dice.map(die => die.sides))]
+    .map(sides => `${dice.filter(die => die.sides === sides).length}d${sides}`).join('+');
   return `${notation}@${dice.map(die => die.value).join(',')}`;
 }
 

@@ -16,10 +16,11 @@
     </header>
     <main>
       <aside class="controls">
-        <div class="section-heading"><span class="eyebrow">01 / CHOOSE YOUR DICE</span><h2>这一掷，交给命运。</h2><p>选好骰子，掷出你的下一步。</p></div>
-        <div id="dice-picker" class="dice-picker" role="group" aria-label="选择骰型"></div>
-        <div class="quantity-row"><label for="count">骰子数量</label><div class="stepper"><button id="minus" aria-label="减少骰子">−</button><input id="count" type="number" min="1" max="20" value="1" aria-label="骰子数量"><button id="plus" aria-label="增加骰子">＋</button></div></div>
-        <div class="throw-summary"><span id="notation">1d20</span><span id="dice-description">二十面骰</span></div>
+        <div class="section-heading"><span class="eyebrow">01 / BUILD YOUR DICE POOL</span><h2>这一掷，交给命运。</h2><p>点击骰型加一颗，可以混合选择。</p></div>
+        <div id="dice-picker" class="dice-picker" role="group" aria-label="组合骰池"></div>
+        <div class="pool-summary"><span id="selection-help" aria-live="polite">共 1 颗，最多 20 颗</span><button id="clear-pool">清空骰池</button></div>
+        <div class="modifier-row"><label for="modifier-enabled"><input id="modifier-enabled" type="checkbox"> 附加数值</label><label class="modifier-value"><span>＋</span><input id="modifier" type="number" min="1" max="20" step="1" value="1" aria-label="附加数值，1至20" disabled></label></div>
+        <div class="throw-summary"><span id="notation">1d20</span><span id="dice-description">骰子和，可再加 1～20</span></div>
         <button id="roll" class="primary" disabled>正在准备骰盘… <span>↗</span></button>
         <div class="secondary-actions"><button id="replay" disabled>↻ 重播上一掷</button><button id="skip" disabled>跳过动画 →</button></div>
         <p id="notice" class="notice" role="status">正在准备骰盘。</p>
@@ -36,8 +37,8 @@
         </div>
         <div class="result-bar" aria-live="polite" aria-atomic="true">
           <div class="result-caption"><span class="eyebrow">YOUR RESULT</span><span id="result-label">等待投掷</span></div>
-          <div id="individual" class="individual"><span class="muted">故事，从这里继续。</span></div>
-          <div class="total-block"><span>合计</span><strong id="total">—</strong></div>
+          <div class="result-detail"><div id="individual" class="individual"><span class="muted">故事，从这里继续。</span></div><div id="breakdown" class="breakdown"></div></div>
+          <div class="total-block"><span>最终合计</span><strong id="total">—</strong></div>
         </div>
       </section>
     </main>

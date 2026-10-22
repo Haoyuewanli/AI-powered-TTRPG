@@ -28,3 +28,12 @@ test('twenty percentile rolls use two groups instead of exceeding the parser gro
   assert.ok(notationFor(roll).startsWith('20d100+20d10@'));
   assert.equal(animationDice(roll).length, 40);
 });
+
+test('ordinary d10 and percentile ones group together without applying the modifier in animation', () => {
+  const roll = { version: 2, id: 'mixed', createdAt: '2026-10-22T00:00:00Z',
+    groups: [{ sides: 6, count: 2, values: [1, 6] }, { sides: 10, count: 1, values: [10] },
+      { sides: 100, count: 2, values: [7, 100] }], modifier: 20, diceTotal: 124, total: 144 };
+  assert.equal(notationFor(roll), '2d6+3d10+2d100@1,6,10,7,10,100,100');
+  assert.equal(animationDice(roll).length, 7);
+  assert.doesNotThrow(() => verifyAnimation(roll, { sets: [{ rolls: animationDice(roll) }] }));
+});

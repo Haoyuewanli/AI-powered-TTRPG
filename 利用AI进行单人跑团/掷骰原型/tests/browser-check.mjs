@@ -96,7 +96,7 @@ try {
   assert.equal(percentileStress.physicalDice, 40);
   console.log('PERCENTILE STRESS', JSON.stringify(percentileStress));
 
-  const storageKey = 'solo-dice-prototype.last-roll.v1';
+  const storageKey = 'solo-dice-prototype.last-roll.v2';
   await page.reload();
   await page.waitForFunction(() => !document.getElementById('roll').disabled);
   const beforeReplay = await page.evaluate(key => localStorage.getItem(key), storageKey);
@@ -143,11 +143,81 @@ try {
   assert.equal(lifecycle.contactMaterials, 3);
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.locator('[data-sides="20"]').click();
-  await page.locator('#count').fill('5');
+  await page.locator('#clear-pool').click();
+  assert.equal(await page.locator('#roll').isDisabled(), true);
+  await page.locator('.die-choice[data-sides="6"]').click();
+  await page.locator('.die-choice[data-sides="6"]').click();
+  await page.locator('.die-choice[data-sides="20"]').click();
+  await page.locator('#modifier-enabled').check();
+  await page.locator('#modifier').fill('5');
+  assert.equal(await page.locator('#notation').innerText(), '2d6 + 1d20 + 5');
+  await page.evaluate(() => {
+    window.fixedValues = [0, 5, 19];
+    crypto.getRandomValues = array => { if (!window.fixedValues.length) throw new Error('unexpected resample'); array[0] = window.fixedValues.shift(); return array; };
+  });
   await page.locator('#roll').click();
   await page.waitForFunction(() => !document.getElementById('roll').disabled);
   assert.equal(await page.locator('#notice').evaluate(element => element.classList.contains('error')), false);
+  assert.equal(await page.locator('#total').innerText(), '32');
+  assert.equal(await page.locator('#breakdown').innerText(), '骰子和 27 ＋ 附加 5 ＝ 32');
+  const mixedStored = await page.evaluate(key => localStorage.getItem(key), storageKey);
+  await page.locator('#replay').click();
+  await page.locator('#skip').click();
+  await page.waitForFunction(() => !document.getElementById('roll').disabled);
+  assert.equal(await page.evaluate(key => localStorage.getItem(key), storageKey), mixedStored);
+  assert.equal(await page.locator('#total').innerText(), '32');
+  await page.reload();
+  await page.waitForFunction(() => !document.getElementById('roll').disabled);
+  assert.equal(await page.locator('#notation').innerText(), '2d6 + 1d20 + 5');
+  assert.equal(await page.locator('#modifier-enabled').isChecked(), true);
+  assert.equal(await page.locator('#total').innerText(), '32');
+  for (const invalid of ['0', '21', '1.5']) {
+    await page.locator('#modifier').fill(invalid);
+    assert.equal(await page.locator('#roll').isDisabled(), true);
+  }
+  await page.locator('#modifier').fill('20');
+  await page.locator('.die-count[data-sides="6"]').fill('20');
+  assert.equal(await page.locator('#roll').isDisabled(), true, 'mixed pool over twenty must fail');
+  await page.locator('#clear-pool').click();
+  await page.locator('.die-count[data-sides="4"]').fill('1');
+  await page.locator('.die-count[data-sides="10"]').fill('1');
+  await page.locator('.die-count[data-sides="100"]').fill('2');
+  await page.evaluate(() => {
+    window.fixedValues = [3, 9, 6, 99];
+    crypto.getRandomValues = array => { if (!window.fixedValues.length) throw new Error('unexpected resample'); array[0] = window.fixedValues.shift(); return array; };
+  });
+  await page.locator('#roll').click();
+  await page.waitForFunction(() => !document.getElementById('roll').disabled);
+  assert.equal(await page.locator('#notice').evaluate(element => element.classList.contains('error')), false);
+  assert.equal(await page.locator('#total').innerText(), '141');
+  assert.equal(await page.locator('#breakdown').innerText(), '骰子和 121 ＋ 附加 20 ＝ 141');
+  console.log('MIXED POOL 2d6 + 1d20 + 5 = 32; d4 + d10 + 2d100 + 20 = 141; replay and refresh preserved modifier');
+
+  const legacyPage = await browser.newPage();
+  if (offline) await legacyPage.context().setOffline(true);
+  const legacyRecord = { version: 1, id: 'legacy-browser', createdAt: '2026-10-22T00:00:00Z', sides: 6, count: 2, values: [2, 5], total: 7 };
+  await legacyPage.addInitScript(record => localStorage.setItem('solo-dice-prototype.last-roll.v1', JSON.stringify(record)), legacyRecord);
+  await legacyPage.goto(targetUrl);
+  await legacyPage.waitForFunction(() => !document.getElementById('roll').disabled);
+  assert.equal(await legacyPage.locator('#total').innerText(), '7');
+  assert.equal(await legacyPage.locator('#notation').innerText(), '2d6');
+  assert.equal(await legacyPage.locator('#modifier-enabled').isChecked(), false);
+  await legacyPage.locator('#roll').click();
+  await legacyPage.locator('#skip').click();
+  await legacyPage.waitForFunction(() => !document.getElementById('roll').disabled);
+  const legacyPreserved = await legacyPage.evaluate(() => JSON.parse(localStorage.getItem('solo-dice-prototype.last-roll.v1')));
+  assert.deepEqual(legacyPreserved, legacyRecord);
+  await legacyPage.close();
+  console.log('LEGACY previous version record restored and preserved after a new mixed-format roll');
+
+  await page.locator('#clear-pool').click();
+  await page.locator('.die-count[data-sides="6"]').fill('2');
+  await page.locator('.die-count[data-sides="20"]').fill('1');
+  await page.locator('#modifier').fill('5');
+  await page.evaluate(() => { window.fixedValues = [2, 3, 14]; });
+  await page.locator('#roll').click();
+  await page.waitForFunction(() => !document.getElementById('roll').disabled);
+  assert.equal(await page.locator('#total').innerText(), '27');
   assert.equal(requests.every(url => offline ? url === targetUrl || url.startsWith('data:') :
     url.startsWith(new URL(targetUrl).origin + '/')), true);
   assert.deepEqual(issues, []);
@@ -155,7 +225,8 @@ try {
   const prefix = offline ? 'offline' : 'browser';
   await page.screenshot({ path: `test-output/${prefix}-preview.png`, fullPage: true });
   await writeFile(`test-output/${prefix}-results.json`, JSON.stringify({ mode: prefix,
-    offlineNetwork: offline, first: dice, measurements, stress, percentileStress, lifecycle, issues }, null, 2));
+    offlineNetwork: offline, first: dice, measurements, stress, percentileStress, lifecycle,
+    mixedPool: { exampleTotal: 32, percentileAndD10Total: 141, legacyPreserved: true }, issues }, null, 2));
 } finally {
   await browser.close();
 }
