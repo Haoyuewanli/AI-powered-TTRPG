@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 
+const targetUrl = process.env.DICE_TEST_URL || 'http://127.0.0.1:4173';
+const offline = targetUrl.startsWith('file:');
 const { chromium } = await import(process.env.DICE_PLAYWRIGHT_MODULE || 'playwright');
 const browser = await chromium.launch({ headless: true, channel: process.env.DICE_BROWSER_CHANNEL || 'msedge' });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -8,16 +10,17 @@ const issues = [];
 const requests = [];
 page.on('pageerror', error => issues.push(error.message));
 page.on('request', request => requests.push(request.url()));
-page.on('response', response => { if (response.status() >= 400) issues.push(`${response.status()} ${response.url()}`); });
+page.on('response', response => { if (response.status() >= 400) issues.push(`${response.status()} ${response.url().slice(0, 160)}`); });
 try {
-  await page.goto('http://127.0.0.1:4173');
+  if (offline) await page.context().setOffline(true);
+  await page.goto(targetUrl);
   await page.waitForFunction(() => !document.getElementById('roll').disabled);
   console.log('INIT', await page.locator('#notice').innerText());
   await page.locator('#roll').click();
   await page.waitForFunction(() => !document.getElementById('roll').disabled, null, { timeout: 20000 });
   console.log('FIRST', await page.locator('#notice').innerText());
   const dice = await page.evaluate(async () => {
-    const { animator } = await import('/src/app.mjs');
+    const { animator } = await import(document.querySelector('script[type="module"]').src);
     return { renderer: animator.box.renderer.getContext().getParameter(7937),
       rolls: animator.latestResult, faces: animator.box.diceList.map(die => die.getFaceValue()) };
   });
@@ -29,7 +32,7 @@ try {
   const measurements = [];
   for (const [sides, values] of cases) {
     const check = await page.evaluate(async ({ sides, values }) => {
-      const { animator } = await import('/src/app.mjs');
+      const { animator } = await import(document.querySelector('script[type="module"]').src);
       const record = { version: 1, id: `browser-${sides}`, createdAt: '2026-10-22T00:00:00Z',
         sides, count: values.length, values, total: values.reduce((a, b) => a + b, 0) };
       const started = performance.now();
@@ -48,7 +51,7 @@ try {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const stress = await page.evaluate(async () => {
-    const { animator } = await import('/src/app.mjs');
+    const { animator } = await import(document.querySelector('script[type="module"]').src);
     const values = Array.from({ length: 20 }, (_, index) => index + 1);
     const record = { version: 1, id: 'stress', createdAt: '2026-10-22T00:00:00Z',
       sides: 20, count: 20, values, total: 210 };
@@ -82,7 +85,7 @@ try {
   console.log('STRESS', JSON.stringify(stress));
 
   const percentileStress = await page.evaluate(async () => {
-    const { animator } = await import('/src/app.mjs');
+    const { animator } = await import(document.querySelector('script[type="module"]').src);
     const values = Array.from({ length: 20 }, (_, index) => index * 5 + 1);
     const record = { version: 1, id: 'percentile-stress', createdAt: '2026-10-22T00:00:00Z',
       sides: 100, count: 20, values, total: values.reduce((a, b) => a + b, 0) };
@@ -134,7 +137,7 @@ try {
   console.log('RECOVERY resize preserved the record');
 
   const lifecycle = await page.evaluate(async () => {
-    const { animator } = await import('/src/app.mjs');
+    const { animator } = await import(document.querySelector('script[type="module"]').src);
     return { contactMaterials: animator.box.world.contactmaterials.length };
   });
   assert.equal(lifecycle.contactMaterials, 3);
@@ -145,11 +148,14 @@ try {
   await page.locator('#roll').click();
   await page.waitForFunction(() => !document.getElementById('roll').disabled);
   assert.equal(await page.locator('#notice').evaluate(element => element.classList.contains('error')), false);
-  assert.equal(requests.every(url => url.startsWith('http://127.0.0.1:4173/')), true);
+  assert.equal(requests.every(url => offline ? url === targetUrl || url.startsWith('data:') :
+    url.startsWith(new URL(targetUrl).origin + '/')), true);
   assert.deepEqual(issues, []);
   await mkdir('test-output', { recursive: true });
-  await page.screenshot({ path: 'test-output/first-roll.png', fullPage: true });
-  await writeFile('test-output/browser-results.json', JSON.stringify({ first: dice, measurements, stress, percentileStress, lifecycle, issues }, null, 2));
+  const prefix = offline ? 'offline' : 'browser';
+  await page.screenshot({ path: `test-output/${prefix}-preview.png`, fullPage: true });
+  await writeFile(`test-output/${prefix}-results.json`, JSON.stringify({ mode: prefix,
+    offlineNetwork: offline, first: dice, measurements, stress, percentileStress, lifecycle, issues }, null, 2));
 } finally {
   await browser.close();
 }

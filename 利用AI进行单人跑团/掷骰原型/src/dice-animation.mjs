@@ -12,7 +12,8 @@ export class DiceAnimation {
   }
 
   async initialize() {
-    const { default: DiceBox } = await import(MODULE);
+    // The offline HTML embeds the same locked library as a classic UMD script.
+    const DiceBox = globalThis['dice-box-threejs'] || (await import(MODULE)).default;
     const box = this.box = new DiceBox(this.selector, {
       assetPath: ASSETS,
       sounds: false,
