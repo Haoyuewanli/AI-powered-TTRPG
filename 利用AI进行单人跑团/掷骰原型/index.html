@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:,">
+  <title>命运骰盘 · 单人冒险</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="masthead">
+      <div class="brand"><span class="brand-mark">◇</span><div><span class="eyebrow">THE SOLO ADVENTURE</span><h1>命运骰盘</h1></div></div>
+      <span class="local-badge"><i></i> 留在你的电脑上</span>
+    </header>
+    <main>
+      <aside class="controls">
+        <div class="section-heading"><span class="eyebrow">01 / CHOOSE YOUR DICE</span><h2>这一掷，交给命运。</h2><p>选好骰子，掷出你的下一步。</p></div>
+        <div id="dice-picker" class="dice-picker" role="group" aria-label="选择骰型"></div>
+        <div class="quantity-row"><label for="count">骰子数量</label><div class="stepper"><button id="minus" aria-label="减少骰子">−</button><input id="count" type="number" min="1" max="20" value="1" aria-label="骰子数量"><button id="plus" aria-label="增加骰子">＋</button></div></div>
+        <div class="throw-summary"><span id="notation">1d20</span><span id="dice-description">二十面骰</span></div>
+        <button id="roll" class="primary" disabled>正在准备骰盘… <span>↗</span></button>
+        <div class="secondary-actions"><button id="replay" disabled>↻ 重播上一掷</button><button id="skip" disabled>跳过动画 →</button></div>
+        <p id="notice" class="notice" role="status">正在准备骰盘。</p>
+        <div class="aside-note"><span class="tiny-diamond">✧</span><p>每一掷都留下结果。<br>重播与跳过，不会改变点数。</p></div>
+      </aside>
+      <section class="table-panel" aria-label="三维骰盘">
+        <div class="table-topline"><span class="eyebrow">THE ROLLING TABLE</span><span id="table-state">准备中</span></div>
+        <div class="tray">
+          <div class="tray-stitch"></div>
+          <div class="table-emblem" aria-hidden="true"><div>✧</div><span>LET FATE UNFOLD</span></div>
+          <div id="dice-scene"></div>
+          <div id="empty-hint">一个念头，一次投掷。<span>选择骰型，开始你的第一掷</span></div>
+          <div id="rolling-label" hidden>骰子正在落定 <span>···</span></div>
+        </div>
+        <div class="result-bar" aria-live="polite" aria-atomic="true">
+          <div class="result-caption"><span class="eyebrow">YOUR RESULT</span><span id="result-label">等待投掷</span></div>
+          <div id="individual" class="individual"><span class="muted">故事，从这里继续。</span></div>
+          <div class="total-block"><span>合计</span><strong id="total">—</strong></div>
+        </div>
+      </section>
+    </main>
+    <footer><span>掷骰工坊 <span class="footer-dot">·</span> 独立试验版</span><span>d4 / d6 / d8 / d10 / d12 / d20 / d100</span></footer>
+  </div>
+  <script type="module" src="/src/app.mjs"></script>
+</body>
+</html>
