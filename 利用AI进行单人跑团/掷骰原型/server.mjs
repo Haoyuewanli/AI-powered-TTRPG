@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile, realpath } from 'node:fs/promises';
 import { dirname, extname, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execFile } from 'node:child_process';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const mime = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -43,5 +44,19 @@ export function makeServer() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const port = Number(process.env.DICE_PORT || 4173);
-  makeServer().listen(port, '127.0.0.1', () => console.log(`骰盘已启动：http://127.0.0.1:${port}`));
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('DICE_PORT 须为有效端口号。');
+  const server = makeServer();
+  server.on('error', error => {
+    console.error(error.code === 'EADDRINUSE' ? '端口已被占用。请先检查已有骰盘窗口，或设置其他 DICE_PORT。' : error.message);
+    process.exitCode = 1;
+  });
+  server.listen(port, '127.0.0.1', () => {
+    const url = `http://127.0.0.1:${port}`;
+    console.log(`骰盘已启动：${url}\n关闭此窗口或按 Ctrl+C 停止。`);
+    if (process.argv.includes('--open') && process.platform === 'win32') {
+      execFile('rundll32.exe', ['url.dll,FileProtocolHandler', url], { windowsHide: true }, error => {
+        if (error) console.error('浏览器未能自动打开，请使用上面的地址。');
+      });
+    }
+  });
 }
