@@ -1,0 +1,33 @@
+{
+  "checked_on": "2026-10-21",
+  "files": [
+    {
+      "file": "Alone_Against_the_Flames_CoC7_EN.pdf",
+      "bytes": 6598073,
+      "sha256": "866ccff5742f9820b920c9a901a315baecc2913124530c3fb52bf5a70bef8a60",
+      "pages": 50,
+      "text_characters": 162609,
+      "encrypted": false,
+      "title": "Alone Against the Flames",
+      "author": "Gavin Inglis",
+      "rules": "Call of Cthulhu 7e",
+      "language": "en",
+      "source_url": "https://www.chaosium.com/content/FreePDFs/CoC/Adventures/CHA23145%20-%20Alone%20Against%20the%20Flames.pdf",
+      "original_unmodified": true
+    },
+    {
+      "file": "Frozen_Offerings_DnD5e_EN.pdf",
+      "bytes": 4815393,
+      "sha256": "ba157a4893fdf42e9ad9afbed7fa15729cb8ac8674b7c69d2764c61950e3d533",
+      "pages": 25,
+      "text_characters": 95873,
+      "encrypted": false,
+      "title": "Frozen Offerings",
+      "author": "Paul Bimler",
+      "rules": "D&D 5e",
+      "language": "en",
+      "source_url": "https://media.wizards.com/2020/dnd/dragon/34/dra34_FrozenOfferings.pdf",
+      "original_unmodified": true
+    }
+  ]
+}
