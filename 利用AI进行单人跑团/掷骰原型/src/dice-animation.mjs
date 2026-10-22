@@ -54,6 +54,16 @@ export class DiceAnimation {
       // Version 0.0.12 leaves the simulated d4 result cached after changing its faces.
       if (die.shape === 'd4') die.result = [];
     };
+    const animateThrow = box.animateThrow.bind(box);
+    box.animateThrow = (token, callback) => {
+      if (box.running !== token) return;
+      // Upstream counts render calls as physics iterations, even on 120/240 Hz screens.
+      if (box.last_time && Date.now() - box.last_time < box.framerate * 1000) {
+        requestAnimationFrame(() => box.animateThrow(token, callback));
+        return;
+      }
+      animateThrow(token, callback);
+    };
     const clearDice = box.clearDice.bind(box);
     box.clearDice = () => {
       const cached = new Set(Object.values(box.DiceFactory.geometries));
