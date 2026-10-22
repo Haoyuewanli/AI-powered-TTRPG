@@ -124,7 +124,11 @@ window.addEventListener('pagehide', event => { if (event.persisted) animator.sto
 let restored = false;
 try {
   current = loadRoll(localStorage);
-  if (current) { showResult(current); restored = true; }
+  if (current) {
+    showResult(current);
+    $('empty-hint').textContent = '上一掷已保留，点击重播查看。';
+    restored = true;
+  }
 } catch {
   notice('上一掷记录无法读取。原记录未删除；新投掷会在保存成功后替换它。', true);
 }

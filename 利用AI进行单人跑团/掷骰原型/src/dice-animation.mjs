@@ -33,6 +33,27 @@ export class DiceAnimation {
     });
     // Upstream registers a resize listener without a dispose method. Own it here.
     box.resizeWorld = () => {};
+    const makeWorldBox = box.makeWorldBox.bind(box);
+    box.makeWorldBox = () => {
+      // Remove old pairs before rebuilding, so Cannon retains the new pair lookup.
+      for (const contact of [...box.world.contactmaterials]) box.world.removeContactMaterial(contact);
+      makeWorldBox();
+    };
+    const setDimensions = box.setDimensions.bind(box);
+    box.setDimensions = dimensions => {
+      const previousDesk = box.desk;
+      const previousLight = box.light;
+      setDimensions(dimensions);
+      previousDesk?.geometry.dispose();
+      previousDesk?.material.dispose();
+      previousLight?.shadow.dispose();
+    };
+    const swapDiceFace = box.swapDiceFace.bind(box);
+    box.swapDiceFace = (die, value) => {
+      swapDiceFace(die, value);
+      // Version 0.0.12 leaves the simulated d4 result cached after changing its faces.
+      if (die.shape === 'd4') die.result = [];
+    };
     const clearDice = box.clearDice.bind(box);
     box.clearDice = () => {
       const cached = new Set(Object.values(box.DiceFactory.geometries));

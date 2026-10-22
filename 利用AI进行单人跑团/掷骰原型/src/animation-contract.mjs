@@ -17,6 +17,6 @@ export function verifyAnimation(record, result) {
   const actual = result?.sets?.flatMap(set => set.rolls) ?? [];
   if (actual.length !== expected.length || actual.some((die, index) =>
     die.sides !== expected[index].sides || die.value !== expected[index].value)) {
-    throw new Error('动画落点与已保存点数不一致，已保留正式结果。');
+    throw new Error('动画落点与已保存点数不一致，已保留正式结果。', { cause: { expected, actual } });
   }
 }
