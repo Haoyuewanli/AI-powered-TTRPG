@@ -18,7 +18,9 @@ const port = reserve.address().port; await new Promise(accept => reserve.close(a
 const url = `http://127.0.0.1:${port}`;
 const launcher = fileURLToPath(new URL('../launcher.mjs', import.meta.url));
 const args = ['--no-browser', '--port', String(port), '--campaign', directory];
-const launch = () => execute(process.execPath, [launcher, ...args], { timeout: 20000, windowsHide: true });
+const launch = () => process.platform === 'win32' ?
+  execute('cmd.exe', ['/d', '/c', '启动战斗.cmd', ...args], { cwd: fileURLToPath(new URL('..', import.meta.url)), timeout: 20000, windowsHide: true }) :
+  execute(process.execPath, [launcher, ...args], { timeout: 20000, windowsHide: true });
 const sleep = ms => new Promise(accept => setTimeout(accept, ms));
 let token;
 async function login() {
@@ -52,6 +54,6 @@ try {
   const restored = await (await fetch(url + '/api/state', { headers: { Authorization: `Bearer ${token}` } })).json();
   assert.equal(restored.state.revision, 1); assert.equal(restored.state.actors[0].hp, 25);
   await stop(); token = null;
-  console.log(JSON.stringify({ repeatedLaunchReusesProcess: true, differentCampaignRejected: true,
+  console.log(JSON.stringify({ windowsCmdEntryTested: process.platform === 'win32', repeatedLaunchReusesProcess: true, differentCampaignRejected: true,
     dmShutdownReleasesLock: true, restartRestoresSavedState: true, externalRequests: 0 }));
 } finally { if (token) await stop().catch(() => {}); }
