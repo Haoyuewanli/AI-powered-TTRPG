@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
 const targetUrl = process.env.DICE_TEST_URL || 'http://127.0.0.1:4173';
 const offline = targetUrl.startsWith('file:');
+const outputDir = process.env.DICE_TEST_OUTPUT || fileURLToPath(new URL('../../../开发记录/临时/骰盘/', import.meta.url));
 const { chromium } = await import(process.env.DICE_PLAYWRIGHT_MODULE || 'playwright');
 const browser = await chromium.launch({ headless: true, channel: process.env.DICE_BROWSER_CHANNEL || 'msedge' });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
@@ -221,10 +224,10 @@ try {
   assert.equal(requests.every(url => offline ? url === targetUrl || url.startsWith('data:') :
     url.startsWith(new URL(targetUrl).origin + '/')), true);
   assert.deepEqual(issues, []);
-  await mkdir('test-output', { recursive: true });
+  await mkdir(outputDir, { recursive: true });
   const prefix = offline ? 'offline' : 'browser';
-  await page.screenshot({ path: `test-output/${prefix}-preview.png`, fullPage: true });
-  await writeFile(`test-output/${prefix}-results.json`, JSON.stringify({ mode: prefix,
+  await page.screenshot({ path: join(outputDir, `${prefix}-preview.png`), fullPage: true });
+  await writeFile(join(outputDir, `${prefix}-results.json`), JSON.stringify({ mode: prefix,
     offlineNetwork: offline, first: dice, measurements, stress, percentileStress, lifecycle,
     mixedPool: { exampleTotal: 32, percentileAndD10Total: 141, legacyPreserved: true }, issues }, null, 2));
 } finally {

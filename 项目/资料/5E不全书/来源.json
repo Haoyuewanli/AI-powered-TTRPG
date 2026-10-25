@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-10-25",
+  "scope": "下载下列固定发布包与网页版快照的全部文件；不含外链网站、云端搜索服务或尚未上书的资料。全部收录不代表全部启用，游戏目标仍为 D&D 2024。",
+  "chm": {
+    "version": "v2026.09.13",
+    "filename": "DND.26.09.13.chm",
+    "url": "https://github.com/DND5eChm/DND5e_chm/releases/download/v2026.09.13/DND.26.09.13.chm",
+    "bytes": 38490439,
+    "sha256": "ccf9e6a91e68bce9b505ade3bb4fea5b36ce3ea17c6dee0dd5e70036e28bced8",
+    "digest_source": "GitHub releases/latest assets[].digest，由发布 API 提供"
+  },
+  "web": {
+    "repository": "https://github.com/DND5eChm/5echm_web",
+    "revision": "c1425c8e90804766689a0db7ec416833f3fc3046",
+    "upstream_build": "build: publish web from DND5e_chm@63995fe",
+    "filename": "5echm_web-c1425c8.zip",
+    "url": "https://codeload.github.com/DND5eChm/5echm_web/zip/c1425c8e90804766689a0db7ec416833f3fc3046",
+    "bytes": 46572402,
+    "sha256": "963374be72bc990ad6753ab0d8a43a06d63e1dfeedfca443f81ac0bc3d763a84",
+    "tree_url": "https://api.github.com/repos/DND5eChm/5echm_web/git/trees/c1425c8e90804766689a0db7ec416833f3fc3046?recursive=1",
+    "tree_filename": "upstream-tree.json",
+    "expected_files": 10543,
+    "digest_source": "ZIP 的 SHA-256 为本次下载后记录；另外逐文件比对固定提交的 Git blob SHA-1"
+  },
+  "notes": [
+    "CHM 与网页版是分别固定的上游版本，不声称两者每一页完全相同。",
+    "Windows 自带 hh.exe 未成功导出 CHM；本地网页来自维护者的网页仓库，不是本机 CHM 解包结果。",
+    "原始资料不改写，旧版、扩展、合作内容保留供查阅，规则启用清单仍待建立。",
+    "下载的第三方全文留在本机并排除出 Git；来源、检查摘要、入口和工具纳入版本管理。"
+  ]
+}

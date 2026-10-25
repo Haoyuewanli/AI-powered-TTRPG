@@ -1,0 +1,80 @@
+{
+  "checked_date": "2026-10-25",
+  "revision": "c1425c8e90804766689a0db7ec416833f3fc3046",
+  "tree_sha": "c1425c8e90804766689a0db7ec416833f3fc3046",
+  "archives_sha256_verified": true,
+  "zip_crc_verified": true,
+  "git_blob_matches": 10543,
+  "files": 10543,
+  "bytes": 167501550,
+  "html_pages": 10017,
+  "encodings": {
+    "utf-8": 10026
+  },
+  "broken_local_references": 4167,
+  "distinct_missing_targets": 913,
+  "broken_reference_types": {
+    "正文/目录链接": 3285,
+    "Word 编辑元数据": 847,
+    "图片或其他资源": 35
+  },
+  "external_references": 209,
+  "external_resource_references": 38,
+  "limits": [
+    "仅核对静态 HTML 属性及 CSS url，未执行上游脚本或检查所有锚点。",
+    "远程链接、脚本动态请求、云端搜索索引和未收录内容不在网页快照内。",
+    "所有检查均与固定上游版本比较，不证明上游译文或规则正确。"
+  ],
+  "manual_samples": [
+    {
+      "label": "版本说明",
+      "title": "写在前面",
+      "path": "topics/写在前面.html"
+    },
+    {
+      "label": "玩家手册",
+      "title": "玩家手册2024",
+      "path": "topics/玩家手册2024/Credits.htm"
+    },
+    {
+      "label": "城主指南",
+      "title": "城主指南2024",
+      "path": "topics/城主指南2024/Credits.htm"
+    },
+    {
+      "label": "怪物图鉴",
+      "title": "怪物图鉴2025",
+      "path": "topics/怪物图鉴2025/Credits.htm"
+    },
+    {
+      "label": "职业",
+      "title": "战士",
+      "path": "topics/玩家手册2024/角色职业/战士/战士.htm"
+    },
+    {
+      "label": "战斗",
+      "title": "战斗流程",
+      "path": "topics/玩家手册2024/进行游戏/战斗流程.htm"
+    },
+    {
+      "label": "旧版分区",
+      "title": "玩家手册2014（旧版）",
+      "path": "topics/玩家手册/前言.htm"
+    },
+    {
+      "label": "合作内容",
+      "title": "巨像道途（塔尔多雷）",
+      "path": "topics/第三方/塔尔多雷/玩家选项/野蛮人-巨像道途.htm"
+    },
+    {
+      "label": "法术与表格",
+      "title": "玩家手册2024：3环法术（用 Ctrl+F 找火球术）",
+      "path": "topics/玩家手册2024/法术详述/3环.htm"
+    },
+    {
+      "label": "新版怪物",
+      "title": "怪物图鉴2025：地精武者",
+      "path": "topics/怪物图鉴2025/妖精/地精/地精武者.htm"
+    }
+  ]
+}
