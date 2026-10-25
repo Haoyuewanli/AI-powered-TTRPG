@@ -45,6 +45,7 @@ export async function openStore(directory, initial, { persist = atomicJson } = {
   try {
     try { state = await readValid(path); }
     catch (primaryError) {
+      if (primaryError.code === 'UNSUPPORTED_FORMAT') throw primaryError;
       try {
         state = await readValid(backup);
         if (primaryError.code !== 'ENOENT') await copyFile(path, join(dir, `损坏存档-${Date.now()}.json`));

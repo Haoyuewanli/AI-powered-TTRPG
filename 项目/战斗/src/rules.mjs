@@ -59,6 +59,7 @@ export function applyDamage(actor, components) {
 export function validateActor(actor, board) {
   requireRule(typeof actor.id === 'string' && /^[a-zA-Z0-9_-]{1,60}$/.test(actor.id), '棋子ID无效');
   requireRule(['pc', 'npc'].includes(actor.kind), '角色类型无效');
+  requireRule(actor.kind === 'pc' ? typeof actor.ownerId === 'string' && /^[\w-]{1,60}$/.test(actor.ownerId) : actor.ownerId === null, '角色归属无效');
   requireRule(typeof actor.name === 'string' && actor.name.trim().length > 0 && actor.name.length <= 80, '名称须为1～80字');
   integer(actor.maxHp, 1, 10000, '生命上限'); integer(actor.hp, 0, actor.maxHp, '当前生命');
   integer(actor.tempHp, 0, 10000, '临时生命'); integer(actor.ac, 0, 100, 'AC');
@@ -92,19 +93,28 @@ export function validateActor(actor, board) {
 }
 
 export function validateState(state) {
-  requireRule(state.formatVersion === 1 && state.rulesVersion === 'dnd2024-basic-v1', '不支持的存档或规则版本；请保留原文件');
+  if (state.formatVersion !== 1 || state.rulesVersion !== 'dnd2024-basic-v1') {
+    const error = new RuleError('不支持的存档或规则版本；请保留原文件');
+    error.code = 'UNSUPPORTED_FORMAT'; throw error;
+  }
+  requireRule(typeof state.campaignId === 'string' && /^[\w-]{1,100}$/.test(state.campaignId) && typeof state.title === 'string' && state.title.length <= 100, '战役标识无效');
   integer(state.revision, 0, Number.MAX_SAFE_INTEGER, '进度版本');
   requireRule(Array.isArray(state.actors) && state.actors.length > 0 && state.actors.length <= 40, '参与者数量无效');
   integer(state.board.width, 20, 300, '棋盘宽'); integer(state.board.depth, 20, 300, '棋盘深');
+  requireRule(state.board.major === 5 && state.board.minor === 1 && state.board.terrain === 'open-flat', '当前仅支持5尺大格、1尺小格的平坦棋盘');
   requireRule(new Set(state.actors.map(a => a.id)).size === state.actors.length, '棋子ID重复');
   for (const actor of state.actors) validateActor(actor, state.board);
   requireRule(['preparing', 'active', 'ended'].includes(state.combat.phase), '战斗阶段无效');
   requireRule(Array.isArray(state.events) && Array.isArray(state.appliedIds), '事件记录无效');
+  requireRule(state.events.every(e => e && typeof e.publicText === 'string' && typeof e.dmText === 'string' && Number.isInteger(e.revision)) && state.appliedIds.every(id => typeof id === 'string'), '事件字段无效');
   if (state.combat.phase === 'active') {
     const order = state.combat.order;
     requireRule(Array.isArray(order) && order.length === state.actors.length && new Set(order).size === order.length &&
       order.every(id => state.actors.some(a => a.id === id)), '先攻顺序无效');
     integer(state.combat.index, 0, order.length - 1, '当前回合');
+    requireRule(Array.isArray(state.combat.initiative) && state.combat.initiative.length === order.length &&
+      new Set(state.combat.initiative.map(r => r.actorId)).size === order.length &&
+      state.combat.initiative.every(r => order.includes(r.actorId) && Number.isFinite(r.total)), '先攻记录无效');
     integer(state.combat.round, 1, Number.MAX_SAFE_INTEGER, '轮数');
     integer(state.combat.moved, 0, 10000, '已移动距离'); integer(state.combat.attacksUsed, 0, 10, '已用攻击次数');
     requireRule(['none', 'attack', 'dash', 'manual'].includes(state.combat.action), '动作状态无效');
@@ -128,6 +138,7 @@ function activeTurn(state, actor) {
 
 export function executeAction(original, command, principal, { draw = die, id = randomUUID, now = () => new Date().toISOString() } = {}) {
   requireRule(command && typeof command === 'object', '操作格式无效');
+  requireRule(command.campaignId === original.campaignId, '提议属于其他战役，请重新导出局面', 409);
   requireRule(typeof command.actionId === 'string' && /^[\w-]{8,100}$/.test(command.actionId), '操作须含8～100位唯一actionId');
   requireRule(!original.appliedIds.includes(command.actionId), '该操作已执行，请刷新局面', 409);
   requireRule(command.expectedRevision === original.revision, '进度已变化，请刷新并重新决定操作', 409);
@@ -202,7 +213,8 @@ export function executeAction(original, command, principal, { draw = die, id = r
     }
     case 'attack': {
       const actor = getActor(state, payload.actorId); owned(actor, principal); activeTurn(state, actor);
-      const target = getActor(state, payload.targetId);
+      const target = state.actors.find(a => a.id === payload.targetId && (principal.role === 'dm' || !a.hidden || a.ownerId === principal.id));
+      requireRule(target, '目标不存在或不可见', 404);
       requireRule(actor.id !== target.id && !actor.hidden && !target.hidden, '自动攻击需选择已揭示的其他棋子；隐藏攻击请由DM裁定');
       requireRule(target.hp > 0, '目标已倒地；后续攻击、死亡豁免与濒死伤害请由DM裁定');
       requireRule(['none', 'attack'].includes(state.combat.action) && state.combat.attacksUsed < actor.attackLimit, '本回合攻击次数已用完或已使用其他动作');
@@ -300,7 +312,7 @@ export function handoff(state, principal) {
   return { protocol: 'local-dm-exchange-v1', audience: principal.role, expectedRevision: state.revision,
     instructions: '选择动作并返回proposal；骰点和机械结算由本地核心执行。未支持规则使用DM裁定并注明原因。此包可能含秘密，仅交给相应权限主持者。',
     state: projectState(state, principal),
-    proposal: { actionId: randomUUID(), expectedRevision: state.revision, type: 'move',
+    proposal: { campaignId: state.campaignId, actionId: randomUUID(), expectedRevision: state.revision, type: 'move',
       payload: { actorId: principal.role === 'dm' ? state.actors[0].id : state.actors.find(a => a.ownerId === principal.id)?.id,
         position: { x: 30, z: 40 } } } };
 }

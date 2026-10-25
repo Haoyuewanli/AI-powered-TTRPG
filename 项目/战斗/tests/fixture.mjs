@@ -12,7 +12,7 @@ export function fixture() {
     combat: { phase: 'preparing', round: 0, order: [], index: 0, moved: 0, attacksUsed: 0, action: 'none' }, events: [], appliedIds: [] };
 }
 let serial = 0;
-export const command = (state, type, payload = {}) => ({ actionId: `test-action-${++serial}`, expectedRevision: state.revision, type, payload });
+export const command = (state, type, payload = {}) => ({ campaignId: state.campaignId, actionId: `test-action-${++serial}`, expectedRevision: state.revision, type, payload });
 export function active() {
   const state = fixture();
   state.combat = { phase: 'active', round: 1, order: ['pc-001', 'npc-001'], index: 0,

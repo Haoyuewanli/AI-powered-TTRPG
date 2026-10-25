@@ -44,3 +44,17 @@ test('corrupt primary is preserved and last valid backup recovers with a visible
   assert.equal(recovered.state.actors[0].hp, 40); assert(recovered.recoveryNote.includes('恢复'));
   await recovered.close();
 });
+test('unsupported newer version does not silently roll back to an older backup', async () => {
+  const dir = await directory(), store = await openStore(dir, fixture);
+  await store.dispatch(command(store.state, 'edit-actor', { actorId: 'pc-001', patch: { hp: 30 } }), dm);
+  await store.close();
+  const newer = { ...fixture(), formatVersion: 2 };
+  await writeFile(join(dir, '战斗状态.json'), JSON.stringify(newer));
+  await assert.rejects(openStore(dir, fixture), /不支持/);
+  assert.equal(JSON.parse(await readFile(join(dir, '战斗状态.json'), 'utf8')).formatVersion, 2);
+});
+test('unreadable existing files are not replaced by a fresh campaign', async () => {
+  const dir = await directory(); await writeFile(join(dir, '战斗状态.json'), '{broken');
+  await assert.rejects(openStore(dir, fixture), /原件已保留/);
+  assert.equal(await readFile(join(dir, '战斗状态.json'), 'utf8'), '{broken');
+});

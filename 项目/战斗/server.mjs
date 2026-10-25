@@ -48,6 +48,7 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
     ['/vendor/LICENSE', [resolve(ROOT, '../骰盘/node_modules/three/LICENSE'), 'text/plain; charset=utf-8']]
   ]);
   let loginWindow = { start: Date.now(), count: 0 };
+  let closeApp;
   const server = createServer(async (request, response) => {
     const send = (status, body) => {
       response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -62,6 +63,7 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
       const origin = `http://127.0.0.1:${server.address().port}`;
       if (request.headers.host !== new URL(origin).host || (request.headers.origin && request.headers.origin !== origin)) throw new RuleError('只接受本机同源请求', 403);
       const path = new URL(request.url, origin).pathname;
+      if (request.method === 'GET' && path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
       if (request.method === 'GET' && path === '/health') return send(200, {
         app: 'local-battle-v1', campaignKey: hash(directory.toLowerCase()).toString('hex') });
       if (request.method === 'POST' && path === '/api/login') {
@@ -92,6 +94,11 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
         if (request.method === 'GET' && path === '/api/state') return send(200, { state: projectState(store.state, principal), recoveryNote: store.recoveryNote });
         if (request.method === 'GET' && path === '/api/handoff') return send(200, handoff(store.state, principal));
         if (request.method === 'POST' && path === '/api/logout') { sessions.delete(token); return send(200, { ok: true }); }
+        if (request.method === 'POST' && path === '/api/shutdown') {
+          if (principal.role !== 'dm') throw new RuleError('需要DM权限', 403);
+          response.once('finish', () => { closeApp().catch(() => {}); });
+          return send(200, { stopped: true });
+        }
         if (request.method === 'POST' && path === '/api/action') {
           const next = await store.dispatch(await readBody(request), principal);
           return send(200, { state: projectState(next, principal), recoveryNote: store.recoveryNote });
@@ -109,8 +116,12 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
   try {
     await new Promise((accept, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', accept); });
   } catch (error) { await store.close(); throw error; }
-  return { server, store, url: `http://127.0.0.1:${server.address().port}`, directory,
-    async close() { await new Promise((accept, reject) => server.close(error => error ? reject(error) : accept())); await store.close(); } };
+  let closePromise;
+  closeApp = () => closePromise ||= (async () => {
+    await new Promise((accept, reject) => server.close(error => error ? reject(error) : accept()));
+    await store.close();
+  })();
+  return { server, store, url: `http://127.0.0.1:${server.address().port}`, directory, close: closeApp };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -82,7 +82,7 @@ test('manual healing does not restore temporary HP; temporary HP does not stack'
 });
 test('player projection excludes hidden actors, enemy exact statistics, DM notes, rolls and private events', () => {
   const state = active(); state.actors[1].hidden = true;
-  state.events.push({ publicText: '', dmText: '隐藏秘密', rolls: [{ secret: true }] });
+  state.events.push({ publicText: '', dmText: '隐藏秘密', revision: 0, rolls: [{ secret: true }] });
   const visible = projectState(state, player), serialized = JSON.stringify(visible);
   assert.equal(visible.actors.length, 1);
   for (const secret of ['npc-001', '隐藏秘密', '仅DM读取', 'appliedIds']) assert(!serialized.includes(secret));
@@ -103,4 +103,12 @@ test('unknown versions and malformed edits fail before mutation', () => {
   const good = fixture();
   assert.throws(() => executeAction(good, command(good, 'edit-actor', { actorId: 'pc-001', patch: { hp: -1 } }), dm));
   assert.equal(good.actors[0].hp, 40);
+});
+test('proposals from another campaign are rejected even when revision matches', () => {
+  const state = active(), proposal = command(state, 'next'); proposal.campaignId = 'another-campaign';
+  assert.throws(() => executeAction(state, proposal, player), /其他战役/);
+});
+test('reaching zero HP stops automatic attacks against that target', () => {
+  const state = active(); state.actors[1].hp = 0;
+  assert.throws(() => executeAction(state, command(state, 'attack', { actorId: 'pc-001', targetId: 'npc-001', attackId: 'sword' }), player), /死亡豁免/);
 });

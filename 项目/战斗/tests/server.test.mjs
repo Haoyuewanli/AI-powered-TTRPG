@@ -21,8 +21,9 @@ test('HTTP permissions, filtered state, handoff, stale proposals, static allowli
     const player = await (await request('/api/login', { id: 'player-1' })).json();
     const visible = await (await request('/api/state', null, player.token)).text();
     for (const forbidden of ['npc-001', '仅DM读取', 'dmSecret']) assert(!visible.includes(forbidden));
-    const action = { actionId: 'http-action-001', expectedRevision: 0, type: 'edit-actor', payload: { actorId: 'pc-001', patch: { hp: 20 } } };
+    const action = { campaignId: 'test-campaign', actionId: 'http-action-001', expectedRevision: 0, type: 'edit-actor', payload: { actorId: 'pc-001', patch: { hp: 20 } } };
     assert.equal((await request('/api/action', action, player.token)).status, 403);
+    assert.equal((await request('/api/shutdown', {}, player.token)).status, 403);
     const credentials = JSON.parse(await readFile(join(dir, '本机身份.json'), 'utf8'));
     const dm = await (await request('/api/login', { id: 'DM', secret: credentials.dmSecret })).json();
     assert.equal((await request('/api/action', action, dm.token)).status, 200);

@@ -23,7 +23,7 @@ export async function initializeCampaign(directory) {
         initiativeBonus: values.initiativeBonus, attackLimit: 1, tiePriority: 0,
         position: { x: 22.5, z: 42.5 }, space: { width: 5, depth: 5 }, body: { width: 2, depth: 1, height: 6 },
         attacks: [], resources: '待核对：当前HP、法术位、临时生命、荒野形态及启用形态。',
-        notes: '数值由抄录草稿预填，未经核对；未替玩家选择攻击。外观尺寸为显示占位值。' },
+        notes: '数值由抄录草稿预填，未经核对；未替玩家选择攻击。外观尺寸为显示占位值。', reference: card },
       { ...common, id: 'npc-001', name: monster.name, kind: 'npc', ownerId: null,
         ac: monster.armorClass, hp: monster.hitPoints.average, maxHp: monster.hitPoints.average,
         speed: monster.speedFeet.walk, initiativeBonus: monster.initiative.bonus,
@@ -36,7 +36,7 @@ export async function initializeCampaign(directory) {
           damage: a.damage.map(d => ({ formula: d.formula, type: d.type })),
           ...(a.effect ? { manualEffect: '巨弓命中：速度降低10尺，持续到目标下回合结束；由DM调整并及时恢复。' } : {}) })),
         notes: '来源：5E不全书·怪物图鉴2025。战吼充能、临时生命及攻击优势由DM裁定；两次攻击逐次结算。外观尺寸为可编辑显示值。',
-        resources: '战吼（充能5～6）；战斗开始前由DM确认可用。' }
+        resources: '战吼（充能5～6）；战斗开始前由DM确认可用。', reference: monster }
     ],
     combat: { phase: 'preparing', round: 0, order: [], index: 0, moved: 0, attacksUsed: 0, action: 'none' },
     events: [], appliedIds: []
