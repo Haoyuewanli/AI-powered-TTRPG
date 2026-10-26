@@ -78,7 +78,7 @@
       </section>
     </div>
     <aside id="action-panel" class="right-panel panel" aria-label="行动与掷骰">
-      <section id="battle-tasks" aria-label="战前待办"></section><div class="action-heading"><span class="eyebrow">行动与掷骰</span><button type="button" class="quiet small-button" data-tool="actor" data-dm-only>角色详情</button></div>
+      <button type="button" id="external-file-notice" data-tool="files" hidden>检测到战斗JSON外部修改 · 点此刷新</button><section id="battle-tasks" aria-label="战前待办"></section><div class="action-heading"><span class="eyebrow">行动与掷骰</span><button type="button" class="quiet small-button" data-tool="actor" data-dm-only>角色详情</button></div>
       <div class="panel-heading selected-heading"><span id="selected-name">选择棋子</span><span id="selected-kind" class="muted"></span></div>
       <div id="actor-info"></div>
       <section class="initiative-section" aria-label="先攻与掷骰设置">
@@ -94,7 +94,7 @@
   </div>
   <footer class="table-footer">
     <button type="button" class="latest-event" data-tool="journal" aria-label="查看战斗记录"><span class="latest-label">战斗记录</span><span id="latest-event-text">这里会留下每一步已保存的结果</span><span aria-hidden="true">↗</span></button>
-    <div class="footer-actions"><button id="undo" class="quiet" type="button" hidden>撤销最近操作</button><button type="button" class="quiet" data-tool="exchange">交给主持人</button><button id="open-actions" type="button" class="primary" data-tool="actions">行动与掷骰</button></div>
+    <div class="footer-actions"><button id="undo" class="quiet" type="button" hidden>撤销最近操作</button><button type="button" class="quiet" data-tool="exchange">交给主持人</button><button type="button" data-tool="files" data-dm-only class="quiet">本地文件</button><button id="open-actions" type="button" class="primary" data-tool="actions">行动与掷骰</button></div>
   </footer>
 <dialog id="workspace-dialog" class="tool-dialog " aria-labelledby="workspace-dialog-title" data-dialog="workspace">
   <header class="dialog-heading"><div><span class="eyebrow">战局工具</span><h2 id="workspace-dialog-title">团与战斗</h2></div><button type="button" class="icon-button" data-close-tool aria-label="关闭团与战斗">×</button></header>
@@ -146,6 +146,7 @@
 <h3>棋盘操作</h3><dl class="control-list"><dt>选择棋子</dt><dd>单击棋子或上方角色卡</dd><dt>摆放 / 移动</dt><dd>拖动棋子；战前由 DM 摆放，战斗中移动会计算距离</dd><dt>旋转</dt><dd>拖动空地；Q / E 或 ← / →</dd><dt>平移</dt><dd>右拖或 Shift + 左拖；W / A / S / D</dd><dt>缩放</dt><dd>滚轮或 + / −</dd><dt>倾角 / 复位</dt><dd>R / F 或 ↑ / ↓；0 复位</dd><dt>取消拖动</dt><dd>Esc，或在松手前切出窗口</dd></dl>
 <div class="legend"><span class="legend-front"></span>金色面是正面 <span class="legend-back"></span>深色面是背面 <span class="legend-space"></span>地面线框是规则占地</div><p class="fine">高差、楼梯通行、掩护、视线、复杂法术和荒野形态仍请 DM 裁定。成功的操作自动保存在主持电脑的文件中；尚未提交的表单不属于已保存进度。</p></div>
 </dialog>
+<dialog id="files-dialog" class="tool-dialog" data-dialog="files" aria-labelledby="files-title"><header class="dialog-heading"><h2 id="files-title">本地JSON文件</h2><button type="button" class="icon-button" data-close-tool aria-label="关闭本地文件">×</button></header><div class="dialog-body" id="files-content"></div></dialog>
 <dialog id="actions-dialog" class="tool-dialog actions-dialog" aria-labelledby="actions-dialog-title" data-dialog="actions">
   <header class="dialog-heading"><div><span class="eyebrow">战局工具</span><h2 id="actions-dialog-title">行动与掷骰</h2></div><button type="button" class="icon-button" data-close-tool aria-label="关闭行动与掷骰">×</button></header>
   <div class="dialog-body"><div id="actions-slot"></div></div>

@@ -250,6 +250,26 @@ export function executeAction(original, command, principal, { draw = die, id = r
   const payload = command.payload || {};
   let publicText = '', dmText = '', rolls = [];
   switch (command.type) {
+    case 'apply-actors': {
+      dmOnly(principal);
+      requireRule(Array.isArray(payload.actors) && payload.actors.length > 0 && payload.actors.length <= 40 && new Set(payload.actors.map(a=>a.id)).size === payload.actors.length, '资料应用列表无效');
+      for(const source of payload.actors) {
+        const actor=getActor(state, source.id);
+        requireRule(actor.kind===source.kind && actor.ownerId===source.ownerId, '不能通过资料刷新改变角色ID或归属');
+        for(const key of editable) if(Object.hasOwn(source,key) && !['position','facing'].includes(key)) actor[key]=structuredClone(source[key]);
+        validateActor(actor,state.board);
+      }
+      dmText='DM将资料库中选定角色的资料应用到本场；位置保持不变，其他战斗不变。';break;
+    }
+    case 'reload-file': {
+      dmOnly(principal); const source=payload.state;
+      requireRule(source && source.campaignId===state.campaignId && source.battleId===state.battleId && source.formatVersion===state.formatVersion && source.rulesVersion===state.rulesVersion && source.revision===state.revision, '文件团/战斗/格式或进度版本不符，请基于当前文件编辑');
+      const identity=s=>JSON.stringify(s.actors.map(a=>[a.id,a.kind,a.ownerId]).sort((a,b)=>a[0].localeCompare(b[0])));
+      requireRule(identity(source)===identity(state), '不能通过文件重载改变角色ID、类型或归属，请使用战前布置');
+      validateState(source);
+      for(const key of domainKeys) { if(source[key]!==undefined) state[key]=structuredClone(source[key]); else if(key==='initiativeCollection')delete state[key]; }
+      publicText='DM重新载入本场文件，旧操作已失效，请查看最新局面。';dmText='本机DM核对差异后重新载入战斗JSON；历史记录和操作ID由程序保留。';break;
+    }
     case 'edit-actor': {
       dmOnly(principal);
       const actor = getActor(state, payload.actorId);

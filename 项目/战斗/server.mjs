@@ -33,7 +33,7 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
     initial: initial || (() => initializeCampaign(directory)), persist });
   const sessions = new Map();
   const staticFiles = new Map([
-    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
+    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
     ['/app.mjs', [join(ROOT, 'web/app.mjs'), 'text/javascript; charset=utf-8']],
@@ -64,7 +64,7 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
       if (request.method === 'GET' && path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
       if (request.method === 'GET' && path === '/api/client-info') return send(200, { audience });
       if (audience === 'local' && request.method === 'GET' && path === '/health') return send(200, {
-        app: 'local-battle-v1', coreVersion: 'table-sharing-v3', campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
+        app: 'local-battle-v1', coreVersion: 'map-files-v4', campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
       if (audience === 'player' && request.method === 'POST' && path === '/api/join') {
         const body = await readBody(request);
         return send(200, sharing.join(body.invite));
@@ -97,12 +97,16 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
         workspace.context(principal);
         const reply = () => ({ state: projectState(workspace.store.state, principal),
           recoveryNote: audience === 'local' ? workspace.store.recoveryNote : null, selection: workspace.selection });
+        if (path === '/api/files' && request.method === 'POST') {
+          const result=await workspace.files(await readBody(request),principal);
+          return send(200,{...result,...reply()});
+        }
         if (path === '/api/sharing') {
           if (principal.role !== 'dm') throw new RuleError('需要DM权限', 403);
           if (request.method === 'GET') return send(200, sharing.status());
           if (request.method === 'POST') return send(200, await sharing.operate(await readBody(request)));
         }
-        if (request.method === 'GET' && path === '/api/state') return send(200, reply());
+        if (request.method === 'GET' && path === '/api/state') return send(200, {...reply(), ...(principal.role === 'dm' ? {externalFileChanged:await workspace.store.fileStatus().then(s=>s.changed).catch(()=>true)} : {})});
         if (request.method === 'GET' && path === '/api/handoff') return send(200, handoff(workspace.store.state, principal));
         if (request.method === 'GET' && path === '/api/catalog') return send(200, await workspace.catalog(principal));
         if (request.method === 'POST' && path === '/api/select') {

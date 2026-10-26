@@ -59,7 +59,7 @@ test('player gateway isolates DM credentials, binds invitations and filters all 
     assert.equal((await request(app.url, '/api/state', undefined, player)).status, 401);
     for (const [path, body] of [
       ['/api/login', { id: 'DM' }], ['/api/catalog', undefined], ['/api/sharing', undefined],
-      ['/api/shutdown', {}], ['/api/select', {}], ['/api/campaigns', {}], ['/api/battles', {}]
+      ['/api/files', { operation: 'list' }], ['/api/shutdown', {}], ['/api/select', {}], ['/api/campaigns', {}], ['/api/battles', {}]
     ]) assert.equal((await request(shared.localUrl, path, body, dm)).status, 403, path);
     for (const path of ['/health', '/src/sharing.mjs', '/.tools/cloudflared.exe', '/战斗状态.json']) {
       assert.equal((await request(shared.localUrl, path)).status, 404, path);

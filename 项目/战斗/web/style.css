@@ -354,3 +354,8 @@ legend { color: var(--gold); padding: 0 5px; font-size: 12px; }
 #battle-tasks { margin: 0 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
 #battle-tasks button { margin: 4px 4px 0 0; font-size: 12px; }
 #battle-tasks p { margin: 4px 0; }
+
+#files-content p { overflow-wrap: anywhere; white-space: pre-wrap; }
+#file-preview { max-height: 35vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+#external-file-notice { width: 100%; margin-bottom: 10px; border-color: var(--gold); }
+@media(max-width:600px) { .footer-actions { flex-wrap: wrap; justify-content: flex-end; } .table-footer { align-items: flex-end; } .latest-event { max-width: 28%; } }

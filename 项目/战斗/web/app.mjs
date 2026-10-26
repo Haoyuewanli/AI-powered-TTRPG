@@ -4,13 +4,14 @@ import { terrainPanel } from '/terrain-panel.mjs';
 import { workspacePanel } from '/workspace-panel.mjs';
 import { dicePanel } from '/dice-panel.mjs';
 import { initShell } from '/shell.mjs';
+import { filesPanel } from '/files-panel.mjs';
 import { sharingPanel } from '/sharing-panel.mjs';
 import { actionId, copyText } from '/client-utils.mjs';
 
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem('battle-session') || '';
 let state = null, selectedId = null, board = null, busy = false, polling = false;
-let dirty = false, editingRevision = null, toastTimer, selection, library, dice, terrain, previewedProposal, shell, sharing;
+let dirty = false, editingRevision = null, toastTimer, selection, library, dice, terrain, previewedProposal, shell, sharing, files;
 let clientAudience = 'local', connected = true, sessionEpoch = 0, manualContext = '';
 const cancelled = () => Object.assign(new Error('操作所属的会话已结束'), { cancelled: true });
 const contextKey = () => state ? `${state.campaignId}/${state.battleId}` : '';
@@ -49,7 +50,7 @@ async function api(path, body) {
 function clearSession() {
   sessionEpoch++; manualContext = '';
   token = ''; state = null; selectedId = null; dirty = false; editingRevision = null; selection = null;
-  library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); shell?.update(null); clearPreview();
+  files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); shell?.update(null); clearPreview();
   sessionStorage.removeItem('battle-session');
   $('table').hidden = true; $('login').hidden = false;
   for (const id of ['roster', 'actor-info', 'events', 'reference']) $(id).replaceChildren();
@@ -170,7 +171,7 @@ function render(selectionChanged = false) {
     const row = text('div', '', 'event'); row.append(text('small', `v${event.revision}${event.undoneBy ? ' · 已撤销' : ''}`), text('span', isDm() ? event.dmText : event.text)); if (event.undoneBy) row.classList.add('undone'); return row;
   }));
   if (!events.length) $('events').append(text('p', '尚无已保存的战斗事件。', 'fine'));
-  dice?.render(state); terrain?.render(state);
+  files?.update(state); dice?.render(state); terrain?.render(state);
   board?.update(state, selectedId); shell?.update(state); sharing?.render(state); setConnection(connected);
 }
 function renderTasks() {
@@ -203,6 +204,7 @@ function applyResult(result) {
     const nextActor = result.state.actors.find(item => item.id === nextCurrent);
     if (nextActor && (result.state.viewRole === 'dm' || nextActor.ownerId === result.state.viewerId)) selectedId = nextCurrent;
   }
+  if (Object.hasOwn(result,'externalFileChanged')) $('external-file-notice').hidden = !result.externalFileChanged || result.state.viewRole !== 'dm';
   state = result.state; selection = result.selection; $('recovery').hidden = !result.recoveryNote; $('recovery').textContent = result.recoveryNote || ''; render();
 }
 async function loadState() {
@@ -327,6 +329,7 @@ setInterval(async () => {
   polling = true; const generation = token;
   try {
     const result = await api('/api/state');
+    if (generation === token) $('external-file-notice').hidden = !result.externalFileChanged || result.state.viewRole !== 'dm';
     if (generation === token && (result.state.revision !== state?.revision || result.state.battleId !== state?.battleId)) applyResult(result);
   } catch (error) { if (generation === token) { setConnection(false); } }
   finally { polling = false; }
@@ -358,6 +361,7 @@ library = workspacePanel({ api, apply: applyResult, notify, getState: () => stat
 terrain = terrainPanel({ action, getState: () => state, notify, canEdit: () => { if (busy || dirty) { notify('请先保存棋子编辑或等待当前操作完成', true); return false; } return true; } });
 dice = dicePanel({ api, action, getState: () => state, getActor: actor, notify });
 shell = initShell();
+files = filesPanel({api, apply:applyResult, notify, getState:()=>state, canEdit:canSwitch});
 sharing = sharingPanel({ api, notify, getState: () => state });
 async function boot() {
   $('enter-dm').disabled = true; $('login-form').querySelector('button').disabled = true;

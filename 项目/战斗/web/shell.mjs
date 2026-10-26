@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const sceneNames = new Set(['setup', 'terrain']);
-const dmTools = new Set(['workspace', 'setup', 'terrain', 'actor', 'sharing']);
+const dmTools = new Set(['workspace', 'setup', 'terrain', 'actor', 'sharing', 'files']);
 
 export function initShell() {
   const compact = window.matchMedia('(max-width: 1100px)');

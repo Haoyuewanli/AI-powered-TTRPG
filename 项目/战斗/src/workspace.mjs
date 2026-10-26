@@ -2,6 +2,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { join, resolve, relative, isAbsolute } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicJson, openStore, acquireLock } from './store.mjs';
+import { dataFiles } from './local-files.mjs';
 import { initializeCampaign } from './campaign.mjs';
 import { RuleError, requireRule, validateState } from './rules.mjs';
 
@@ -125,6 +126,10 @@ export async function openWorkspace({ seedDirectory, workspaceDirectory, initial
         const meta = await readCampaign(record); return { id: meta.id, name: meta.name, battles: meta.battles.map(b => ({ id: b.id, name: b.name })) };
       })) };
     },
+    files(payload, principal, options) { return transact(async()=>{dm(principal);
+      requireRule(payload.campaignId===selectedCampaign.id && payload.battleId===selectedBattle.id,'已切换战斗，请重新打开本地文件',409);
+      return dataFiles(directoryOf(selectedCampaign),selectedStore,payload,options);
+    }); },
     dispatch(command, principal, options) { return transact(() => { context(principal); return selectedStore.dispatch(command, principal, options); }); },
     select(payload, principal) { return transact(async () => { dm(principal); await selectInternal(payload.campaignId, payload.battleId); return this.selection; }); },
     createCampaign(payload, principal) { return transact(async () => {
