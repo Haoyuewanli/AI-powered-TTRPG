@@ -18,9 +18,12 @@ function notify(message, error = false) {
 }
 const guarded = fn => async event => { event?.preventDefault(); try { await fn(event); } catch (error) { notify(error.message || '操作未完成，请刷新后核对。', true); } };
 async function api(path, body) {
-  const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST',
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  let response;
+  try {
+    response = await fetch(path, { method: body === undefined ? 'GET' : 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  } catch { throw new Error('本地程序连接已中断，请重新双击“打开跑团”恢复，再核对最近保存的进度。'); }
   const value = await response.json();
   if (!response.ok) { if (response.status === 401 && path !== '/api/login') clearSession(); throw new Error(value.error || '请求失败'); }
   return value;

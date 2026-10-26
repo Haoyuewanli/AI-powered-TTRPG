@@ -4,9 +4,10 @@ setlocal
 where node >nul 2>nul
 if errorlevel 1 goto missing
 node "%~dp0launcher.mjs" --credentials --no-browser %*
-if errorlevel 1 pause
-exit /b
+if errorlevel 1 goto failed
+exit /b 0
 :missing
 echo Node.js not found. Please restore the existing Node.js installation.
+:failed
 pause
 exit /b 1

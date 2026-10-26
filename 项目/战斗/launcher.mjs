@@ -1,10 +1,11 @@
-import { spawn, execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { open, readFile, access } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { findCampaign } from './src/campaign.mjs';
+import { openBattleWindow, openBrowser } from './src/desktop.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const argument = name => { const index = process.argv.indexOf(name); return index < 0 ? undefined : process.argv[index + 1]; };
@@ -60,9 +61,8 @@ try {
     editor.once('error', () => console.error('无法打开记事本，请在战役目录手动查看“本机身份.json”。')); editor.unref();
   }
   if (!process.argv.includes('--no-browser') && process.platform === 'win32') {
-    execFile('rundll32.exe', ['url.dll,FileProtocolHandler', url], { windowsHide: true }, error => {
-      if (error) console.error('浏览器未能打开，请使用上方本机地址。');
-    });
+    const opened = !process.argv.includes('--browser') && await openBattleWindow(url, resolve(root, '../存档/战斗窗口')).catch(() => false);
+    if (!opened) await openBrowser(url);
   }
   console.log(`本地战斗就绪：${url}`);
 } catch (error) { console.error(error.code === 'ENOENT' ? '缺少战役资料或现有骰盘依赖，请先核对本地目录。' : error.message); process.exitCode = 1; }
