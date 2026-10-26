@@ -18,10 +18,28 @@
   <header class="topbar"><div><span class="eyebrow">LOCAL TABLETOP</span><h1>战局 <span id="title"></span></h1></div>
   <div class="session"><span id="role" class="badge"></span><span id="save-status" class="muted"></span><button id="refresh" class="quiet">刷新</button><button id="logout" class="quiet">切换身份</button><button id="shutdown" class="quiet" hidden>停止服务</button></div></header>
   <div id="recovery" class="notice" hidden></div>
+  <div class="context-bar"><span id="context-caption"></span><span class="fine">每次成功操作自动写入本地文件</span></div>
+  <section id="workspace-panel" class="library panel" hidden>
+    <div class="library-select"><label>团<select id="campaign-select"></select></label><label>战斗<select id="battle-select"></select></label><button id="open-battle">打开所选战斗</button></div>
+    <details><summary>新建团 / 新建战斗</summary><div class="library-create">
+      <form id="new-campaign-form"><label>新团名称<input id="new-campaign-name" required maxlength="80"></label><label class="check"><input id="copy-current-campaign" type="checkbox" checked>复制当前参战者、盘面与地形（独立副本）</label><button>建立新团</button></form>
+      <form id="new-battle-form"><label>本团的新战斗名称<input id="new-battle-name" required maxlength="80"></label><label>初始资料<select id="battle-template"></select></label><button>建立新战斗</button></form>
+    </div><p class="fine">复制的是所选战斗当前的HP、资料与盘面；新战斗从准备阶段开始。各场状态独立，角色成长不会自动回写。</p></details>
+  </section>
+  <section class="flow-guide"><strong id="flow-title"></strong><p id="flow-text"></p><button id="go-setup" class="quiet">前往战前布置</button></section>
   <div class="workspace">
     <aside class="left-panel panel"><div class="panel-heading"><span>参战者</span><span id="round" class="muted"></span></div><div id="roster"></div>
+      <section id="setup-panel" class="setup-panel" hidden><div class="eyebrow">SETUP / 战前布置</div><p class="fine">选中棋子后点击空地摆放，或修改坐标。新增/复制的资料需核对后才能开始。</p>
+      <label class="check"><input id="place-mode" type="checkbox">点击空地摆放选中棋子</label>
+      <div class="fields two"><label>X / 尺<input id="place-x" type="number" step="0.5"></label><label>Z / 尺<input id="place-z" type="number" step="0.5"></label></div><button id="place-actor">应用位置</button>
+      <button id="open-editor" class="primary">核对 / 编辑选中棋子</button>
+      <details><summary>添加参战者</summary><form id="add-actor-form"><label>名称<input id="add-name" maxlength="80" required></label><label>类型<select id="add-kind"><option value="npc">NPC</option><option value="pc">玩家角色</option></select></label><label>玩家ID（NPC可留空）<input id="add-owner" maxlength="80" placeholder="player-2"></label><button>新增空白棋子</button></form></details>
+      <div class="button-grid"><button id="clone-actor">复制选中棋子</button><button id="remove-actor" class="quiet">移出本场</button></div></section>
       <section class="turn-section"><div class="eyebrow">TURN CONTROL</div><p id="turn-caption"></p>
+      <label id="dice-mode-label" hidden>本场掷骰方式<select id="dice-mode"><option value="program">程序掷骰</option><option value="physical">录入线下骰</option></select></label>
+      <details id="initiative-options" hidden><summary>先攻设置 / 线下d20</summary><p class="fine">输入原始骰点，先攻加值由程序计算。可为各角色指定优势/劣势。</p><div id="initiative-entries"></div></details>
       <div class="button-grid"><button id="start" class="primary" hidden>投先攻 · 开始</button><button id="next">结束当前回合</button><button id="dash">疾走</button><button id="end" class="quiet" hidden>结束战斗</button></div>
+      <button id="undo" class="quiet" hidden>撤销最近操作</button><p class="fine">撤销保留原记录和骰点，最多回退30步；各场分别保存。</p>
       <p class="fine">先攻同分、突袭、复杂法术和荒野形态，由 DM 核对或裁定。</p></section>
       <details class="help"><summary>棋盘操作</summary><p>左拖：旋转<br>右拖 / Shift+左拖：平移<br>滚轮 / + −：缩放<br>Q E / ← →：旋转<br>R F / ↑ ↓：倾角<br>W A S D：平移<br>0：复位</p><p>点击棋子可选择。位置编辑与移动结算在右侧完成。</p></details>
       <div class="legend"><span class="legend-front"></span> 金色面：正面<br><span class="legend-back"></span> 深色面：背面<br><span class="legend-space"></span> 地面线框：规则占地</div>
@@ -35,7 +53,8 @@
     <aside class="right-panel panel"><div class="panel-heading"><span id="selected-name">选择棋子</span><span id="selected-kind" class="muted"></span></div>
       <div id="actor-info"></div>
       <form id="move-form" class="section"><div class="eyebrow">MOVEMENT / 移动</div><div class="fields two"><label>X（尺）<input id="move-x" type="number" step="0.5" required></label><label>Z（尺）<input id="move-z" type="number" step="0.5" required></label></div><button type="submit">移动到这里</button></form>
-      <form id="attack-form" class="section"><div class="eyebrow">ATTACK / 攻击</div><label>已核对的攻击<select id="attack-choice"></select></label><label>目标<select id="target-choice"></select></label><label>检定模式<select id="roll-mode"><option value="normal">通常</option><option value="advantage">优势</option><option value="disadvantage">劣势</option></select></label><button type="submit" class="primary">掷骰并结算攻击</button><p class="fine">远射程、可见敌人贴身的远程劣势自动处理；其他效应请 DM 设置。结果由本机掷骰生成。</p></form>
+      <form id="attack-form" class="section"><div class="eyebrow">ATTACK / 攻击</div><label>已核对的攻击<select id="attack-choice"></select></label><label>目标<select id="target-choice"></select></label><label>检定模式<select id="roll-mode"><option value="normal">通常</option><option value="advantage">优势</option><option value="disadvantage">劣势</option></select></label><p id="physical-mode-caption" class="fine"></p><label class="check"><input id="use-physical-dice" type="checkbox">此次攻击录入线下骰</label>
+      <fieldset id="physical-attack" hidden><legend>线下骰</legend><p id="physical-plan-note" class="fine"></p><label>攻击d20<div id="physical-d20" class="dice-inputs"></div></label><div id="physical-damage"></div><p class="fine">只填原始骰点。重击会增加伤害骰。伤害可先留空：未命中直接完成，命中则提示补齐，期间不保存攻击。</p></fieldset><button type="submit" class="primary">掷骰并结算攻击</button><p class="fine">远射程、可见敌人贴身的远程劣势自动处理；其他效应请 DM 设置。程序骰或实体骰均由本机规则计算。</p></form>
       <section id="dm-tools" hidden>
         <details id="edit-details"><summary>DM · 资料与棋子设置 <span id="dirty-indicator"></span></summary><form id="edit-form">
         <label>名称<input id="edit-name" required maxlength="80"></label>
@@ -57,7 +76,7 @@
     </aside>
   </div>
   <section class="bottom-grid"><div class="panel journal"><div class="panel-heading"><span>战斗记录</span><span class="muted">已保存的结果</span></div><div id="events"></div></div>
-    <details class="panel exchange"><summary>主持交接 <span class="muted">人工 / GPT / Workbuddy / API</span></summary><p class="fine">导出当前身份可见的局面，手动交给主持者。DM 包含秘密；是否交给外部工具由你决定。返回操作仍须本地校验。</p><div class="button-grid"><button id="export-handoff">生成局面包</button><button id="copy-exchange" class="quiet">复制文本</button><button id="download-exchange" class="quiet">保存文本副本</button></div><label>局面包 / 返回的操作 JSON<textarea id="exchange-text" rows="7" spellcheck="false" placeholder="可粘贴操作对象，或含 proposal 字段的局面包"></textarea></label><button id="import-proposal">校验并执行提议</button><p class="fine">同分调序可提交 set-order；导入格式与动作清单见本模块 README。此处不自动联网或调用模型。</p></details></section>
+    <details id="exchange-panel" class="panel exchange"><summary>主持交接 <span class="muted">人工 / GPT / Workbuddy / API</span></summary><ol class="fine"><li>生成局面包，复制给GPT / Workbuddy或人工主持者。</li><li>请主持者按包内说明返回一个proposal操作对象。</li><li>粘贴返回内容，先预览，再确认执行。每次执行后重新生成局面包。</li></ol><p class="fine">导出当前身份可见的局面，手动交给主持者。DM 包含秘密；是否交给外部工具由你决定。返回操作仍须本地校验。</p><div class="button-grid"><button id="export-handoff">生成局面包</button><button id="copy-exchange" class="quiet">复制文本</button><button id="download-exchange" class="quiet">保存文本副本</button></div><label>局面包 / 返回的操作 JSON<textarea id="exchange-text" rows="7" spellcheck="false" placeholder="可粘贴操作对象，或含 proposal 字段的局面包"></textarea></label><div class="button-grid"><button id="preview-proposal">预览提议</button><button id="import-proposal" disabled>确认执行已预览提议</button></div><pre id="proposal-preview"></pre><p class="fine">同分调序可提交 set-order；导入格式与动作清单见本模块 README。此处不自动联网或调用模型。</p></details></section>
 </main>
 <div id="toast" role="status" hidden></div><script type="module" src="/app.mjs"></script>
 </body></html>

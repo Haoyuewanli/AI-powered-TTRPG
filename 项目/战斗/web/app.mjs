@@ -1,10 +1,12 @@
 import { BattleBoard } from '/board.mjs';
 import { largestFaces } from '/geometry.mjs';
+import { workspacePanel } from '/workspace-panel.mjs';
+import { dicePanel } from '/dice-panel.mjs';
 
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem('battle-session') || '';
 let state = null, selectedId = null, board = null, busy = false, polling = false;
-let dirty = false, editingRevision = null, toastTimer;
+let dirty = false, editingRevision = null, toastTimer, selection, library, dice, previewedProposal;
 const formFields = ['name', 'ac', 'hp', 'maxHp', 'tempHp', 'speed', 'initiativeBonus', 'attackLimit', 'tiePriority', 'facing'];
 const text = (tag, value, className) => { const item = document.createElement(tag); item.textContent = value; if (className) item.className = className; return item; };
 const actor = () => state?.actors.find(a => a.id === selectedId);
@@ -25,11 +27,12 @@ async function api(path, body) {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   } catch { throw new Error('本地程序连接已中断，请重新双击“打开跑团”恢复，再核对最近保存的进度。'); }
   const value = await response.json();
-  if (!response.ok) { if (response.status === 401 && path !== '/api/login') clearSession(); throw new Error(value.error || '请求失败'); }
+  if (!response.ok) { if ((response.status === 401 && path !== '/api/login') || value.code === 'CONTEXT_CHANGED') clearSession(); throw new Error(value.error || '请求失败'); }
   return value;
 }
 function clearSession() {
-  token = ''; state = null; selectedId = null; dirty = false; editingRevision = null;
+  token = ''; state = null; selectedId = null; dirty = false; editingRevision = null; selection = null;
+  library?.clear(); dice?.clear(); clearPreview();
   sessionStorage.removeItem('battle-session');
   $('table').hidden = true; $('login').hidden = false;
   for (const id of ['roster', 'actor-info', 'events', 'reference']) $(id).replaceChildren();
@@ -40,7 +43,7 @@ function clearSession() {
 }
 function ensureBoard() {
   if (board) return;
-  try { board = new BattleBoard($('viewport'), choose); }
+  try { board = new BattleBoard($('viewport'), choose, placeOnBoard); }
   catch { $('board-error').textContent = '无法启用3D绘图，请检查浏览器硬件加速。可以继续用表单操作，正式进度保存在本机。'; $('board-error').hidden = false; }
 }
 function choose(id) {
@@ -81,6 +84,18 @@ function render(selectionChanged = false) {
   }));
   $('start').hidden = !isDm(); $('end').hidden = !isDm();
   $('shutdown').hidden = !isDm();
+  $('setup-panel').hidden = !isDm();
+  for (const id of ['place-mode', 'place-actor', 'clone-actor', 'remove-actor']) $(id).disabled = busy || state.combat.phase === 'active';
+  $('add-actor-form').querySelector('button').disabled = busy || state.combat.phase === 'active';
+  $('go-setup').hidden = !isDm();
+  $('undo').hidden = !isDm(); $('undo').disabled = busy || !state.undoAvailable;
+  $('undo').textContent = `撤销最近操作（可回退 ${state.undoAvailable || 0} 步）`;
+  $('flow-title').textContent = isDm() ? 'DM主持流程' : '玩家操作流程';
+  $('flow-text').textContent = isDm() ? (state.combat.phase === 'active' ?
+    '正在战斗：选中当前行动者 → 移动或攻击 → 结束当前回合。NPC行动由你或外部AI选择；特殊效果用人工裁定。结束后可保留本场并新建下一场。' :
+    '① 选择团与战斗 → ② 战前布置参战者 → ③ 核对资料并勾选“已核对” → ④ 选择程序骰或线下骰 → ⑤ 投先攻开始。下方“主持交接”可交给外部AI。') :
+    '选择自己的棋子；轮到你时在右侧输入移动坐标、选择攻击和目标，可录入实体骰，完成后结束回合。由DM布置场景、开始战斗并操作NPC。';
+  library?.render(state, selection);
   $('start').disabled = busy || state.combat.phase === 'active' || state.actors.some(item => !item.confirmed);
   $('end').disabled = busy || state.combat.phase !== 'active';
   $('next').disabled = busy || state.combat.phase !== 'active' || !current || !owns(current);
@@ -103,6 +118,7 @@ function render(selectionChanged = false) {
     if (isTurn(a) && owns(a)) $('actor-info').append(text('p', `本回合：移动 ${state.combat.moved || 0} 尺 · 已攻击 ${state.combat.attacksUsed || 0}/${a.attackLimit} 次 · 动作 ${state.combat.action}`, 'fine'));
     if (selectionChanged || !document.activeElement?.closest('#move-form')) {
       $('move-x').value = a.position.x; $('move-z').value = a.position.z;
+      if (!document.activeElement?.closest('#setup-panel')) { $('place-x').value = a.position.x; $('place-z').value = a.position.z; }
     }
     const previousAttack = $('attack-choice').value, previousTarget = $('target-choice').value;
     $('attack-choice').replaceChildren(...(a.attacks || []).map(item => { const option = text('option', item.name); option.value = item.id; return option; }));
@@ -117,13 +133,16 @@ function render(selectionChanged = false) {
   }
   const events = state.events.slice(-100).reverse();
   $('events').replaceChildren(...events.map(event => {
-    const row = text('div', '', 'event'); row.append(text('small', `v${event.revision}`), text('span', isDm() ? event.dmText : event.text)); return row;
+    const row = text('div', '', 'event'); row.append(text('small', `v${event.revision}${event.undoneBy ? ' · 已撤销' : ''}`), text('span', isDm() ? event.dmText : event.text)); if (event.undoneBy) row.classList.add('undone'); return row;
   }));
   if (!events.length) $('events').append(text('p', '尚无已保存的战斗事件。', 'fine'));
+  dice?.render(state);
   board?.update(state, selectedId);
 }
 function applyResult(result) {
-  state = result.state; $('recovery').hidden = !result.recoveryNote; $('recovery').textContent = result.recoveryNote || ''; render();
+  const switched = state && (state.campaignId !== result.state.campaignId || state.battleId !== result.state.battleId);
+  if (switched) { dirty = false; selectedId = null; editingRevision = null; dice?.clear(); clearPreview(); board?.clear(); }
+  state = result.state; selection = result.selection; $('recovery').hidden = !result.recoveryNote; $('recovery').textContent = result.recoveryNote || ''; render();
 }
 async function loadState() {
   const generation = token; const result = await api('/api/state');
@@ -139,7 +158,7 @@ async function sendCommand(command) {
   } catch (error) { if (token === generation) await loadState().catch(() => {}); throw error; }
   finally { busy = false; if (state) render(); }
 }
-const action = (type, payload = {}, expectedRevision = state.revision) => sendCommand({ campaignId: state.campaignId, actionId: crypto.randomUUID(), expectedRevision, type, payload });
+const action = (type, payload = {}, expectedRevision = state.revision) => sendCommand({ campaignId: state.campaignId, battleId: state.battleId, actionId: crypto.randomUUID(), expectedRevision, type, payload });
 
 async function enter(id) {
   const result = await api('/api/login', { id });
@@ -150,12 +169,12 @@ $('enter-dm').addEventListener('click', guarded(() => enter('DM')));
 $('logout').addEventListener('click', guarded(async () => { try { await api('/api/logout', {}); } finally { clearSession(); } }));
 $('shutdown').addEventListener('click', guarded(async () => { await api('/api/shutdown', {}); clearSession(); notify('本地服务已停止。下次双击“启动战斗.cmd”恢复进度。'); }));
 $('refresh').addEventListener('click', guarded(async () => { await loadState(); notify('已读取本机最新进度'); }));
-$('start').addEventListener('click', guarded(() => action('start')));
+$('start').addEventListener('click', guarded(() => action('start', dice.startPayload())));
 $('next').addEventListener('click', guarded(() => action('next')));
 $('dash').addEventListener('click', guarded(() => action('dash', { actorId: selectedId })));
 $('end').addEventListener('click', guarded(() => action('end')));
 $('move-form').addEventListener('submit', guarded(() => action('move', { actorId: selectedId, position: { x: Number($('move-x').value), z: Number($('move-z').value) } })));
-$('attack-form').addEventListener('submit', guarded(() => action('attack', { actorId: selectedId, targetId: $('target-choice').value, attackId: $('attack-choice').value, mode: $('roll-mode').value })));
+$('attack-form').addEventListener('submit', guarded(() => action('attack', { actorId: selectedId, targetId: $('target-choice').value, attackId: $('attack-choice').value, mode: $('roll-mode').value, ...dice.attackPayload() })));
 $('edit-form').addEventListener('input', () => { dirty = true; $('dirty-indicator').textContent = '未保存'; });
 $('reload-editor').addEventListener('click', () => { dirty = false; fillEditor(actor()); render(); });
 $('attack-template').addEventListener('click', () => {
@@ -179,7 +198,7 @@ $('manual-form').addEventListener('submit', guarded(() => action('adjudicate', {
   temporaryHp: Number($('manual-temp').value), consumeAction: $('manual-consume').checked,
   damage: [{ type: $('manual-damage-type').value, amount: Number($('manual-damage').value) }] })));
 $('export-handoff').addEventListener('click', guarded(async () => {
-  const result = await api('/api/handoff'); $('exchange-text').value = JSON.stringify(result, null, 2);
+  clearPreview(); const result = await api('/api/handoff'); $('exchange-text').value = JSON.stringify(result, null, 2);
   notify(`${result.audience === 'dm' ? 'DM完整' : '玩家'}局面包已生成，尚未发送到任何外部工具。`);
 }));
 $('copy-exchange').addEventListener('click', guarded(async () => {
@@ -191,9 +210,20 @@ $('download-exchange').addEventListener('click', guarded(() => {
   const url = URL.createObjectURL(new Blob([$('exchange-text').value], { type: 'application/json' }));
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = `战斗交接-${state.viewRole}-v${state.revision}.json`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }));
-$('import-proposal').addEventListener('click', guarded(async () => {
+function clearPreview() { previewedProposal = null; $('proposal-preview').textContent = ''; $('import-proposal').disabled = true; }
+$('exchange-text').addEventListener('input', clearPreview);
+$('preview-proposal').addEventListener('click', guarded(() => {
   let object; try { object = JSON.parse($('exchange-text').value); } catch { throw new Error('提议不是有效JSON'); }
-  const command = object.proposal || object; await sendCommand(command);
+  const command = object.proposal || object;
+  if (!command || typeof command !== 'object' || typeof command.type !== 'string' || !command.actionId) throw new Error('缺少操作类型或actionId，请按局面包返回proposal');
+  if (command.campaignId !== state.campaignId || command.battleId !== state.battleId || command.expectedRevision !== state.revision) throw new Error('团、战斗或版本不符。请重新生成当前局面包。');
+  previewedProposal = structuredClone(command);
+  $('proposal-preview').textContent = `待执行：${command.type} · 当前版本 v${command.expectedRevision}\n${JSON.stringify(command.payload || {}, null, 2)}\n尚未修改进度；确认后仍由本地规则校验。`;
+  $('import-proposal').disabled = false;
+}));
+$('import-proposal').addEventListener('click', guarded(async () => {
+  if (!previewedProposal) throw new Error('请先预览提议');
+  await sendCommand(previewedProposal); clearPreview();
 }));
 $('zoom-in').addEventListener('click', () => board?.zoom(.85));
 $('zoom-out').addEventListener('click', () => board?.zoom(1.15));
@@ -204,8 +234,32 @@ setInterval(async () => {
   polling = true; const generation = token;
   try {
     const result = await api('/api/state');
-    if (generation === token && result.state.revision !== state?.revision) applyResult(result);
+    if (generation === token && (result.state.revision !== state?.revision || result.state.battleId !== state?.battleId)) applyResult(result);
   } catch (error) { if (generation === token) notify(error.message, true); }
   finally { polling = false; }
 }, 2500);
+function openEditor() { $('edit-details').open = true; $('edit-details').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+$('open-editor').addEventListener('click', openEditor);
+$('go-setup').addEventListener('click', () => $('setup-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }));
+function canSwitch() { if (busy || dirty) { notify('请先保存或放弃当前棋子的编辑，再切换战斗。', true); return false; } return true; }
+async function placeActor(position) {
+  if (!isDm() || state.combat.phase === 'active' || !actor()) return;
+  if (!canSwitch()) return;
+  await action('edit-actor', { actorId: selectedId, patch: { position }, reason: '战前摆放' });
+}
+async function placeOnBoard(point) {
+  if (!$('place-mode').checked || !isDm() || state.combat.phase === 'active' || !actor()) return;
+  const a = actor(), snap = (value, size) => Math.round((value - size / 2) / 5) * 5 + size / 2;
+  try { await placeActor({ x: snap(point.x, a.space.width), z: snap(point.z, a.space.depth) }); } catch (error) { notify(error.message, true); }
+}
+$('place-actor').addEventListener('click', guarded(() => placeActor({ x: Number($('place-x').value), z: Number($('place-z').value) })));
+$('add-actor-form').addEventListener('submit', guarded(async () => {
+  await action('add-actor', { name: $('add-name').value, kind: $('add-kind').value, ownerId: $('add-owner').value });
+  selectedId = state.actors.at(-1).id; render(true); openEditor();
+}));
+$('clone-actor').addEventListener('click', guarded(async () => { await action('add-actor', { copyActorId: selectedId, name: `${actor().name} 副本`, kind: actor().kind, ownerId: actor().ownerId }); selectedId = state.actors.at(-1).id; render(true); }));
+$('remove-actor').addEventListener('click', guarded(() => action('remove-actor', { actorId: selectedId })));
+$('undo').addEventListener('click', guarded(() => action('undo')));
+library = workspacePanel({ api, apply: applyResult, notify, getState: () => state, canSwitch });
+dice = dicePanel({ api, action, getState: () => state, getActor: actor, notify });
 if (token) loadState().catch(error => notify(error.message, true));

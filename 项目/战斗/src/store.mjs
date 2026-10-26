@@ -24,10 +24,7 @@ async function readValid(path) {
   return state;
 }
 
-export async function openStore(directory, initial, { persist = atomicJson } = {}) {
-  const dir = resolve(directory);
-  await mkdir(dir, { recursive: true });
-  const lock = join(dir, '.battle.lock');
+export async function acquireLock(lock) {
   try {
     const handle = await open(lock, 'wx');
     await handle.writeFile(String(process.pid)); await handle.close();
@@ -37,9 +34,16 @@ export async function openStore(directory, initial, { persist = atomicJson } = {
     let alive = true;
     try { process.kill(pid, 0); } catch (failure) { alive = failure.code !== 'ESRCH'; }
     if (alive || !Number.isInteger(pid) || pid <= 0) throw new Error('该战役已由另一个进程打开；请先关闭原战斗服务。');
-    await unlink(lock);
-    return openStore(directory, initial, { persist });
+    await unlink(lock); return acquireLock(lock);
   }
+  return () => unlink(lock);
+}
+
+export async function openStore(directory, initial, { persist = atomicJson, migrate } = {}) {
+  const dir = resolve(directory);
+  await mkdir(dir, { recursive: true });
+  const lock = join(dir, '.battle.lock');
+  const release = await acquireLock(lock);
   const path = join(dir, '战斗状态.json'), backup = join(dir, '战斗状态.previous.json');
   let state, recoveryNote = '';
   try {
@@ -56,7 +60,15 @@ export async function openStore(directory, initial, { persist = atomicJson } = {
         state = await initial(); validateState(state); await atomicJson(path, state);
       }
     }
-  } catch (error) { await unlink(lock); throw error; }
+    if (migrate) {
+      const upgraded = migrate(structuredClone(state));
+      validateState(upgraded);
+      if (JSON.stringify(upgraded) !== JSON.stringify(state)) {
+        await copyFile(path, join(dir, `格式迁移前-${randomUUID()}.json`));
+        await atomicJson(path, upgraded); state = upgraded;
+      }
+    }
+  } catch (error) { await release(); throw error; }
   let queue = Promise.resolve();
   return {
     get state() { return structuredClone(state); },
@@ -73,6 +85,6 @@ export async function openStore(directory, initial, { persist = atomicJson } = {
       queue = task.catch(() => {});
       return task;
     },
-    async close() { await queue; await unlink(lock); }
+    async close() { await queue; await release(); }
   };
 }

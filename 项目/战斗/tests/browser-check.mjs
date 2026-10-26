@@ -32,7 +32,7 @@ async function login(page, id) {
   await page.locator('#login-form button').click(); await page.locator('canvas[data-ready="true"]').waitFor(); await settle(page);
 }
 async function editor(page, id) {
-  await page.locator(`[data-actor-id="${id}"]`).click();
+  await page.locator(`#roster [data-actor-id="${id}"]`).click();
   if ((await page.locator('#edit-details').getAttribute('open')) === null) await page.locator('#edit-details > summary').click();
 }
 async function saveEditor(page) {
@@ -78,13 +78,13 @@ try {
   await editor(page, 'npc-001'); await page.locator('#edit-confirmed').check(); await page.locator('#edit-hidden').check(); await saveEditor(page);
   const playerPage = await context.newPage(); playerPage.on('pageerror', error => errors.push(error.message));
   await login(playerPage, '测试冒险者');
-  assert.equal(await playerPage.locator('[data-actor-id]').count(), 1); assert.equal(await playerPage.locator('canvas').getAttribute('data-actor-count'), '1');
+  assert.equal(await playerPage.locator('#roster [data-actor-id]').count(), 1); assert.equal(await playerPage.locator('canvas').getAttribute('data-actor-count'), '1');
   assert(!(await playerPage.locator('body').innerText()).includes('测试守卫'));
   const playerToken = await playerPage.evaluate(() => sessionStorage.getItem('battle-session'));
   const response = await context.request.get(app.url + '/api/state', { headers: { Authorization: `Bearer ${playerToken}` } });
   const raw = await response.text(); assert(!raw.includes('DM_ONLY_CANARY')); assert(!raw.includes('npc-001')); check('玩家网络数据和棋盘均无隐藏单位与DM备注');
   await page.locator('#edit-hidden').uncheck(); await saveEditor(page);
-  await playerPage.locator('#refresh').click(); await playerPage.locator('[data-actor-id="npc-001"]').waitFor();
+  await playerPage.locator('#refresh').click(); await playerPage.locator('#roster [data-actor-id="npc-001"]').waitFor();
   const shown = await (await context.request.get(app.url + '/api/state', { headers: { Authorization: `Bearer ${playerToken}` } })).json();
   assert(!('hp' in shown.state.actors.find(a => a.id === 'npc-001'))); check('揭示棋子仍隐藏敌方精确数值');
   await page.locator('#start').click();
@@ -101,17 +101,17 @@ try {
   await page.screenshot({ path: join(output, '战斗桌-DM.png'), fullPage: true });
   await playerPage.screenshot({ path: join(output, '战斗桌-玩家.png'), fullPage: true });
   await page.locator('.exchange > summary').click(); await page.locator('#export-handoff').click();
-  await page.waitForFunction(() => document.querySelector('#exchange-text').value.includes('local-dm-exchange-v1'));
+  await page.waitForFunction(() => document.querySelector('#exchange-text').value.includes('local-dm-exchange-v2'));
   const dmPackage = JSON.parse(await page.locator('#exchange-text').inputValue());
   assert.equal(dmPackage.audience, 'dm'); assert(JSON.stringify(dmPackage).includes('DM_ONLY_CANARY'));
   await playerPage.locator('.exchange > summary').click(); await playerPage.locator('#export-handoff').click();
-  await playerPage.waitForFunction(() => document.querySelector('#exchange-text').value.includes('local-dm-exchange-v1'));
+  await playerPage.waitForFunction(() => document.querySelector('#exchange-text').value.includes('local-dm-exchange-v2'));
   const playerPackage = JSON.parse(await playerPage.locator('#exchange-text').inputValue());
   assert.equal(playerPackage.audience, 'player'); assert(!JSON.stringify(playerPackage).includes('DM_ONLY_CANARY')); check('主持交接按当前权限导出');
   const revision = app.store.state.revision;
-  await playerPage.locator('#exchange-text').fill(JSON.stringify({ campaignId: 'test-campaign', actionId: 'stale-browser-action', expectedRevision: 0, type: 'next', payload: {} }));
-  await playerPage.locator('#import-proposal').click();
-  await playerPage.locator('#toast').filter({ hasText: '进度已变化' }).waitFor(); assert.equal(app.store.state.revision, revision); check('旧主持提议拒绝执行');
+  await playerPage.locator('#exchange-text').fill(JSON.stringify({ campaignId: 'test-campaign', battleId: app.store.state.battleId, actionId: 'stale-browser-action', expectedRevision: 0, type: 'next', payload: {} }));
+  await playerPage.locator('#preview-proposal').click();
+  await playerPage.locator('#toast').filter({ hasText: '版本不符' }).waitFor(); assert.equal(app.store.state.revision, revision); check('旧主持提议拒绝执行');
   await page.locator('#logout').click(); await page.locator('#login').waitFor();
   assert(!(await page.content()).includes('DM_ONLY_CANARY')); check('退出DM清理页面中的私密文本');
   await playerPage.reload(); await playerPage.locator('canvas[data-ready="true"]').waitFor(); check('刷新重载本地已保存进度');

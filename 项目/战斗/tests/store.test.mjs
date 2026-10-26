@@ -48,10 +48,10 @@ test('unsupported newer version does not silently roll back to an older backup',
   const dir = await directory(), store = await openStore(dir, fixture);
   await store.dispatch(command(store.state, 'edit-actor', { actorId: 'pc-001', patch: { hp: 30 } }), dm);
   await store.close();
-  const newer = { ...fixture(), formatVersion: 2 };
+  const newer = { ...fixture(), formatVersion: 3 };
   await writeFile(join(dir, '战斗状态.json'), JSON.stringify(newer));
   await assert.rejects(openStore(dir, fixture), /不支持/);
-  assert.equal(JSON.parse(await readFile(join(dir, '战斗状态.json'), 'utf8')).formatVersion, 2);
+  assert.equal(JSON.parse(await readFile(join(dir, '战斗状态.json'), 'utf8')).formatVersion, 3);
 });
 test('unreadable existing files are not replaced by a fresh campaign', async () => {
   const dir = await directory(); await writeFile(join(dir, '战斗状态.json'), '{broken');

@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash, randomBytes } from 'node:crypto';
-import { openStore } from './src/store.mjs';
+import { openWorkspace } from './src/workspace.mjs';
 import { initializeCampaign, findCampaign } from './src/campaign.mjs';
-import { projectState, handoff, RuleError } from './src/rules.mjs';
+import { projectState, handoff, RuleError, planAttack, parseDice } from './src/rules.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const hash = value => createHash('sha256').update(value).digest();
@@ -22,11 +22,14 @@ async function readBody(request) {
   catch { throw new RuleError('JSON格式无效'); }
 }
 
-export async function startApp({ campaignDir, port = 4182, initial, persist } = {}) {
+export async function startApp({ campaignDir, workspaceDir, port = 4182, initial, persist } = {}) {
   const directory = resolve(campaignDir || await findCampaign(resolve(ROOT, '../存档')));
-  const store = await openStore(directory, initial || (() => initializeCampaign(directory)), { persist });
+  const workspace = await openWorkspace({ seedDirectory: directory,
+    workspaceDirectory: workspaceDir || (campaignDir ? resolve(directory, '.工作区') : resolve(ROOT, '../存档')),
+    initial: initial || (() => initializeCampaign(directory)), persist });
   const sessions = new Map();
   const staticFiles = new Map([
+    ...['workspace-panel', 'dice-panel'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
     ['/app.mjs', [join(ROOT, 'web/app.mjs'), 'text/javascript; charset=utf-8']],
@@ -64,9 +67,9 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
         if (identifier.toUpperCase() === 'DM') {
           principal = { role: 'dm', id: 'DM' };
         } else {
-          const actor = store.state.actors.find(a => a.kind === 'pc' && [a.ownerId, a.id, a.name].includes(identifier));
+          const actor = workspace.store.state.actors.find(a => a.kind === 'pc' && [a.ownerId, a.id, a.name].includes(identifier));
           if (!actor) throw new RuleError('找不到这个玩家身份', 401);
-          principal = { role: 'player', id: actor.ownerId };
+          principal = { role: 'player', id: actor.ownerId, campaignId: workspace.selection.campaignId, battleId: workspace.selection.battleId };
         }
         for (const [key, value] of sessions) if (value.expires < Date.now()) sessions.delete(key);
         if (sessions.size >= 100) throw new RuleError('本机会话过多，请重启服务', 429);
@@ -78,8 +81,19 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
         const token = request.headers.authorization?.replace(/^Bearer /, '');
         const principal = sessions.get(token);
         if (!principal || principal.expires < Date.now()) throw new RuleError('请重新登录', 401);
-        if (request.method === 'GET' && path === '/api/state') return send(200, { state: projectState(store.state, principal), recoveryNote: store.recoveryNote });
-        if (request.method === 'GET' && path === '/api/handoff') return send(200, handoff(store.state, principal));
+        workspace.context(principal);
+        const reply = () => ({ state: projectState(workspace.store.state, principal), recoveryNote: workspace.store.recoveryNote, selection: workspace.selection });
+        if (request.method === 'GET' && path === '/api/state') return send(200, reply());
+        if (request.method === 'GET' && path === '/api/handoff') return send(200, handoff(workspace.store.state, principal));
+        if (request.method === 'GET' && path === '/api/catalog') return send(200, await workspace.catalog(principal));
+        if (request.method === 'POST' && path === '/api/select') { await workspace.select(await readBody(request), principal); return send(200, reply()); }
+        if (request.method === 'POST' && path === '/api/campaigns') { await workspace.createCampaign(await readBody(request), principal); return send(200, reply()); }
+        if (request.method === 'POST' && path === '/api/battles') { await workspace.createBattle(await readBody(request), principal); return send(200, reply()); }
+        if (request.method === 'POST' && path === '/api/attack-plan') {
+          const plan = planAttack(workspace.store.state, await readBody(request), principal);
+          return send(200, { mode: plan.mode, d20Count: plan.mode === 'normal' ? 1 : 2,
+            damage: plan.attack.damage.map(item => ({ ...parseDice(item.formula), type: item.type, formula: item.formula })) });
+        }
         if (request.method === 'POST' && path === '/api/logout') { sessions.delete(token); return send(200, { ok: true }); }
         if (request.method === 'POST' && path === '/api/shutdown') {
           if (principal.role !== 'dm') throw new RuleError('需要DM权限', 403);
@@ -87,8 +101,8 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
           return send(200, { stopped: true });
         }
         if (request.method === 'POST' && path === '/api/action') {
-          const next = await store.dispatch(await readBody(request), principal);
-          return send(200, { state: projectState(next, principal), recoveryNote: store.recoveryNote });
+          await workspace.dispatch(await readBody(request), principal);
+          return send(200, reply());
         }
         throw new RuleError('接口不存在', 404);
       }
@@ -97,26 +111,28 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
       const content = await readFile(entry[0]);
       response.writeHead(200, { 'Content-Type': entry[1] }); response.end(content);
     } catch (error) {
-      send(error.status || 500, { error: error instanceof RuleError ? error.message : '本地读取或保存失败；正式进度未确认，请刷新并检查磁盘。' });
+      send(error.status || 500, { error: error instanceof RuleError ? error.message : '本地读取或保存失败；正式进度未确认，请刷新并检查磁盘。', code: error.code });
     }
   });
   try {
     await new Promise((accept, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', accept); });
-  } catch (error) { await store.close(); throw error; }
+  } catch (error) { await workspace.close(); throw error; }
   let closePromise;
   closeApp = () => closePromise ||= (async () => {
     await new Promise((accept, reject) => server.close(error => error ? reject(error) : accept()));
-    await store.close();
+    await workspace.close();
   })();
-  return { server, store, url: `http://127.0.0.1:${server.address().port}`, directory, close: closeApp };
+  return { server, get store() { return workspace.store; }, workspace, url: `http://127.0.0.1:${server.address().port}`, directory, close: closeApp };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const index = process.argv.indexOf('--campaign');
+  const workspaceIndex = process.argv.indexOf('--workspace');
   const requestedPort = Number(process.env.BATTLE_PORT || 4182);
   if (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65535) throw new Error('BATTLE_PORT无效');
   try {
-    const app = await startApp({ campaignDir: index >= 0 ? process.argv[index + 1] : undefined, port: requestedPort });
+    const app = await startApp({ campaignDir: index >= 0 ? process.argv[index + 1] : undefined,
+      workspaceDir: workspaceIndex >= 0 ? process.argv[workspaceIndex + 1] : undefined, port: requestedPort });
     console.log(`本地战斗已启动：${app.url}\n本机直接选择DM，无需凭据。`);
     let closing = false;
     const stop = async () => { if (closing) return; closing = true; await app.close(); process.exit(0); };

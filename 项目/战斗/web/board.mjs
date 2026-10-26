@@ -22,8 +22,8 @@ function disposeGroup(group) {
 }
 
 export class BattleBoard {
-  constructor(container, onSelect) {
-    this.container = container; this.onSelect = onSelect; this.selected = null;
+  constructor(container, onSelect, onPlace) {
+    this.container = container; this.onSelect = onSelect; this.onPlace = onPlace; this.selected = null;
     this.scene = new THREE.Scene(); this.scene.background = new THREE.Color('#0b1722');
     this.camera = new THREE.PerspectiveCamera(44, 1, .1, 1000);
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
@@ -70,7 +70,9 @@ export class BattleBoard {
         const rect = canvas.getBoundingClientRect();
         this.pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
         this.ray.setFromCamera(this.pointer, this.camera);
-        const hit = this.ray.intersectObjects(this.meshes)[0]; if (hit) this.onSelect(hit.object.userData.actorId);
+        const hit = this.ray.intersectObjects(this.meshes)[0];
+        if (hit) this.onSelect(hit.object.userData.actorId);
+        else { const point = this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3()); if (point) this.onPlace?.(point); }
       }
       this.drag = null;
     });

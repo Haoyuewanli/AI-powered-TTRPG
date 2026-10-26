@@ -27,6 +27,7 @@ try {
   const port = Number(argument('--port') || process.env.BATTLE_PORT || 4182);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('端口须为1～65535的整数');
   const directory = resolve(argument('--campaign') || await findCampaign(resolve(root, '../存档')));
+  const workspaceDirectory = resolve(argument('--workspace') || (argument('--campaign') ? join(directory, '.工作区') : join(root, '../存档')));
   const campaignKey = createHash('sha256').update(directory.toLowerCase()).digest('hex');
   const url = `http://127.0.0.1:${port}`;
   await access(resolve(root, '../骰盘/node_modules/three/build/three.module.js'));
@@ -40,7 +41,7 @@ try {
     const errors = await open(join(directory, '服务错误.log'), 'a');
     let child, failed = false;
     try {
-      child = spawn(process.execPath, [join(root, 'server.mjs'), '--campaign', directory], {
+      child = spawn(process.execPath, [join(root, 'server.mjs'), '--campaign', directory, '--workspace', workspaceDirectory], {
         cwd: root, env: { ...process.env, BATTLE_PORT: String(port) },
         detached: true, windowsHide: true, stdio: ['ignore', output.fd, errors.fd]
       });

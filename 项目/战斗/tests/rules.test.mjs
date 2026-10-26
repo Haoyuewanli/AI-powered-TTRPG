@@ -5,7 +5,7 @@ import { largestFaces, distanceBetween } from '../src/geometry.mjs';
 import { fixture, active, command, dm, player } from './fixture.mjs';
 
 test('critical doubles damage dice, not modifiers; malformed dice rejected', () => {
-  assert.deepEqual(rollDamage('1d8+3', true, () => 4), { formula: '1d8+3', values: [4, 4], modifier: 3, total: 11, critical: true });
+  assert.deepEqual(rollDamage('1d8+3', true, () => 4), { formula: '1d8+3', values: [4, 4], modifier: 3, source: 'program', total: 11, critical: true });
   for (const value of ['0d6', '21d6', '1d3', 'process.exit()', '1d8+9999']) assert.throws(() => parseDice(value));
 });
 test('typed damage: immunity, same-type aggregation, resistance before vulnerability, temporary HP first', () => {
@@ -99,7 +99,7 @@ test('largest opposite faces chosen from actual dimensions, including low flat b
   assert.equal(largestFaces({ width: 4, depth: 3, height: 1 }).axis, 'y');
 });
 test('unknown versions and malformed edits fail before mutation', () => {
-  const state = fixture(); state.formatVersion = 2; assert.throws(() => validateState(state), /版本/);
+  const state = fixture(); state.formatVersion = 3; assert.throws(() => validateState(state), /版本/);
   const good = fixture();
   assert.throws(() => executeAction(good, command(good, 'edit-actor', { actorId: 'pc-001', patch: { hp: -1 } }), dm));
   assert.equal(good.actors[0].hp, 40);
