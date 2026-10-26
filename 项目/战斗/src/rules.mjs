@@ -73,6 +73,7 @@ export function validateAppearance(a) {
 }
 
 export function validateActor(actor, board) {
+  requireRule(actor && typeof actor === 'object' && actor.body && actor.space && actor.position, '角色缺少body、space或position对象');
   validateAppearance(actor.appearance);
   requireRule(typeof actor.id === 'string' && /^[a-zA-Z0-9_-]{1,60}$/.test(actor.id), '棋子ID无效');
   requireRule(['pc', 'npc'].includes(actor.kind), '角色类型无效');
@@ -119,6 +120,7 @@ export function validateObject(object, board) {
   requireRule([0, 90, 180, 270].includes(object.rotation), '地形旋转须为0/90/180/270度');
   requireRule(typeof object.hidden === 'boolean' && typeof object.blocksMovement === 'boolean', '地形显示与阻挡属性无效');
   requireRule(['box','cylinder','triangle','ramp'].includes(object.shape || 'box'), '地形形状无效');
+  requireRule(!['stairs','hill'].includes(object.type) || !object.shape || object.shape === 'box', '楼梯和隆起使用固定形状；自定义形状请选择道具或地图地板');
   requireRule(object.groupId == null || typeof object.groupId === 'string' && /^[\w-]{1,60}$/.test(object.groupId), '编组ID无效');
   const bounds = objectBounds(object);
   requireRule((board.extended ? bounds.minX >= -10000 && bounds.maxX <= 10000 && bounds.minZ >= -10000 && bounds.maxZ <= 10000 : bounds.minX >= 0 && bounds.maxX <= board.width && bounds.minZ >= 0 && bounds.maxZ <= board.depth) && bounds.maxY <= 100, '地形超出棋盘或100尺高度边界');
@@ -147,6 +149,7 @@ function validateInitiativeCollection(state) {
 }
 
 export function validateState(state) {
+  requireRule(state && typeof state === 'object' && state.board && state.combat, '战斗文件缺少board盘面或combat回合对象');
   if (![1, 2].includes(state.formatVersion) || state.rulesVersion !== 'dnd2024-basic-v1') {
     const error = new RuleError('不支持的存档或规则版本；请保留原文件');
     error.code = 'UNSUPPORTED_FORMAT'; throw error;
@@ -264,9 +267,9 @@ export function executeAction(original, command, principal, { draw = die, id = r
     case 'reload-file': {
       dmOnly(principal); const source=payload.state;
       requireRule(source && source.campaignId===state.campaignId && source.battleId===state.battleId && source.formatVersion===state.formatVersion && source.rulesVersion===state.rulesVersion && source.revision===state.revision, '文件团/战斗/格式或进度版本不符，请基于当前文件编辑');
+      validateState(source);
       const identity=s=>JSON.stringify(s.actors.map(a=>[a.id,a.kind,a.ownerId]).sort((a,b)=>a[0].localeCompare(b[0])));
       requireRule(identity(source)===identity(state), '不能通过文件重载改变角色ID、类型或归属，请使用战前布置');
-      validateState(source);
       for(const key of domainKeys) { if(source[key]!==undefined) state[key]=structuredClone(source[key]); else if(key==='initiativeCollection')delete state[key]; }
       publicText='DM重新载入本场文件，旧操作已失效，请查看最新局面。';dmText='本机DM核对差异后重新载入战斗JSON；历史记录和操作ID由程序保留。';break;
     }
@@ -373,7 +376,7 @@ export function executeAction(original, command, principal, { draw = die, id = r
         if (!pathMeetsObject(actor, next.position, object)) continue;
         requireRule(!object.shape || object.shape === 'box', '路径涉及非矩形形状，请DM裁定实际边缘与通行');
         requireRule(!object.blocksMovement, '路径存在阻挡；请绕行或由DM裁定');
-        requireRule(!['hill', 'floor', 'stairs'].includes(object.type), '路径涉及高差地形，请DM裁定通行与移动消耗');
+        requireRule(!['hill', 'floor', 'stairs'].includes(object.type) && !(object.type === 'tile' && object.position.y > 0), '路径涉及高差地形，请DM裁定通行与移动消耗');
       }
       // Passing occupied creature spaces remains conservative and needs adjudication.
       const steps = Math.ceil(cost * 2);

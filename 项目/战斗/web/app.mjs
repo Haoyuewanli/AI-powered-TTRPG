@@ -52,6 +52,7 @@ function clearSession() {
   token = ''; state = null; selectedId = null; dirty = false; editingRevision = null; selection = null;
   files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); shell?.update(null); clearPreview();
   sessionStorage.removeItem('battle-session');
+  $('external-file-notice').hidden = true;
   $('table').hidden = true; $('login').hidden = false;
   for (const id of ['roster', 'actor-info', 'events', 'reference']) $(id).replaceChildren();
   for (const id of ['selected-name', 'selected-kind', 'turn-caption', 'title', 'role', 'save-status', 'recovery', 'latest-event-text', 'phase-label', 'board-size', 'round']) $(id).textContent = '';

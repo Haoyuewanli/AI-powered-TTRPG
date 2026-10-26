@@ -30,7 +30,7 @@ export async function atomicJson(path, value, { renameFile = rename, platform = 
 }
 
 async function readValid(path) {
-  const state = JSON.parse(await readFile(path, 'utf8'));
+  const state = JSON.parse((await readFile(path, 'utf8')).replace(/^\uFEFF/,''));
   validateState(state);
   return state;
 }

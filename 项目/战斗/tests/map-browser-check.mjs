@@ -32,6 +32,15 @@ try {
  await page.locator('[data-tool=terrain]:visible').first().click();await page.locator('[data-brush=circle]').click();
  for(const x of [5,20]){const q=await point({x,y:0,z:5});await changed(()=>page.mouse.click(q.x,q.y));}
  assert.equal(app.store.state.objects.at(-1).shape,'cylinder');assert.equal(app.store.state.objects.at(-2).shape,'cylinder');
+ await page.locator('#map-stamp').uncheck();
+ const selected=app.store.state.objects.slice(0,2).map(o=>o.id);await page.locator('#map-multi').selectOption(selected);await changed(()=>page.locator('#map-group').click());
+ const groupBefore=app.store.state.objects.slice(0,2).map(o=>structuredClone(o.position));
+ await changed(()=>drag({x:groupBefore[0].x,z:groupBefore[0].z-5}));
+ const delta=app.store.state.objects[0].position.z-groupBefore[0].z;
+ assert.equal(app.store.state.objects[1].position.z-groupBefore[1].z,delta);
+ await changed(()=>page.locator('#map-ungroup').click());assert.equal(app.store.state.objects[0].groupId,null);
+ await page.locator('[data-brush=tile1]').click();const small=await point({x:35.5,y:0,z:5.5});await changed(()=>page.mouse.click(small.x,small.y));
+ assert.equal(app.store.state.objects.at(-1).type,'tile');assert.equal(app.store.state.objects.at(-1).size.width,1);assert.equal(await page.locator('#map-snap').inputValue(),'1');
  await page.keyboard.press('Escape');await settle();await page.screenshot({path:join(output,'方块人物与拼贴地图.png')});
  await page.locator('#zoom-in').click();await page.locator('#zoom-in').click();await settle();await page.screenshot({path:join(output,'装备近景.png')});
  assert.deepEqual(errors,[]);console.log('PASS: continuous same-type placement, terrain drag, Shift Z lock, Ctrl copy, Esc cancel, voxel equipment render');

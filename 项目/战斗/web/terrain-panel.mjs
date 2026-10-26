@@ -78,9 +78,9 @@ export function terrainPanel({ action, getState, notify, canEdit }) {
   }
   document.querySelectorAll('[data-brush]').forEach(button => button.addEventListener('click', () => {
     if (dirty) { notify('请先保存或放弃地形表单编辑', true); return; }
-    selected=''; const kind=button.dataset.brush;
-    const cube=kind.startsWith('cube'), unit=kind==='cube1'?1:5;
-    fill({ type:cube||kind==='ramp'?'prop':'tile', name:button.textContent, shape:kind==='circle'?'cylinder':kind==='triangle'?'triangle':kind==='ramp'?'ramp':'box', position:{x:25,y:0,z:25},size:cube?{width:unit,depth:unit,height:unit}:{width:10,depth:10,height:kind==='ramp'?5:.5},rotation:0,hidden:false,blocksMovement:cube });
+    selected=''; const kind=button.dataset.brush; if(['cube1','tile1'].includes(kind))$('map-snap').value='1';if(['cube5','tile5'].includes(kind))$('map-snap').value='5';
+    const cube=kind.startsWith('cube'), tileUnit=['tile1','tile5'].includes(kind), unit=kind.endsWith('1')?1:5;
+    fill({ type:cube||kind==='ramp'?'prop':'tile', name:button.textContent, shape:kind==='circle'?'cylinder':kind==='triangle'?'triangle':kind==='ramp'?'ramp':'box', position:{x:25,y:0,z:25},size:cube||tileUnit?{width:unit,depth:unit,height:cube?unit:.5}:{width:10,depth:10,height:kind==='ramp'?5:.5},rotation:0,hidden:false,blocksMovement:cube });
     $('map-stamp').checked=true;$('terrain-place-mode').checked=false;$('place-mode').checked=false;render(getState());
   }));
   $('map-multi').addEventListener('change',()=>{multi=[...$('map-multi').selectedOptions].map(o=>o.value);if(multi.length&&!dirty){selected=multi[0];fill(object());}render(getState());});

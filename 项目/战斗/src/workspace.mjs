@@ -10,7 +10,7 @@ const freshCombat = () => ({ phase: 'preparing', round: 0, order: [], index: 0, 
 const validId = id => typeof id === 'string' && /^[\w-]{1,100}$/.test(id);
 const name = value => { requireRule(typeof value === 'string' && value.trim().length > 0 && value.length <= 80, '名称须为1～80字'); return value.trim(); };
 const isWithin = (root, path) => { const rel = relative(root, path); return !rel.startsWith('..') && !isAbsolute(rel); };
-async function json(path) { return JSON.parse(await readFile(path, 'utf8')); }
+async function json(path) { return JSON.parse((await readFile(path, 'utf8')).replace(/^\uFEFF/,'')); }
 
 export function upgradeBattle(state, campaignId, battleId) {
   if (state.formatVersion === 2) {
