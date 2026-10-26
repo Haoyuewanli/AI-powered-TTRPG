@@ -116,8 +116,9 @@ function render(selectionChanged = false) {
     '正在战斗：选中当前行动者 → 移动或攻击 → 结束当前回合。NPC行动由你或外部AI选择；特殊效果用人工裁定。结束后可保留本场并新建下一场。' :
     '① 选择团与战斗 → ② 战前布置参战者 → ③ 核对资料并勾选“已核对” → ④ 选择程序骰或线下骰 → ⑤ 收集先攻后开始。下方“主持交接”可交给外部AI。') :
     '先在行动区提交自己的先攻。轮到你时拖动自己的棋子，或选择攻击与目标；需要的骰点都在行动区填写，完成后结束回合。';
+  renderTasks();
   library?.render(state, selection);
-  $('start').disabled = busy || state.combat.phase === 'active' || state.actors.some(item => !item.confirmed);
+  $('start').disabled = busy || state.combat.phase === 'active' || state.actors.some(item => !item.confirmed || item.hp <= 0) || dirty;
   $('start').textContent = state.initiativeCollection ? '先攻齐全，开始战斗' : '收集先攻';
   if (state.initiativeCollection && isDm()) $('start').disabled ||= state.actors.filter(item => item.hp > 0).some(item => !state.initiativeCollection.entries[item.id]);
   $('end').disabled = busy || state.combat.phase !== 'active';
@@ -163,6 +164,24 @@ function render(selectionChanged = false) {
   if (!events.length) $('events').append(text('p', '尚无已保存的战斗事件。', 'fine'));
   dice?.render(state); terrain?.render(state);
   board?.update(state, selectedId); shell?.update(state); sharing?.render(state); setConnection(connected);
+}
+function renderTasks() {
+  const area = $('battle-tasks'); area.replaceChildren();
+  area.hidden = state.combat.phase === 'active';
+  if (area.hidden) return;
+  area.append(text('strong', isDm() ? '开始战斗 · 下一步' : '我的待办'));
+  const add = (label, fn) => { const b = text('button', label); b.type = 'button'; b.addEventListener('click', fn); area.append(b); };
+  const pending = state.actors.filter(a => !a.confirmed || a.hp <= 0);
+  if (isDm() && (pending.length || dirty)) {
+    area.append(text('p', dirty ? '角色资料未保存。保存后继续。' : '请核对以下参战者，勾选“已核对”并保存。', 'fine'));
+    for (const a of pending) add(`${a.name} · ${a.hp <= 0 ? '起始HP须大于0' : '待核对'}`, () => { choose(a.id); openEditor(); });
+    if (dirty) add('继续保存资料', openEditor);
+  } else if (!state.initiativeCollection) {
+    area.append(text('p', isDm() ? '资料已齐全，点击顶部“收集先攻”。' : '等待DM收集先攻。', 'fine'));
+  } else {
+    const missing = state.actors.filter(a => (isDm() || a.ownerId === state.viewerId) && !state.initiativeCollection.entries[a.id]);
+    area.append(text('p', missing.length ? `待提交：${missing.map(a => a.name).join('、')}。在下方填写原始d20，或点掷骰。` : isDm() ? '先攻齐全，点击顶部“先攻齐全，开始战斗”。' : '先攻已保存，等待DM开始。', 'fine'));
+  }
 }
 function applyResult(result) {
   if (!token || (result.requestEpoch !== undefined && result.requestEpoch !== sessionEpoch)) return;

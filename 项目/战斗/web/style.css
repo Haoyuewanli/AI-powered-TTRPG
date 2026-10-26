@@ -165,7 +165,7 @@ legend { color: var(--gold); padding: 0 5px; font-size: 12px; }
 #latest-event-text { color: #a8c0ce; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .footer-actions { display: flex; gap: 7px; flex-shrink: 0; }
 .footer-actions button { font-size: 12px; }
-#open-actions { display: none; }
+#open-actions { display: inline-flex; }
 .scene-tools { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .scene-tool-heading { display: flex; justify-content: space-between; align-items: center; padding: 11px 12px 7px; flex-shrink: 0; }
 .scene-tool-heading h2 { font-size: 16px; }
@@ -350,3 +350,7 @@ legend { color: var(--gold); padding: 0 5px; font-size: 12px; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; scroll-behavior: auto !important; }
 }
+
+#battle-tasks { margin: 0 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+#battle-tasks button { margin: 4px 4px 0 0; font-size: 12px; }
+#battle-tasks p { margin: 4px 0; }
