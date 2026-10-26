@@ -1,16 +1,27 @@
 import { readFile, writeFile, mkdir, rename, open, unlink, copyFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { executeAction, validateState } from './rules.mjs';
 
-export async function atomicJson(path, value) {
+const replaceDelays = [20, 40, 80, 160, 200];
+const windowsBusyCodes = new Set(['EPERM', 'EBUSY', 'EACCES']);
+
+export async function atomicJson(path, value, { renameFile = rename, platform = process.platform, wait = delay } = {}) {
   const temp = `${path}.${randomUUID()}.tmp`;
   let handle;
   try {
     handle = await open(temp, 'wx', 0o600);
     await handle.writeFile(JSON.stringify(value, null, 2) + '\n', 'utf8');
     await handle.sync(); await handle.close(); handle = undefined;
-    await rename(temp, path);
+    // Windows scanners can briefly hold the destination. Retry only this replacement.
+    for (let attempt = 0; ; attempt++) {
+      try { await renameFile(temp, path); break; }
+      catch (error) {
+        if (platform !== 'win32' || !windowsBusyCodes.has(error.code) || attempt >= replaceDelays.length) throw error;
+        await wait(replaceDelays[attempt]);
+      }
+    }
   } catch (error) {
     await handle?.close().catch(() => {});
     await unlink(temp).catch(() => {});
