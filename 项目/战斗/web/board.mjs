@@ -23,7 +23,8 @@ function disposeGroup(group) {
 }
 
 export class BattleBoard {
-  constructor(container, onSelect, onPlace) {
+  constructor(container, onSelect, onPlace, interaction = {}) {
+    this.interaction = interaction; this.state = null;
     this.container = container; this.onSelect = onSelect; this.onPlace = onPlace; this.selected = null;
     this.scene = new THREE.Scene(); this.scene.background = new THREE.Color('#0b1722');
     this.camera = new THREE.PerspectiveCamera(44, 1, .1, 1000);
@@ -44,43 +45,63 @@ export class BattleBoard {
     this.target = new THREE.Vector3(50, 0, 40); this.wantedTarget = this.target.clone();
     this.orbit = { azimuth: .4, polar: .82, distance: 135 }; this.wanted = { ...this.orbit };
     this.ray = new THREE.Raycaster(); this.pointer = new THREE.Vector2(); this.meshes = [];
-    this.frame = 0; this.drag = null; this.heldKeys = new Set();
+    this.autoFit = true; this.frame = 0; this.drag = null; this.heldKeys = new Set();
     this.resize = new ResizeObserver(() => {
       const width = container.clientWidth, height = container.clientHeight;
       if (!width || !height) return;
       this.camera.aspect = width / height; this.camera.updateProjectionMatrix();
-      this.renderer.setSize(width, height, false); this.requestRender();
+      this.renderer.setSize(width, height, false); if (this.autoFit) this.reset(); this.requestRender();
     }); this.resize.observe(container);
     const canvas = this.renderer.domElement;
     canvas.addEventListener('contextmenu', event => event.preventDefault());
     canvas.addEventListener('pointerdown', event => {
+      if (this.drag) { this.cancelDrag(); return; }
       event.preventDefault(); container.focus(); canvas.setPointerCapture(event.pointerId);
-      this.drag = { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY,
-        pan: event.button !== 0 || event.shiftKey, button: event.button };
+      this.cast(event);
+      const pan = event.button !== 0 || event.shiftKey;
+      const hit = pan ? null : this.ray.intersectObjects(this.meshes)[0];
+      const actor = hit && this.state?.actors.find(a => a.id === hit.object.userData.actorId);
+      if (actor) this.onSelect(actor.id);
+      const movable = actor && this.interaction.canDrag?.(actor.id);
+      this.drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+        startX: event.clientX, startY: event.clientY, pan, button: event.button,
+        actor: actor ? structuredClone(actor) : null, movable, moving: false,
+        origin: actor ? this.planePoint(event, actor.position.y || 0) : null,
+        context: this.state ? { campaignId: this.state.campaignId, battleId: this.state.battleId, revision: this.state.revision } : null };
     });
     canvas.addEventListener('pointermove', event => {
-      if (!this.drag) return;
-      const dx = event.clientX - this.drag.x, dy = event.clientY - this.drag.y;
-      this.drag.x = event.clientX; this.drag.y = event.clientY;
-      if (this.drag.pan) this.pan(-dx * this.wanted.distance * .0015, -dy * this.wanted.distance * .0015);
-      else { this.wanted.azimuth -= dx * .006; this.wanted.polar = THREE.MathUtils.clamp(this.wanted.polar - dy * .005, .18, 1.48); }
+      const drag = this.drag;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+      drag.x = event.clientX; drag.y = event.clientY;
+      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 5) drag.moving = true;
+      if (drag.actor) {
+        if (drag.movable && drag.moving && drag.origin) this.previewDrag(event);
+      } else if (drag.pan) this.pan(-dx * this.wanted.distance * .0015, -dy * this.wanted.distance * .0015);
+      else if (drag.moving) {
+        this.autoFit = false; this.wanted.azimuth -= dx * .006;
+        this.wanted.polar = THREE.MathUtils.clamp(this.wanted.polar - dy * .005, .18, 1.48);
+      }
       this.requestRender();
     });
     canvas.addEventListener('pointerup', event => {
-      if (this.drag && this.drag.button === 0 && Math.hypot(event.clientX - this.drag.startX, event.clientY - this.drag.startY) < 4) {
-        const rect = canvas.getBoundingClientRect();
-        this.pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
-        this.ray.setFromCamera(this.pointer, this.camera);
-        const hit = this.ray.intersectObjects(this.meshes)[0];
-        if (hit) this.onSelect(hit.object.userData.actorId);
-        else { const point = this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3()); if (point) this.onPlace?.(point); }
+      const drag = this.drag;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const destination = drag.destination;
+      this.cancelDrag();
+      if (drag.actor && drag.movable && drag.moving && destination) {
+        const old = drag.actor.position;
+        if (old.x !== destination.x || old.z !== destination.z) this.interaction.onDrop?.(drag.actor.id, destination, drag.context);
+      } else if (!drag.actor && !drag.moving && drag.button === 0 && !drag.pan) {
+        const point = this.planePoint(event, 0); if (point) this.onPlace?.(point);
       }
-      this.drag = null;
     });
-    canvas.addEventListener('pointercancel', () => { this.drag = null; });
-    canvas.addEventListener('wheel', event => { event.preventDefault(); this.zoom(Math.exp(event.deltaY * .001)); }, { passive: false });
+    canvas.addEventListener('pointercancel', () => this.cancelDrag());
+    canvas.addEventListener('lostpointercapture', () => this.cancelDrag());
+    canvas.addEventListener('wheel', event => { event.preventDefault(); if (!this.drag?.actor) this.zoom(Math.exp(event.deltaY * .001)); }, { passive: false });
     container.addEventListener('keydown', event => {
-      if (event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.code === 'Escape') { this.cancelDrag(); return; }
+      if (this.drag?.actor || event.ctrlKey || event.altKey || event.metaKey) return;
       if (event.code === 'Digit0' || event.code === 'Numpad0') {
         event.preventDefault(); if (!event.repeat) this.reset(); return;
       }
@@ -93,22 +114,66 @@ export class BattleBoard {
       this.heldKeys.add(event.code); this.advanceKeyboard(1 / 60); this.requestRender();
     });
     window.addEventListener('keyup', event => { this.heldKeys.delete(event.code); });
-    const releaseKeys = () => this.heldKeys.clear();
+    const releaseKeys = () => { this.heldKeys.clear(); this.cancelDrag(); };
     container.addEventListener('blur', releaseKeys);
     window.addEventListener('blur', releaseKeys);
     document.addEventListener('visibilitychange', () => { if (document.hidden) releaseKeys(); });
     canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); this.container.dispatchEvent(new CustomEvent('board-error', { detail: '3D绘图暂时中断，请刷新页面；已保存的战斗进度仍在本机。' })); });
     this.requestRender();
   }
+  cast(event) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    this.ray.setFromCamera(this.pointer, this.camera);
+  }
+  planePoint(event, height) {
+    this.cast(event);
+    return this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -height), new THREE.Vector3());
+  }
+  previewDrag(event) {
+    const drag = this.drag, a = drag.actor, point = this.planePoint(event, a.position.y || 0);
+    if (!point) return;
+    const snap = (value, size) => Math.round((value - size / 2) / 5) * 5 + size / 2;
+    drag.destination = { x: snap(a.position.x + point.x - drag.origin.x, a.space.width),
+      y: a.position.y || 0, z: snap(a.position.z + point.z - drag.origin.z, a.space.depth) };
+    if (!this.ghost) {
+      this.ghost = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(a.body.width, a.body.height, a.body.depth),
+        new THREE.MeshBasicMaterial({ color: '#8ee1c5', transparent: true, opacity: .48, depthWrite: false }));
+      body.position.y = a.body.height / 2 + .1; body.rotation.y = -a.facing * Math.PI / 180;
+      const base = new THREE.Mesh(new THREE.PlaneGeometry(a.space.width, a.space.depth),
+        new THREE.MeshBasicMaterial({ color: '#8ee1c5', transparent: true, opacity: .28, depthWrite: false, side: THREE.DoubleSide }));
+      base.rotation.x = -Math.PI / 2; base.position.y = .12;
+      this.ghost.add(body, base); this.scene.add(this.ghost);
+    }
+    const p = drag.destination;
+    this.ghost.position.set(p.x, p.y, p.z);
+    const outside = p.x < a.space.width / 2 || p.z < a.space.depth / 2 ||
+      p.x > this.board.width - a.space.width / 2 || p.z > this.board.depth - a.space.depth / 2;
+    for (const mesh of this.ghost.children) mesh.material.color.set(outside ? '#f28b82' : '#8ee1c5');
+    this.renderer.domElement.dataset.dragging = a.id;
+    const distance = Math.max(Math.abs(p.x - a.position.x), Math.abs(p.z - a.position.z));
+    this.interaction.onHint?.(outside ? '落点超出棋盘，松手会恢复原位' : `移动 ${distance} 尺 · 松手保存，Esc 取消`);
+  }
+  cancelDrag(message = '') {
+    const drag = this.drag; this.drag = null;
+    if (drag && this.renderer.domElement.hasPointerCapture(drag.pointerId)) this.renderer.domElement.releasePointerCapture(drag.pointerId);
+    if (this.ghost) { disposeGroup(this.ghost); this.scene.remove(this.ghost); this.ghost = null; }
+    delete this.renderer.domElement.dataset.dragging;
+    if (drag) this.interaction.onHint?.(message);
+    this.requestRender();
+  }
   pan(right, forward) {
+    this.autoFit = false;
     const angle = this.wanted.azimuth;
     this.wantedTarget.x += right * Math.cos(angle) - forward * Math.sin(angle);
     this.wantedTarget.z += -right * Math.sin(angle) - forward * Math.cos(angle);
     this.wantedTarget.x = THREE.MathUtils.clamp(this.wantedTarget.x, -100, 300);
     this.wantedTarget.z = THREE.MathUtils.clamp(this.wantedTarget.z, -100, 300);
   }
-  zoom(factor) { this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * factor, 14, 700); this.requestRender(); }
+  zoom(factor) { this.autoFit = false; this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * factor, 14, 700); this.requestRender(); }
   advanceKeyboard(seconds) {
+    this.autoFit = false;
     const held = (...keys) => keys.some(key => this.heldKeys.has(key)) ? 1 : 0;
     this.wanted.azimuth += (held('KeyQ', 'ArrowLeft') - held('KeyE', 'ArrowRight')) * 1.6 * seconds;
     this.wanted.polar = THREE.MathUtils.clamp(this.wanted.polar +
@@ -125,7 +190,16 @@ export class BattleBoard {
   reset() {
     const { width = 100, depth = 80 } = this.board || {};
     this.wantedTarget.set(width / 2, 0, depth / 2);
-    this.wanted = { azimuth: .4, polar: .82, distance: Math.max(width, depth) * 1.35 }; this.requestRender();
+    const azimuth = .4, polar = .82, tangent = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    let distance = 14;
+    for (const x of [-width / 2 - 5, width / 2 + 5]) for (const z of [-depth / 2 - 5, depth / 2 + 5]) {
+      const horizontal = x * Math.cos(azimuth) - z * Math.sin(azimuth);
+      const vertical = -Math.cos(polar) * (x * Math.sin(azimuth) + z * Math.cos(azimuth));
+      const towardCamera = Math.sin(polar) * (x * Math.sin(azimuth) + z * Math.cos(azimuth));
+      distance = Math.max(distance, towardCamera + Math.abs(horizontal) / (tangent * this.camera.aspect), towardCamera + Math.abs(vertical) / tangent);
+    }
+    this.autoFit = true;
+    this.wanted = { azimuth, polar, distance: distance * 1.08 }; this.requestRender();
   }
   requestRender() {
     if (this.frame) return;
@@ -174,6 +248,8 @@ export class BattleBoard {
     }
   }
   update(state, selected) {
+    if (this.drag?.context && (this.drag.context.revision !== state.revision || this.drag.context.battleId !== state.battleId || this.drag.context.campaignId !== state.campaignId)) this.cancelDrag('局面已更新，请重新拖动');
+    this.state = state;
     const terrainKey = JSON.stringify(state.objects || []);
     if (this.terrainKey !== terrainKey) {
       disposeGroup(this.terrain); this.terrainKey = terrainKey;
@@ -214,5 +290,5 @@ export class BattleBoard {
     this.renderer.domElement.dataset.actorCount = String(state.actors.length);
     this.renderer.domElement.dataset.ready = 'true'; this.requestRender();
   }
-  clear() { this.heldKeys.clear(); this.piecesKey = null; this.terrainKey = null; disposeGroup(this.terrain); this.renderer.domElement.dataset.objectCount = '0'; disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.requestRender(); }
+  clear() { this.cancelDrag(); this.state = null; this.heldKeys.clear(); this.piecesKey = null; this.terrainKey = null; disposeGroup(this.terrain); this.renderer.domElement.dataset.objectCount = '0'; disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.requestRender(); }
 }

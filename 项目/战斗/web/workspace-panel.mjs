@@ -2,8 +2,8 @@ const $ = id => document.getElementById(id);
 const option = (value, title) => { const item = document.createElement('option'); item.value = value; item.textContent = title; return item; };
 
 export function workspacePanel({ api, apply, notify, getState, canSwitch }) {
-  let catalog, contextKey = '', request = 0;
-  const guard = fn => async event => { event?.preventDefault(); try { await fn(); } catch (error) { notify(error.message, true); } };
+  let catalog, contextKey = '', request = 0, working = false;
+  const guard = fn => async event => { event?.preventDefault(); if (working) return; working = true; try { await fn(); } catch (error) { if (!error.cancelled) notify(error.message, true); } finally { working = false; } };
   function fillBattles(campaignId) {
     const campaign = catalog?.campaigns.find(c => c.id === campaignId);
     $('battle-select').replaceChildren(...(campaign?.battles || []).map(b => option(b.id, b.name)));
@@ -43,7 +43,7 @@ export function workspacePanel({ api, apply, notify, getState, canSwitch }) {
       $('workspace-panel').hidden = state.viewRole !== 'dm';
       $('context-caption').textContent = selection ? `${selection.campaignName} / ${selection.battleName}` : state.title;
       const key = `${state.campaignId}/${state.battleId}`;
-      if (state.viewRole === 'dm' && contextKey !== key) { contextKey = key; refresh().catch(error => notify(error.message, true)); }
+      if (state.viewRole === 'dm' && contextKey !== key) { contextKey = key; refresh().catch(error => { if (!error.cancelled) notify(error.message, true); }); }
     },
     clear() {
       request++; contextKey = ''; catalog = null;

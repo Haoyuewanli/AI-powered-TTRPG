@@ -55,7 +55,7 @@ try {
   await launch();
   const page = await openWindow(`profile-${Date.now()}-first`);
   checks.push('独立应用模式使用本机Edge与专用窗口配置');
-  await page.locator('#edit-details > summary').click();
+  await page.locator('[data-tool=actor]').first().click();
   await page.locator('#edit-hp').fill('17'); await page.locator('#edit-resources').fill('离线修改并保存的合成资源记录');
   await page.locator('#edit-form button[type=submit]').click();
   await page.waitForFunction(() => document.querySelector('#save-status').textContent.includes('v1'));
@@ -81,7 +81,7 @@ try {
   assert.equal(restored.actors[0].resources, '离线修改并保存的合成资源记录');
   assert.notEqual(Number(await readFile(join(dir, '.battle.lock'), 'utf8')), killedPid);
   checks.push('强制终止核心后重新双击入口，自动处理旧标记并恢复文件');
-  await reopened.locator('#edit-details > summary').click();
+  await reopened.locator('[data-tool=actor]').first().click();
   await reopened.locator('#edit-hp').fill('19'); await reopened.locator('#edit-form button[type=submit]').click();
   await reopened.waitForFunction(() => document.querySelector('#save-status').textContent.includes('v2'));
   assert.equal(JSON.parse(await readFile(join(dir, '战斗状态.json'), 'utf8')).actors[0].hp, 19);

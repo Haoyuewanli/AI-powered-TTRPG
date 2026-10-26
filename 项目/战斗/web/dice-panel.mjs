@@ -36,7 +36,7 @@ export function dicePanel({ api, action, getState, getActor, notify }) {
     const key = `${state.battleId}/${state.revision}/${JSON.stringify(payload)}`;
     if (key === planKey) return;
     planKey = key; const pending = ++request;
-    const identity = `${state.battleId}/${JSON.stringify(payload)}`;
+    const identity = `${state.battleId}/${state.combat.round}/${state.combat.currentActorId || state.combat.order?.[state.combat.index]}/${state.combat.attacksUsed || 0}/${JSON.stringify(payload)}`;
     if (entryKey !== identity) { plan = null; $('physical-d20').replaceChildren(); $('physical-damage').replaceChildren(); entryKey = identity; }
     $('physical-plan-note').textContent = '正在核对检定模式…';
     try {
@@ -53,22 +53,63 @@ export function dicePanel({ api, action, getState, getActor, notify }) {
     } catch (error) { if (pending === request) $('physical-plan-note').textContent = error.message; }
   }
   function renderInitiative(state) {
-    const key = `${state.battleId}/${state.actors.map(a => a.id).join(',')}`;
+    const dm = state.viewRole === 'dm', collection = state.initiativeCollection;
+    const eligible = state.actors.filter(a => (dm || a.ownerId === state.viewerId) && (a.hp ?? 1) > 0);
+    const key = `${state.battleId}/${eligible.map(a => a.id).join(',')}`;
     if (key !== actorKey) {
       actorKey = key;
-      $('initiative-entries').replaceChildren(...state.actors.map(actor => {
+      $('initiative-entries').replaceChildren(...eligible.map(actor => {
         const row = element('div'); row.className = 'initiative-row'; row.dataset.actorId = actor.id;
-        row.append(element('span', actor.name), selectModes());
-        const inputs = element('div'); inputs.className = 'dice-inputs'; inputs.dataset.initiativeDice = 'true';
-        const update = () => {
-          const previous = new Map([...inputs.querySelectorAll('input')].map(i => [i.dataset.dieKey, i.value]));
-          const count = row.querySelector('select').value === 'normal' ? 1 : 2;
-          inputs.replaceChildren(...Array.from({ length: count }, (_, i) => dieInput(`initiative-${actor.id}-${i}`, 20, previous)));
-        };
-        row.querySelector('select').addEventListener('change', update); row.append(inputs); update(); return row;
+        row.append(element('span', actor.name), selectModes()); return row;
       }));
     }
-    for (const row of $('initiative-entries').querySelectorAll('[data-initiative-dice]')) row.hidden = state.diceMode !== 'physical';
+    $('initiative-options').hidden = !dm || !!collection || state.combat.phase === 'active';
+    const area = $('initiative-collection');
+    const activeDie = document.activeElement?.closest('#initiative-collection') ? document.activeElement.dataset.dieKey : null;
+    const previous = new Map([...area.querySelectorAll('input')].map(i => [i.dataset.dieKey, i.value]));
+    area.replaceChildren();
+    area.hidden = state.combat.phase === 'active';
+    if (state.combat.phase === 'active') return;
+    if (!collection) {
+      area.append(element('p', dm ? '核对资料后，点“收集先攻”。程序会等待每位玩家提交。' : '等待主持发起先攻；发起后可在这里填写或掷骰。'));
+      return;
+    }
+    area.append(element('p', dm ? '先攻已收集的角色无需重填。全部齐全后即可开始。' : '提交自己的先攻，程序会自动加上先攻加值。'));
+    const invoke = async (button, type, payload) => {
+      button.disabled = true;
+      try { await action(type, payload); } catch (error) { notify(error.message, true); }
+      finally { if (button.isConnected) button.disabled = false; }
+    };
+    if (dm && state.diceMode !== 'physical') {
+      const batch = element('div'); batch.className = 'button-row';
+      for (const [scope, title] of [['npc', '掷NPC先攻'], ['all', '替所有未提交者掷骰']]) {
+        const button = element('button', title); button.type = 'button'; button.dataset.rollScope = scope;
+        button.disabled = !eligible.some(a => !collection.entries[a.id] && (scope === 'all' || a.kind === 'npc'));
+        button.addEventListener('click', () => invoke(button, 'roll-initiative', { scope })); batch.append(button);
+      }
+      area.append(batch);
+    }
+    for (const actor of eligible) {
+      const entry = collection.entries[actor.id], mode = collection.modes[actor.id] || 'normal';
+      const row = element('div'); row.className = 'initiative-task'; row.dataset.initiativeActor = actor.id;
+      row.append(element('strong', actor.name));
+      if (entry) {
+        row.append(element('p', `已提交：${entry.values.join('、')} → 先攻 ${entry.total}`));
+        if (dm) { const clear = element('button', '重填'); clear.type = 'button'; clear.addEventListener('click', () => invoke(clear, 'clear-initiative', { actorId: actor.id })); row.append(clear); }
+      } else {
+        row.append(element('small', `${modes.find(m => m[0] === mode)[1]} · 原始d20，加值自动计算${dm && actor.kind === 'pc' ? ' · 可代填' : ''}`));
+        const inputs = element('div'); inputs.className = 'dice-inputs';
+        for (let i = 0; i < (mode === 'normal' ? 1 : 2); i++) inputs.append(dieInput(`collect-${actor.id}-${i}`, 20, previous));
+        row.append(inputs);
+        const submit = element('button', state.diceMode === 'physical' ? '提交骰点' : '掷骰 / 提交所填骰点'); submit.type = 'button'; submit.dataset.submitInitiative = actor.id;
+        submit.addEventListener('click', () => {
+          const rolls = readValues(inputs);
+          return invoke(submit, 'submit-initiative', { actorId: actor.id, ...(rolls.length || state.diceMode === 'physical' ? { rolls } : {}) });
+        }); row.append(submit);
+      }
+      area.append(row);
+    }
+    if (activeDie) [...area.querySelectorAll('input')].find(i => i.dataset.dieKey === activeDie)?.focus();
   }
   for (const id of ['attack-choice', 'target-choice', 'roll-mode', 'use-physical-dice']) $(id).addEventListener('change', () => {
     planKey = ''; refreshPlan();
@@ -83,7 +124,7 @@ export function dicePanel({ api, action, getState, getActor, notify }) {
       $('dice-mode-label').hidden = state.viewRole !== 'dm'; $('dice-mode').value = state.diceMode || 'program';
       $('use-physical-dice').disabled = state.diceMode === 'physical';
       $('physical-mode-caption').textContent = state.diceMode === 'physical' ? '本场：线下骰' : '本场：程序骰；也可临时录入实体骰';
-      $('initiative-options').hidden = state.viewRole !== 'dm'; renderInitiative(state);
+      renderInitiative(state);
       if (state.diceMode === 'physical' && state.combat.phase === 'preparing') $('initiative-options').open = true;
       refreshPlan();
       $('attack-form').querySelector('button').textContent = physical() ? '提交线下骰并结算' : '掷骰并结算攻击';
@@ -92,7 +133,7 @@ export function dicePanel({ api, action, getState, getActor, notify }) {
       const state = getState(), modeMap = {}, initiative = {};
       for (const row of $('initiative-entries').querySelectorAll('[data-actor-id]')) {
         modeMap[row.dataset.actorId] = row.querySelector('select').value;
-        if (state.diceMode === 'physical') initiative[row.dataset.actorId] = readValues(row.querySelector('[data-initiative-dice]'));
+        if (state.diceMode === 'physical' && row.querySelector('[data-initiative-dice]')) initiative[row.dataset.actorId] = readValues(row.querySelector('[data-initiative-dice]'));
       }
       return { modes: modeMap, ...(state.diceMode === 'physical' ? { manualRolls: { initiative } } : {}) };
     },
@@ -104,7 +145,7 @@ export function dicePanel({ api, action, getState, getActor, notify }) {
     clearAttack() { request++; planKey = ''; entryKey = ''; plan = null; $('physical-d20').replaceChildren(); $('physical-damage').replaceChildren(); },
     clear() {
       request++; actorKey = ''; planKey = ''; entryKey = ''; plan = null;
-      for (const id of ['initiative-entries', 'physical-d20', 'physical-damage']) $(id).replaceChildren();
+      for (const id of ['initiative-entries', 'initiative-collection', 'physical-d20', 'physical-damage']) $(id).replaceChildren();
       $('physical-plan-note').textContent = ''; $('use-physical-dice').checked = false;
     }
   };
