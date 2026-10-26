@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { openWorkspace } from './src/workspace.mjs';
 import { initializeCampaign, findCampaign } from './src/campaign.mjs';
 import { projectState, handoff, RuleError, planAttack, parseDice } from './src/rules.mjs';
+import { createSharing } from './src/sharing.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const hash = value => createHash('sha256').update(value).digest();
@@ -18,18 +19,21 @@ async function readBody(request) {
     if (bytes > 65536) throw new RuleError('操作超过64KB', 413);
     chunks.push(chunk);
   }
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  let body;
+  try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
   catch { throw new RuleError('JSON格式无效'); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new RuleError('请求须为JSON对象');
+  return body;
 }
 
-export async function startApp({ campaignDir, workspaceDir, port = 4182, initial, persist } = {}) {
+export async function startApp({ campaignDir, workspaceDir, port = 4182, initial, persist, sharingOptions = {} } = {}) {
   const directory = resolve(campaignDir || await findCampaign(resolve(ROOT, '../存档')));
   const workspaceDirectory = resolve(workspaceDir || (campaignDir ? resolve(directory, '.工作区') : resolve(ROOT, '../存档')));
   const workspace = await openWorkspace({ seedDirectory: directory, workspaceDirectory,
     initial: initial || (() => initializeCampaign(directory)), persist });
   const sessions = new Map();
   const staticFiles = new Map([
-    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
+    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
     ['/app.mjs', [join(ROOT, 'web/app.mjs'), 'text/javascript; charset=utf-8']],
@@ -39,8 +43,9 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
     ['/vendor/LICENSE', [resolve(ROOT, '../骰盘/node_modules/three/LICENSE'), 'text/plain; charset=utf-8']]
   ]);
   let loginWindow = { start: Date.now(), count: 0 };
-  let closeApp;
-  const server = createServer(async (request, response) => {
+  let closeApp, sharing;
+  const playerRoutes = new Set(['GET /api/state', 'GET /api/handoff', 'POST /api/action', 'POST /api/attack-plan', 'POST /api/logout']);
+  const handle = audience => async (request, response) => {
     const send = (status, body) => {
       response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
       response.end(JSON.stringify(body));
@@ -52,12 +57,18 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
     response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'");
     try {
       const origin = `http://127.0.0.1:${server.address().port}`;
-      if (request.headers.host !== new URL(origin).host || (request.headers.origin && request.headers.origin !== origin)) throw new RuleError('只接受本机同源请求', 403);
+      if (audience === 'player') sharing.assertOrigin(request);
+      else if (request.headers.host !== new URL(origin).host || (request.headers.origin && request.headers.origin !== origin)) throw new RuleError('只接受本机同源请求', 403);
       const path = new URL(request.url, origin).pathname;
       if (request.method === 'GET' && path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
-      if (request.method === 'GET' && path === '/health') return send(200, {
-        app: 'local-battle-v1', coreVersion: 'workspace-terrain-v2', campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
-      if (request.method === 'POST' && path === '/api/login') {
+      if (request.method === 'GET' && path === '/api/client-info') return send(200, { audience });
+      if (audience === 'local' && request.method === 'GET' && path === '/health') return send(200, {
+        app: 'local-battle-v1', coreVersion: 'table-sharing-v3', campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
+      if (audience === 'player' && request.method === 'POST' && path === '/api/join') {
+        const body = await readBody(request);
+        return send(200, sharing.join(body.invite));
+      }
+      if (audience === 'local' && request.method === 'POST' && path === '/api/login') {
         if (Date.now() - loginWindow.start > 60000) loginWindow = { start: Date.now(), count: 0 };
         if (++loginWindow.count > 30) throw new RuleError('尝试次数过多，请一分钟后再试', 429);
         const body = await readBody(request);
@@ -78,23 +89,38 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
         return send(200, { token, role: principal.role, id: principal.id });
       }
       if (path.startsWith('/api/')) {
+        if (audience === 'player' && !playerRoutes.has(`${request.method} ${path}`)) throw new RuleError('玩家入口不提供此操作', 403);
         const token = request.headers.authorization?.replace(/^Bearer /, '');
-        const principal = sessions.get(token);
+        const principal = audience === 'player' ? sharing.principal(token) : sessions.get(token);
         if (!principal || principal.expires < Date.now()) throw new RuleError('请重新登录', 401);
         workspace.context(principal);
-        const reply = () => ({ state: projectState(workspace.store.state, principal), recoveryNote: workspace.store.recoveryNote, selection: workspace.selection });
+        const reply = () => ({ state: projectState(workspace.store.state, principal),
+          recoveryNote: audience === 'local' ? workspace.store.recoveryNote : null, selection: workspace.selection });
+        if (path === '/api/sharing') {
+          if (principal.role !== 'dm') throw new RuleError('需要DM权限', 403);
+          if (request.method === 'GET') return send(200, sharing.status());
+          if (request.method === 'POST') return send(200, await sharing.operate(await readBody(request)));
+        }
         if (request.method === 'GET' && path === '/api/state') return send(200, reply());
         if (request.method === 'GET' && path === '/api/handoff') return send(200, handoff(workspace.store.state, principal));
         if (request.method === 'GET' && path === '/api/catalog') return send(200, await workspace.catalog(principal));
-        if (request.method === 'POST' && path === '/api/select') { await workspace.select(await readBody(request), principal); return send(200, reply()); }
-        if (request.method === 'POST' && path === '/api/campaigns') { await workspace.createCampaign(await readBody(request), principal); return send(200, reply()); }
-        if (request.method === 'POST' && path === '/api/battles') { await workspace.createBattle(await readBody(request), principal); return send(200, reply()); }
+        if (request.method === 'POST' && path === '/api/select') {
+          const previous = workspace.selection;
+          await workspace.select(await readBody(request), principal);
+          if (previous.campaignId !== workspace.selection.campaignId || previous.battleId !== workspace.selection.battleId) sharing.invalidate();
+          return send(200, reply());
+        }
+        if (request.method === 'POST' && path === '/api/campaigns') { await workspace.createCampaign(await readBody(request), principal); sharing.invalidate(); return send(200, reply()); }
+        if (request.method === 'POST' && path === '/api/battles') { await workspace.createBattle(await readBody(request), principal); sharing.invalidate(); return send(200, reply()); }
         if (request.method === 'POST' && path === '/api/attack-plan') {
           const plan = planAttack(workspace.store.state, await readBody(request), principal);
           return send(200, { mode: plan.mode, d20Count: plan.mode === 'normal' ? 1 : 2,
             damage: plan.attack.damage.map(item => ({ ...parseDice(item.formula), type: item.type, formula: item.formula })) });
         }
-        if (request.method === 'POST' && path === '/api/logout') { sessions.delete(token); return send(200, { ok: true }); }
+        if (request.method === 'POST' && path === '/api/logout') {
+          if (audience === 'player') sharing.logout(token); else sessions.delete(token);
+          return send(200, { ok: true });
+        }
         if (request.method === 'POST' && path === '/api/shutdown') {
           if (principal.role !== 'dm') throw new RuleError('需要DM权限', 403);
           response.once('finish', () => { closeApp().catch(() => {}); });
@@ -113,16 +139,26 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
     } catch (error) {
       send(error.status || 500, { error: error instanceof RuleError ? error.message : '本地读取或保存失败；正式进度未确认，请刷新并检查磁盘。', code: error.code });
     }
+  };
+  const server = createServer(handle('local'));
+  sharing = createSharing({ executable: join(ROOT, '.tools/cloudflared.exe'), ...sharingOptions, workspace,
+    createGateway: async ({ port, host }) => {
+      const gateway = createServer(handle('player'));
+      await new Promise((accept, reject) => { gateway.once('error', reject); gateway.listen(port, host, accept); });
+      return gateway;
+    }
   });
   try {
     await new Promise((accept, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', accept); });
   } catch (error) { await workspace.close(); throw error; }
   let closePromise;
   closeApp = () => closePromise ||= (async () => {
+    await sharing.close();
     await new Promise((accept, reject) => server.close(error => error ? reject(error) : accept()));
     await workspace.close();
   })();
-  return { server, get store() { return workspace.store; }, workspace, url: `http://127.0.0.1:${server.address().port}`, directory, close: closeApp };
+  return { server, get store() { return workspace.store; }, workspace, sharing,
+    url: `http://127.0.0.1:${server.address().port}`, directory, close: closeApp };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
