@@ -1,15 +1,14 @@
 import { createServer } from 'node:http';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { openStore } from './src/store.mjs';
 import { initializeCampaign, findCampaign } from './src/campaign.mjs';
 import { projectState, handoff, RuleError } from './src/rules.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const hash = value => createHash('sha256').update(value).digest();
-const equal = (a, b) => typeof a === 'string' && typeof b === 'string' && timingSafeEqual(hash(a), hash(b));
 
 async function readBody(request) {
   if (!request.headers['content-type']?.startsWith('application/json')) throw new RuleError('请求须为JSON', 415);
@@ -27,17 +26,6 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
   const directory = resolve(campaignDir || await findCampaign(resolve(ROOT, '../存档')));
   const store = await openStore(directory, initial || (() => initializeCampaign(directory)), { persist });
   const sessions = new Map();
-  let credentials;
-  const authPath = join(directory, '本机身份.json');
-  try {
-    try { credentials = JSON.parse(await readFile(authPath, 'utf8')); }
-    catch (error) {
-      if (error.code !== 'ENOENT') throw new Error('本机身份文件无法读取，未覆盖原文件。');
-      credentials = { dmId: 'DM', dmSecret: randomBytes(24).toString('base64url') };
-      await writeFile(authPath, JSON.stringify(credentials, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-    }
-    if (typeof credentials.dmId !== 'string' || typeof credentials.dmSecret !== 'string' || credentials.dmSecret.length < 16) throw new Error('本机身份文件无效；DM凭据至少16位。');
-  } catch (error) { await store.close(); throw error; }
   const staticFiles = new Map([
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
@@ -73,12 +61,11 @@ export async function startApp({ campaignDir, port = 4182, initial, persist } = 
         if (typeof body.id !== 'string' || body.id.length > 100) throw new RuleError('身份格式无效');
         const identifier = body.id.trim();
         let principal;
-        if (identifier === credentials.dmId) {
-          if (!equal(body.secret, credentials.dmSecret)) throw new RuleError('身份或DM凭据不正确', 401);
-          principal = { role: 'dm', id: credentials.dmId };
+        if (identifier.toUpperCase() === 'DM') {
+          principal = { role: 'dm', id: 'DM' };
         } else {
           const actor = store.state.actors.find(a => a.kind === 'pc' && [a.ownerId, a.id, a.name].includes(identifier));
-          if (!actor) throw new RuleError('身份或DM凭据不正确', 401);
+          if (!actor) throw new RuleError('找不到这个玩家身份', 401);
           principal = { role: 'player', id: actor.ownerId };
         }
         for (const [key, value] of sessions) if (value.expires < Date.now()) sessions.delete(key);
@@ -130,7 +117,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65535) throw new Error('BATTLE_PORT无效');
   try {
     const app = await startApp({ campaignDir: index >= 0 ? process.argv[index + 1] : undefined, port: requestedPort });
-    console.log(`本地战斗已启动：${app.url}\nDM凭据在战役目录的“本机身份.json”，请在本机查看。`);
+    console.log(`本地战斗已启动：${app.url}\n本机直接选择DM，无需凭据。`);
     let closing = false;
     const stop = async () => { if (closing) return; closing = true; await app.close(); process.exit(0); };
     process.on('SIGINT', stop); process.on('SIGTERM', stop);

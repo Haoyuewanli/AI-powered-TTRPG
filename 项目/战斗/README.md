@@ -6,7 +6,7 @@
 
 1. 双击工作区最外层的 [打开跑团.cmd](../../打开跑团.cmd)，或本目录的 **打开跑团.cmd**。程序自动启动本地核心、读取原存档，默认用已安装的Edge打开独立应用窗口；不需互联网，重复打开会复用同一战役核心。
 2. 玩家输入角色名、角色 ID 或 `player-1`，DM 凭据留空。玩家入口按身份展示自己的完整状态及已揭示棋子，控制自己的当前回合。
-3. DM 输入 `DM`，并填写战役目录 `本机身份.json` 的 `dmSecret`。双击 **查看DM凭据.cmd** 可用本机记事本查看；请不要将该文件或凭据发给聊天工具。
+3. DM直接点击“我是DM”，或输入 `DM`，无需凭据。旧的“查看DM凭据”入口兼容为打开窗口；现有本机身份文件不再读取，也不删除用户已有文件。
 4. 首次由 DM 选中每个棋子，展开“资料与棋子设置”，核对数值、当前资源与形态、攻击列表，勾选已核对并保存；然后“投先攻·开始”。角色卡的手写抄录只是预填草稿，程序不自动赋予照片中的临时生命。
 
 `http://127.0.0.1:4182`是程序运行时的本机内部地址，不是日常启动入口。核心退出或电脑重启后，单独打开地址不会启动程序。请始终双击本地入口；核心不在运行时会自动启动，确认就绪后再显示窗口。
@@ -25,7 +25,7 @@ node launcher.mjs --campaign "战役目录的完整路径" --port 4183
 
 需要 Node.js 20 或更新版本，以及现有 `项目/骰盘/node_modules/three/`。这些文件均已在本机，无需联网下载才能启动。Three.js的锁定版本仍由骰盘 `package-lock.json` 管理；启动器会核对版本。若主动删除了依赖或移动了部分项目文件，需先恢复完整目录；本模块不自动下载或更新依赖。
 
-玩家名字/ID 是本地角色选择方式，DM 另有凭据。玩家界面与接口都不返回隐藏单位、敌方精确HP/AC、DM备注、私人事件或完整存档。浏览器会话有效期8小时，服务重启后重新登录。同机能读取战役文件的人仍能读取DM数据；当前不是联网多人服务。
+玩家名字/ID与DM按钮用于本机视角选择，均无需口令。玩家界面与接口都不返回隐藏单位、敌方精确HP/AC、DM备注、私人事件或完整存档。浏览器会话有效期8小时，服务重启后重新登录。同机使用者可自由切换DM与玩家视角；当前不是联网多人权限系统。
 
 ## 棋盘和操作
 
@@ -57,7 +57,7 @@ node launcher.mjs --campaign "战役目录的完整路径" --port 4183
 | `角色卡/`、`怪物/`、`资料清单.json` | 原件、待核对抄录和资料来源 |
 | `战斗状态.json` | 正式局面、角色、资源、DM秘密、事件与已执行操作ID |
 | `战斗状态.previous.json` | 上一次已确认的完整进度 |
-| `本机身份.json` | 本机DM ID和凭据，仅在本机使用 |
+| `本机身份.json`（历史文件） | 当前版本不再读取或生成，原有文件保留 |
 | `.battle.lock` | 防止两个进程同时写同一战役；正常停止后自动释放 |
 | `损坏存档-时间.json` | 当前文件损坏时保留原件，再从有效备份恢复 |
 
@@ -93,7 +93,7 @@ node launcher.mjs --campaign "战役目录的完整路径" --port 4183
 | `edit-actor` | `actorId, patch, reason`，可选 `publicNote` | DM |
 | `adjudicate` | `actorId, reason`；可选 `damage:[{type,amount}], heal, temporaryHp, resources, consumeAction, publicNote` | DM |
 
-API：`POST /api/login` 输入 `{id,secret}` 得到会话令牌（玩家不需secret），后续使用 `Authorization: Bearer <token>`；`GET /api/state`、`GET /api/handoff`、`POST /api/action`、`POST /api/logout`、DM专用 `POST /api/shutdown`。只接受本机Host及同源浏览器请求，不提供文件系统通配访问。调用本机HTTP接口不需要模型服务。
+API：`POST /api/login` 输入 `{id}` 得到会话令牌（DM的id为`DM`，均无需口令），后续使用 `Authorization: Bearer <token>`；`GET /api/state`、`GET /api/handoff`、`POST /api/action`、`POST /api/logout`、DM专用 `POST /api/shutdown`。只接受本机Host及同源浏览器请求，不提供文件系统通配访问。调用本机HTTP接口不需要模型服务。
 
 职责分开在 `src/rules.mjs`（规则和权限投影）、`src/store.mjs`（持久化）、`src/campaign.mjs`（资料载入）、`web/board.mjs`（显示）、`web/app.mjs`（交互）。后续主持适配器只交换局面与提议，新增动作沿用同一校验入口；换棋子模型无需改规则占地。存档格式及规则范围都有版本标识；不支持的新版本会拒绝载入，避免静默错算。当前事件写在单一JSON内，长战役时应评估文件体积后再拆日志，首轮未引入数据库。
 

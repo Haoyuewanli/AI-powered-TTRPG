@@ -30,6 +30,7 @@ export class BattleBoard {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.domElement.setAttribute('aria-label', '3D战斗棋盘画布');
     container.append(this.renderer.domElement);
     this.scene.add(new THREE.HemisphereLight('#badbea', '#1e2a2c', .8));
@@ -42,7 +43,7 @@ export class BattleBoard {
     this.target = new THREE.Vector3(50, 0, 40); this.wantedTarget = this.target.clone();
     this.orbit = { azimuth: .4, polar: .82, distance: 135 }; this.wanted = { ...this.orbit };
     this.ray = new THREE.Raycaster(); this.pointer = new THREE.Vector2(); this.meshes = [];
-    this.frame = 0; this.drag = null;
+    this.frame = 0; this.drag = null; this.heldKeys = new Set();
     this.resize = new ResizeObserver(() => {
       const width = container.clientWidth, height = container.clientHeight;
       if (!width || !height) return;
@@ -76,21 +77,23 @@ export class BattleBoard {
     canvas.addEventListener('pointercancel', () => { this.drag = null; });
     canvas.addEventListener('wheel', event => { event.preventDefault(); this.zoom(Math.exp(event.deltaY * .001)); }, { passive: false });
     container.addEventListener('keydown', event => {
-      const key = event.key.toLowerCase(); let handled = true;
-      if (key === '+' || key === '=') this.zoom(.88);
-      else if (key === '-' || key === '_') this.zoom(1.12);
-      else if (key === '0') this.reset();
-      else if (['q', 'arrowleft'].includes(key)) this.wanted.azimuth += .15;
-      else if (['e', 'arrowright'].includes(key)) this.wanted.azimuth -= .15;
-      else if (['r', 'arrowup'].includes(key)) this.wanted.polar = Math.max(.18, this.wanted.polar - .12);
-      else if (['f', 'arrowdown'].includes(key)) this.wanted.polar = Math.min(1.48, this.wanted.polar + .12);
-      else if (key === 'a') this.pan(-4, 0);
-      else if (key === 'd') this.pan(4, 0);
-      else if (key === 'w') this.pan(0, 4);
-      else if (key === 's') this.pan(0, -4);
-      else handled = false;
-      if (handled) { event.preventDefault(); this.requestRender(); }
+      if (event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.code === 'Digit0' || event.code === 'Numpad0') {
+        event.preventDefault(); if (!event.repeat) this.reset(); return;
+      }
+      const keys = ['KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyW', 'KeyA', 'KeyS', 'KeyD',
+        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract'];
+      if (!keys.includes(event.code)) return;
+      event.preventDefault();
+      if (this.heldKeys.has(event.code)) return;
+      if (!this.heldKeys.size) this.lastFrame = performance.now();
+      this.heldKeys.add(event.code); this.advanceKeyboard(1 / 60); this.requestRender();
     });
+    window.addEventListener('keyup', event => { this.heldKeys.delete(event.code); });
+    const releaseKeys = () => this.heldKeys.clear();
+    container.addEventListener('blur', releaseKeys);
+    window.addEventListener('blur', releaseKeys);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) releaseKeys(); });
     canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); this.container.dispatchEvent(new CustomEvent('board-error', { detail: '3D绘图暂时中断，请刷新页面；已保存的战斗进度仍在本机。' })); });
     this.requestRender();
   }
@@ -102,6 +105,20 @@ export class BattleBoard {
     this.wantedTarget.z = THREE.MathUtils.clamp(this.wantedTarget.z, -100, 300);
   }
   zoom(factor) { this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * factor, 14, 350); this.requestRender(); }
+  advanceKeyboard(seconds) {
+    const held = (...keys) => keys.some(key => this.heldKeys.has(key)) ? 1 : 0;
+    this.wanted.azimuth += (held('KeyQ', 'ArrowLeft') - held('KeyE', 'ArrowRight')) * 1.6 * seconds;
+    this.wanted.polar = THREE.MathUtils.clamp(this.wanted.polar +
+      (held('KeyF', 'ArrowDown') - held('KeyR', 'ArrowUp')) * .85 * seconds, .18, 1.48);
+    let right = held('KeyD') - held('KeyA'), forward = held('KeyW') - held('KeyS');
+    const length = Math.hypot(right, forward);
+    if (length) {
+      const speed = this.wanted.distance * .25 * seconds / length;
+      this.pan(right * speed, forward * speed);
+    }
+    const zoom = held('Minus', 'NumpadSubtract') - held('Equal', 'NumpadAdd');
+    if (zoom) this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * Math.exp(zoom * 1.2 * seconds), 14, 350);
+  }
   reset() {
     const { width = 100, depth = 80 } = this.board || {};
     this.wantedTarget.set(width / 2, 0, depth / 2);
@@ -112,20 +129,22 @@ export class BattleBoard {
     this.renderer.domElement.dataset.settled = 'false';
     this.frame = requestAnimationFrame(time => {
       this.frame = 0;
-      const elapsed = this.lastFrame ? Math.min(64, time - this.lastFrame) : 16;
+      const elapsed = this.lastFrame ? THREE.MathUtils.clamp(time - this.lastFrame, 0, 64) : 16;
       const factor = 1 - Math.exp(-elapsed / 50); this.lastFrame = time;
+      if (this.heldKeys.size) this.advanceKeyboard(elapsed / 1000);
       this.target.lerp(this.wantedTarget, factor);
       for (const key of ['azimuth', 'polar', 'distance']) this.orbit[key] += (this.wanted[key] - this.orbit[key]) * factor;
       const { azimuth: a, polar: p, distance: d } = this.orbit;
       this.camera.position.set(this.target.x + d * Math.sin(p) * Math.sin(a), d * Math.cos(p), this.target.z + d * Math.sin(p) * Math.cos(a));
       this.camera.lookAt(this.target); this.renderer.render(this.scene, this.camera);
       this.renderer.domElement.dataset.camera = JSON.stringify({ ...this.orbit, target: this.target.toArray() });
-      if (this.target.distanceTo(this.wantedTarget) > .001 || Object.keys(this.orbit).some(k => Math.abs(this.orbit[k] - this.wanted[k]) > .001)) this.requestRender();
+      if (this.heldKeys.size || this.target.distanceTo(this.wantedTarget) > .001 || Object.keys(this.orbit).some(k => Math.abs(this.orbit[k] - this.wanted[k]) > .001)) this.requestRender();
       else this.renderer.domElement.dataset.settled = 'true';
     });
   }
   setGround(board) {
     disposeGroup(this.ground); this.board = board;
+    this.renderer.shadowMap.needsUpdate = true;
     const { width, depth } = board;
     const slab = new THREE.Mesh(new THREE.BoxGeometry(width + 2, 1, depth + 2), new THREE.MeshStandardMaterial({ color: new THREE.Color('#172f3d').convertSRGBToLinear(), roughness: .8 }));
     slab.position.set(width / 2, -.6, depth / 2); this.ground.add(slab);
@@ -150,6 +169,7 @@ export class BattleBoard {
   update(state, selected) {
     if (!this.board || this.board.width !== state.board.width || this.board.depth !== state.board.depth) this.setGround(state.board);
     disposeGroup(this.pieces); this.meshes = []; this.selected = selected;
+    this.renderer.shadowMap.needsUpdate = true;
     for (const actor of state.actors) {
       const group = new THREE.Group(); group.position.set(actor.position.x, 0, actor.position.z); group.rotation.y = -actor.facing * Math.PI / 180;
       const color = actor.kind === 'pc' ? '#3b8595' : '#906b60';
@@ -177,5 +197,5 @@ export class BattleBoard {
     this.renderer.domElement.dataset.actorCount = String(state.actors.length);
     this.renderer.domElement.dataset.ready = 'true'; this.requestRender();
   }
-  clear() { disposeGroup(this.pieces); this.meshes = []; this.renderer.domElement.dataset.actorCount = '0'; this.requestRender(); }
+  clear() { this.heldKeys.clear(); disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.requestRender(); }
 }

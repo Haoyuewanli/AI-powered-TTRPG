@@ -31,7 +31,7 @@ async function api(path, body) {
 function clearSession() {
   token = ''; state = null; selectedId = null; dirty = false; editingRevision = null;
   sessionStorage.removeItem('battle-session');
-  $('table').hidden = true; $('login').hidden = false; $('secret').value = '';
+  $('table').hidden = true; $('login').hidden = false;
   for (const id of ['roster', 'actor-info', 'events', 'reference']) $(id).replaceChildren();
   for (const id of ['selected-name', 'selected-kind', 'turn-caption', 'title', 'role', 'save-status', 'recovery']) $(id).textContent = '';
   for (const item of $('table').querySelectorAll('input,textarea')) { item.value = ''; if (item.type === 'checkbox') item.checked = false; }
@@ -141,10 +141,12 @@ async function sendCommand(command) {
 }
 const action = (type, payload = {}, expectedRevision = state.revision) => sendCommand({ campaignId: state.campaignId, actionId: crypto.randomUUID(), expectedRevision, type, payload });
 
-$('login-form').addEventListener('submit', guarded(async () => {
-  const result = await api('/api/login', { id: $('identity').value, secret: $('secret').value });
-  token = result.token; sessionStorage.setItem('battle-session', token); $('secret').value = ''; await loadState();
-}));
+async function enter(id) {
+  const result = await api('/api/login', { id });
+  token = result.token; sessionStorage.setItem('battle-session', token); await loadState();
+}
+$('login-form').addEventListener('submit', guarded(() => enter($('identity').value)));
+$('enter-dm').addEventListener('click', guarded(() => enter('DM')));
 $('logout').addEventListener('click', guarded(async () => { try { await api('/api/logout', {}); } finally { clearSession(); } }));
 $('shutdown').addEventListener('click', guarded(async () => { await api('/api/shutdown', {}); clearSession(); notify('本地服务已停止。下次双击“启动战斗.cmd”恢复进度。'); }));
 $('refresh').addEventListener('click', guarded(async () => { await loadState(); notify('已读取本机最新进度'); }));

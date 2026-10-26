@@ -56,11 +56,9 @@ try {
     if (!status || status.app !== 'local-battle-v1' || status.campaignKey !== campaignKey) throw new Error('服务未能就绪，请检查战役目录的日志。');
   }
   if (process.argv.includes('--credentials')) {
-    if (process.platform !== 'win32') throw new Error('请在本机战役目录查看“本机身份.json”。');
-    const editor = spawn('notepad.exe', [join(directory, '本机身份.json')], { detached: true, stdio: 'ignore' });
-    editor.once('error', () => console.error('无法打开记事本，请在战役目录手动查看“本机身份.json”。')); editor.unref();
+    console.log('DM凭据已取消，请在打开的窗口直接选择“我是DM”。');
   }
-  if (!process.argv.includes('--no-browser') && process.platform === 'win32') {
+  if ((!process.argv.includes('--no-browser') || process.argv.includes('--credentials')) && process.platform === 'win32') {
     const opened = !process.argv.includes('--browser') && await openBattleWindow(url, resolve(root, '../存档/战斗窗口')).catch(() => false);
     if (!opened) await openBrowser(url);
   }

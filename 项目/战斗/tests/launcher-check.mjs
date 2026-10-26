@@ -24,9 +24,8 @@ const launch = () => process.platform === 'win32' ?
 const sleep = ms => new Promise(accept => setTimeout(accept, ms));
 let token;
 async function login() {
-  const credentials = JSON.parse(await readFile(join(directory, '本机身份.json'), 'utf8'));
   const response = await fetch(url + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: credentials.dmId, secret: credentials.dmSecret }) });
+    body: JSON.stringify({ id: 'DM' }) });
   token = (await response.json()).token; assert(token);
 }
 async function stop() {

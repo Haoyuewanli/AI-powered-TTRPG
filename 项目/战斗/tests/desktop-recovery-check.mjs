@@ -43,9 +43,7 @@ async function openWindow(profileName) {
   const page = context.pages().find(p => p.url().startsWith(url)) || await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(url);
-  const credentials = JSON.parse(await readFile(join(dir, '本机身份.json'), 'utf8'));
-  await page.locator('#identity').fill('DM'); await page.locator('#secret').fill(credentials.dmSecret);
-  await page.locator('#login-form button').click(); await page.locator('canvas[data-ready="true"]').waitFor();
+  await page.locator('#enter-dm').click(); await page.locator('canvas[data-ready="true"]').waitFor();
   await page.locator('canvas[data-settled="true"]').waitFor();
   token = await page.evaluate(() => sessionStorage.getItem('battle-session'));
   return page;

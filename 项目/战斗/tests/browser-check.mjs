@@ -15,7 +15,6 @@ const app = await startApp({ campaignDir: directory, port: 0, initial: () => {
   const state = fixture(); state.actors.forEach(a => { a.confirmed = false; });
   return state;
 } });
-const credentials = JSON.parse(await readFile(join(directory, '本机身份.json'), 'utf8'));
 const browser = await chromium.launch({ executablePath: process.env.BATTLE_BROWSER || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   headless: true, args: ['--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader'] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1040 }, deviceScaleFactor: 1 });
@@ -28,8 +27,8 @@ const checks = [];
 const check = name => checks.push(name);
 const camera = async page => JSON.parse(await page.locator('canvas').getAttribute('data-camera'));
 const settle = async page => { await page.waitForTimeout(150); await page.locator('canvas[data-settled="true"]').waitFor({ timeout: 20000 }); };
-async function login(page, id, secret = '') {
-  await page.goto(app.url); await page.locator('#identity').fill(id); await page.locator('#secret').fill(secret);
+async function login(page, id) {
+  await page.goto(app.url); await page.locator('#identity').fill(id);
   await page.locator('#login-form button').click(); await page.locator('canvas[data-ready="true"]').waitFor(); await settle(page);
 }
 async function editor(page, id) {
@@ -43,7 +42,7 @@ async function saveEditor(page) {
 }
 try {
   const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
-  await login(page, 'DM', credentials.dmSecret);
+  await login(page, 'DM');
   assert.equal(await page.locator('canvas').getAttribute('data-actor-count'), '2');
   assert(await page.locator('#start').isDisabled()); check('未核对资料不能开始');
   const initial = await camera(page), box = await page.locator('canvas').boundingBox();
@@ -56,10 +55,23 @@ try {
   const rotated = await camera(page); assert(Math.abs(rotated.azimuth - initial.azimuth) > .1); check('左拖旋转');
   await page.locator('#viewport').focus(); await page.keyboard.press('q'); await page.keyboard.press('r'); await settle(page);
   const keyboardRotate = await camera(page); assert(keyboardRotate.azimuth > rotated.azimuth); assert(keyboardRotate.polar < rotated.polar); check('键盘旋转与倾角');
+  await page.keyboard.down('q'); await page.waitForTimeout(160); const heldA = await camera(page);
+  await page.waitForTimeout(180); const heldB = await camera(page);
+  await page.waitForTimeout(180); const heldC = await camera(page); await page.keyboard.up('q'); await settle(page);
+  assert(heldB.azimuth > heldA.azimuth + .03 && heldC.azimuth > heldB.azimuth + .03); check('仅一次keydown后长按仍逐帧连续旋转');
+  await page.keyboard.down('w'); await page.waitForTimeout(180); const walkA = await camera(page);
+  await page.waitForTimeout(220); const walkB = await camera(page); await page.keyboard.up('w'); await settle(page);
+  assert(Math.hypot(walkB.target[0] - walkA.target[0], walkB.target[2] - walkA.target[2]) > 1); check('长按连续平移');
+  await page.keyboard.down('q'); await page.waitForTimeout(150); await page.locator('#move-x').focus(); await settle(page);
+  const unfocused = await camera(page); await page.waitForTimeout(220);
+  assert(Math.abs((await camera(page)).azimuth - unfocused.azimuth) < .003); await page.keyboard.up('q'); check('输入框获得焦点后停止相机按键');
+  await page.locator('#viewport').focus();
   await page.mouse.move(center.x, center.y); await page.mouse.down({ button: 'right' }); await page.mouse.move(center.x + 60, center.y + 20, { steps: 8 }); await page.mouse.up({ button: 'right' }); await settle(page);
   const panned = await camera(page); assert(Math.abs(panned.target[0] - keyboardRotate.target[0]) > .1); check('右拖平移');
   await page.locator('#viewport').focus(); await page.keyboard.press('w'); await settle(page);
-  assert(Math.abs((await camera(page)).target[2] - panned.target[2]) > .1); check('键盘平移');
+  const keyboardPan = await camera(page);
+  assert(Math.hypot(keyboardPan.target[0] - panned.target[0], keyboardPan.target[2] - panned.target[2]) > .1,
+    JSON.stringify({ before: panned, after: keyboardPan, focus: await page.locator(':focus').getAttribute('id') })); check('键盘平移');
   await page.keyboard.press('0'); await settle(page); assert(Math.abs((await camera(page)).distance - initial.distance) < .1); check('视角复位');
   await editor(page, 'pc-001');
   await page.locator('#edit-notes').fill('DM_ONLY_CANARY'); await page.locator('#edit-confirmed').check(); await saveEditor(page);

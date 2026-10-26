@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { startApp } from '../server.mjs';
@@ -17,15 +17,15 @@ test('HTTP permissions, filtered state, handoff, stale proposals, static allowli
         ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(origin ? { Origin: origin } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}) });
     assert.equal((await request('/api/state')).status, 401);
-    assert.equal((await request('/api/login', { id: 'DM', secret: 'wrong' })).status, 401);
+    assert.equal((await request('/api/login', { id: 'unknown-player' })).status, 401);
     const player = await (await request('/api/login', { id: 'player-1' })).json();
     const visible = await (await request('/api/state', null, player.token)).text();
     for (const forbidden of ['npc-001', '仅DM读取', 'dmSecret']) assert(!visible.includes(forbidden));
     const action = { campaignId: 'test-campaign', actionId: 'http-action-001', expectedRevision: 0, type: 'edit-actor', payload: { actorId: 'pc-001', patch: { hp: 20 } } };
     assert.equal((await request('/api/action', action, player.token)).status, 403);
     assert.equal((await request('/api/shutdown', {}, player.token)).status, 403);
-    const credentials = JSON.parse(await readFile(join(dir, '本机身份.json'), 'utf8'));
-    const dm = await (await request('/api/login', { id: 'DM', secret: credentials.dmSecret })).json();
+    await assert.rejects(access(join(dir, '本机身份.json')), { code: 'ENOENT' });
+    const dm = await (await request('/api/login', { id: 'DM' })).json();
     assert.equal((await request('/api/action', action, dm.token)).status, 200);
     assert.equal((await request('/api/action', action, dm.token)).status, 409);
     assert((await (await request('/api/handoff', null, dm.token)).json()).state.actors.some(a => a.id === 'npc-001'));
