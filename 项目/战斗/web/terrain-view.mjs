@@ -1,5 +1,5 @@
 import * as THREE from '/vendor/three.module.js';
-const colors = { wall: '#718b98', hill: '#63816b', floor: '#ac9878', stairs: '#9c8d79', prop: '#826b91' };
+const colors = { wall: '#718b98', hill: '#63816b', floor: '#ac9878', stairs: '#9c8d79', prop: '#826b91', tile: '#667d80' };
 export function terrainGroup(object, selected) {
   const group = new THREE.Group(), { width: w, depth: d, height: h } = object.size;
   group.position.set(object.position.x, object.position.y, object.position.z);
@@ -17,9 +17,20 @@ export function terrainGroup(object, selected) {
     for (let i = 0; i < steps; i++) { const height = h * (i + 1) / steps; block(w, height, d / steps, 0, height / 2, -d / 2 + d * (i + .5) / steps); }
   } else if (object.type === 'hill') {
     for (let i = 0; i < 3; i++) block(w * (1 - i * .2), h / 3, d * (1 - i * .2), 0, h * (i + .5) / 3, 0);
+  } else if (object.shape && object.shape !== 'box') {
+    let geometry;
+    if (object.shape === 'cylinder') { geometry = new THREE.CylinderGeometry(.5, .5, h, 32); geometry.scale(w, 1, d); geometry.translate(0, h/2, 0); }
+    else {
+      const points = object.shape === 'ramp' ? [-w/2,0,-d/2, w/2,0,-d/2, -w/2,0,d/2, w/2,0,d/2, -w/2,h,d/2, w/2,h,d/2] : [-w/2,0,-d/2, w/2,0,-d/2, -w/2,0,d/2, -w/2,h,-d/2, w/2,h,-d/2, -w/2,h,d/2];
+      const indices = object.shape === 'ramp' ? [0,2,1,1,2,3,2,4,3,3,4,5,0,4,2,1,3,5,0,1,4,1,5,4] : [0,2,1,3,4,5,0,1,3,1,4,3,1,2,4,2,5,4,2,0,5,0,3,5];
+      geometry=new THREE.BufferGeometry(); geometry.setAttribute('position',new THREE.Float32BufferAttribute(points,3));geometry.setIndex(indices);geometry.computeVertexNormals();
+    }
+    const mesh=new THREE.Mesh(geometry,material.clone());mesh.material.side=THREE.DoubleSide;mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);
+    group.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry),new THREE.LineBasicMaterial({color:selected?'#ffe1a3':'#b6c8ca',transparent:true,opacity:.55})));
   } else block(w, h, d, 0, h / 2, 0);
   material.dispose();
-  if (object.type === 'floor') {
+  group.traverse(mesh => { if(mesh.isMesh) mesh.userData.objectId=object.id; });
+  if (object.type === 'floor' && (!object.shape || object.shape === 'box')) {
     const points = [];
     for (let x = -w / 2; x <= w / 2; x += 5) points.push(x, h + .02, -d / 2, x, h + .02, d / 2);
     for (let z = -d / 2; z <= d / 2; z += 5) points.push(-w / 2, h + .02, z, w / 2, h + .02, z);

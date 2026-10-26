@@ -89,7 +89,7 @@ export function validateActor(actor, board) {
   for (const key of ['width', 'depth']) integer(actor.space[key], 1, 30, '规则占地');
   for (const key of ['x', 'z']) requireRule(Number.isFinite(actor.position[key]) && actor.position[key] % 0.5 === 0, '位置须对齐0.5尺');
   requireRule(Number.isFinite(actor.position.y ?? 0) && (actor.position.y ?? 0) >= 0 && (actor.position.y ?? 0) <= 100 && (actor.position.y ?? 0) % 0.5 === 0, '棋子高度须为0～100尺，对齐0.5尺');
-  requireRule(actor.position.x - actor.space.width / 2 >= 0 && actor.position.x + actor.space.width / 2 <= board.width &&
+  requireRule(board.extended ? Math.abs(actor.position.x) <= 10000 && Math.abs(actor.position.z) <= 10000 : actor.position.x - actor.space.width / 2 >= 0 && actor.position.x + actor.space.width / 2 <= board.width &&
     actor.position.z - actor.space.depth / 2 >= 0 && actor.position.z + actor.space.depth / 2 <= board.depth, '棋子超出棋盘边界');
   for (const key of ['immunities', 'resistances', 'vulnerabilities']) {
     requireRule(Array.isArray(actor[key]) && actor[key].every(type => DAMAGE_TYPES.includes(type)), '伤害类型列表无效');
@@ -112,14 +112,16 @@ export function validateActor(actor, board) {
 
 export function validateObject(object, board) {
   requireRule(object && typeof object.id === 'string' && /^[\w-]{1,60}$/.test(object.id), '地形ID无效');
-  requireRule(['wall', 'hill', 'floor', 'stairs', 'prop'].includes(object.type), '地形类型无效');
+  requireRule(['wall', 'hill', 'floor', 'stairs', 'prop', 'tile'].includes(object.type), '地形类型无效');
   requireRule(typeof object.name === 'string' && object.name.trim().length > 0 && object.name.length <= 80, '地形名称须为1～80字');
-  for (const axis of ['x', 'y', 'z']) requireRule(Number.isFinite(object.position?.[axis]) && object.position[axis] >= 0 && object.position[axis] % 0.5 === 0, '地形位置须非负，对齐0.5尺');
+  for (const axis of ['x', 'y', 'z']) requireRule(Number.isFinite(object.position?.[axis]) && object.position[axis] >= (axis === 'y' || !board.extended ? 0 : -10000) && object.position[axis] <= 10000 && object.position[axis] % 0.5 === 0, '地形位置须在有效范围内，对齐0.5尺；高度不能为负');
   for (const axis of ['width', 'depth', 'height']) requireRule(Number.isFinite(object.size?.[axis]) && object.size[axis] >= 0.5 && object.size[axis] <= (axis === 'height' ? 60 : 300) && object.size[axis] % 0.5 === 0, '地形尺寸须对齐0.5尺，平面0.5～300尺，高0.5～60尺');
   requireRule([0, 90, 180, 270].includes(object.rotation), '地形旋转须为0/90/180/270度');
   requireRule(typeof object.hidden === 'boolean' && typeof object.blocksMovement === 'boolean', '地形显示与阻挡属性无效');
+  requireRule(['box','cylinder','triangle','ramp'].includes(object.shape || 'box'), '地形形状无效');
+  requireRule(object.groupId == null || typeof object.groupId === 'string' && /^[\w-]{1,60}$/.test(object.groupId), '编组ID无效');
   const bounds = objectBounds(object);
-  requireRule(bounds.minX >= 0 && bounds.maxX <= board.width && bounds.minZ >= 0 && bounds.maxZ <= board.depth && bounds.maxY <= 100, '地形超出棋盘或100尺高度边界');
+  requireRule((board.extended ? bounds.minX >= -10000 && bounds.maxX <= 10000 && bounds.minZ >= -10000 && bounds.maxZ <= 10000 : bounds.minX >= 0 && bounds.maxX <= board.width && bounds.minZ >= 0 && bounds.maxZ <= board.depth) && bounds.maxY <= 100, '地形超出棋盘或100尺高度边界');
 }
 
 const initiativeModes = ['normal', 'advantage', 'disadvantage'];
@@ -154,9 +156,10 @@ export function validateState(state) {
   if (state.formatVersion === 2) {
     requireRule(typeof state.battleId === 'string' && /^[\w-]{1,100}$/.test(state.battleId), '战斗ID无效');
     requireRule(['program', 'physical'].includes(state.diceMode) && Array.isArray(state.undoStack) && state.undoStack.length <= 30, '骰子或撤销记录无效');
-    requireRule(Array.isArray(state.objects) && state.objects.length <= 250, '地形列表无效');
+    requireRule(Array.isArray(state.objects) && state.objects.length <= 2000, '地形列表无效（最多2000件）');
   }
   requireRule(Array.isArray(state.actors) && state.actors.length > 0 && state.actors.length <= 40, '参与者数量无效');
+  requireRule((state.board.extended === undefined || typeof state.board.extended === 'boolean') && (state.board.baseEnabled === undefined || typeof state.board.baseEnabled === 'boolean'), '盘面开关无效');
   integer(state.board.width, 20, 300, '棋盘宽'); integer(state.board.depth, 20, 300, '棋盘深');
   requireRule(state.board.major === 5 && state.board.minor === 1 && ['open-flat', 'geometry'].includes(state.board.terrain), '仅支持5尺大格、1尺小格的本地几何棋盘');
   requireRule(new Set(state.actors.map(a => a.id)).size === state.actors.length, '棋子ID重复');
@@ -348,6 +351,7 @@ export function executeAction(original, command, principal, { draw = die, id = r
       requireRule(!state.actors.some(other => other.id !== actor.id && overlaps(next, other)), '目的地不可停留；需DM核对占地');
       for (const object of state.objects || []) {
         if (!pathMeetsObject(actor, next.position, object)) continue;
+        requireRule(!object.shape || object.shape === 'box', '路径涉及非矩形形状，请DM裁定实际边缘与通行');
         requireRule(!object.blocksMovement, '路径存在阻挡；请绕行或由DM裁定');
         requireRule(!['hill', 'floor', 'stairs'].includes(object.type), '路径涉及高差地形，请DM裁定通行与移动消耗');
       }
@@ -358,6 +362,10 @@ export function executeAction(original, command, principal, { draw = die, id = r
         const at = { ...actor, position: { x: actor.position.x + (next.position.x - actor.position.x) * t,
           z: actor.position.z + (next.position.z - actor.position.z) * t } };
         requireRule(!state.actors.some(other => other.id !== actor.id && overlaps(at, other)), '路径穿过占地；请分段绕行或由DM裁定');
+      }
+      if (state.board.extended || state.board.baseEnabled === false) {
+        const withinBase = p => state.board.baseEnabled !== false && p.x - actor.space.width/2 >= 0 && p.x + actor.space.width/2 <= state.board.width && p.z - actor.space.depth/2 >= 0 && p.z + actor.space.depth/2 <= state.board.depth;
+        requireRule(withinBase(actor.position) && withinBase(next.position), '路径超出原始底板或采用拼贴地图：地板覆盖、空洞和高差请DM裁定，并记录移动消耗');
       }
       actor.position = next.position; state.combat.moved += cost;
       publicText = actor.hidden ? '' : `${actor.name} 移动 ${cost} 尺。`;
@@ -417,21 +425,46 @@ export function executeAction(original, command, principal, { draw = die, id = r
     case 'edit-board': {
       dmOnly(principal); requireRule(state.combat.phase !== 'active', '请在战前修改盘面大小');
       integer(payload.width, 20, 300, '棋盘宽'); integer(payload.depth, 20, 300, '棋盘深');
-      state.board = { ...state.board, width: payload.width, depth: payload.depth };
+      state.board = { ...state.board, width: payload.width, depth: payload.depth, ...(payload.extended === undefined ? {} : {extended: payload.extended}), ...(payload.baseEnabled === undefined ? {} : {baseEnabled: payload.baseEnabled}) };
       publicText = `DM调整盘面为 ${payload.width}×${payload.depth} 尺。`; break;
     }
     case 'add-object': {
-      dmOnly(principal); requireRule(state.formatVersion === 2 && state.objects.length < 250, '本场最多250件地形');
+      dmOnly(principal); requireRule(state.formatVersion === 2 && state.objects.length < 2000, '本场最多2000件地形');
       const item = { id: `terrain-${id()}`, type: payload.type, name: payload.name, position: payload.position,
-        size: payload.size, rotation: payload.rotation ?? 0, hidden: payload.hidden ?? false, blocksMovement: payload.blocksMovement ?? false };
+        size: payload.size, shape: payload.shape || 'box', groupId: null, rotation: payload.rotation ?? 0, hidden: payload.hidden ?? false, blocksMovement: payload.blocksMovement ?? false };
       validateObject(item, state.board); state.objects.push(item); state.board.terrain = 'geometry';
       dmText = `DM新增地形 ${item.name}。`; break;
     }
     case 'edit-object': {
       dmOnly(principal); const item = state.objects?.find(o => o.id === payload.objectId); requireRule(item, '地形不存在', 404);
-      const allowed = ['name', 'type', 'position', 'size', 'rotation', 'hidden', 'blocksMovement'];
+      const allowed = ['name', 'type', 'position', 'size', 'rotation', 'hidden', 'blocksMovement', 'shape'];
       requireRule(payload.patch && Object.keys(payload.patch).length > 0 && Object.keys(payload.patch).every(k => allowed.includes(k)), '不支持的地形字段');
       Object.assign(item, payload.patch); validateObject(item, state.board); dmText = `DM修改地形 ${item.name}。`; break;
+    }
+    case 'transform-objects': {
+      dmOnly(principal);
+      requireRule(Array.isArray(payload.ids) && payload.ids.length > 0 && payload.ids.length <= 200 && new Set(payload.ids).size === payload.ids.length, '请选择1～200个不重复物件');
+      const items = payload.ids.map(key => { const item = state.objects.find(o => o.id === key); requireRule(item, '物件已不存在'); return item; });
+      requireRule(['move','copy','group','ungroup'].includes(payload.operation), '物件操作无效');
+      if (['move','copy'].includes(payload.operation)) {
+        for (const axis of ['x','y','z']) requireRule(Number.isFinite(payload.delta?.[axis]) && Math.abs(payload.delta[axis]) <= 20000 && payload.delta[axis] % .5 === 0, '位移须对齐0.5尺');
+        requireRule(payload.operation !== 'copy' || state.objects.length + items.length <= 2000, '本场最多2000件地形');
+        const groups = new Map();
+        for (const item of items) {
+          const next = payload.operation === 'copy' ? structuredClone(item) : item;
+          if (payload.operation === 'copy') {
+            next.id = `terrain-${id()}`;
+            if (next.groupId) { if (!groups.has(next.groupId)) groups.set(next.groupId, `group-${id()}`); next.groupId = groups.get(next.groupId); }
+          }
+          next.position = Object.fromEntries(['x','y','z'].map(axis => [axis, next.position[axis] + payload.delta[axis]]));
+          validateObject(next, state.board);
+          if (payload.operation === 'copy') state.objects.push(next);
+        }
+      } else {
+        const groupId = payload.operation === 'group' ? `group-${id()}` : null;
+        for (const item of items) item.groupId = groupId;
+      }
+      dmText = `DM${{move:'移动',copy:'复制',group:'编组',ungroup:'拆组'}[payload.operation]}了${items.length}件物件。`; break;
     }
     case 'remove-object': {
       dmOnly(principal); requireRule(state.objects?.some(o => o.id === payload.objectId), '地形不存在', 404);
@@ -519,8 +552,8 @@ export function projectState(state, principal) {
   const current = state.combat.order?.[state.combat.index];
   return { formatVersion: state.formatVersion, rulesVersion: state.rulesVersion, revision: state.revision,
     campaignId: state.campaignId, battleId: state.battleId, diceMode: state.diceMode || 'program', title: state.title,
-    board: { width: state.board.width, depth: state.board.depth, major: 5, minor: 1 }, viewRole: 'player', viewerId: principal.id,
-    objects: (state.objects || []).filter(o => !o.hidden).map(o => ({ id: o.id, name: o.name, type: o.type, position: structuredClone(o.position), size: structuredClone(o.size), rotation: o.rotation })),
+    board: { width: state.board.width, depth: state.board.depth, major: 5, minor: 1, extended: !!state.board.extended, baseEnabled: state.board.baseEnabled !== false }, viewRole: 'player', viewerId: principal.id,
+    objects: (state.objects || []).filter(o => !o.hidden).map(o => ({ id: o.id, name: o.name, type: o.type, position: structuredClone(o.position), size: structuredClone(o.size), rotation: o.rotation, shape: o.shape || 'box' })),
     initiativeCollection: state.initiativeCollection ? {
       status: 'collecting',
       modes: Object.fromEntries(state.actors.filter(actor => actor.ownerId === principal.id).map(actor => [actor.id, state.initiativeCollection.modes[actor.id]])),

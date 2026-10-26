@@ -38,6 +38,7 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
     ['/app.mjs', [join(ROOT, 'web/app.mjs'), 'text/javascript; charset=utf-8']],
     ['/board.mjs', [join(ROOT, 'web/board.mjs'), 'text/javascript; charset=utf-8']],
+    ['/map-placement.mjs', [join(ROOT, 'src/map-placement.mjs'), 'text/javascript; charset=utf-8']],
     ['/geometry.mjs', [join(ROOT, 'src/geometry.mjs'), 'text/javascript; charset=utf-8']],
     ['/vendor/three.module.js', [resolve(ROOT, '../骰盘/node_modules/three/build/three.module.js'), 'text/javascript; charset=utf-8']],
     ['/vendor/LICENSE', [resolve(ROOT, '../骰盘/node_modules/three/LICENSE'), 'text/plain; charset=utf-8']]

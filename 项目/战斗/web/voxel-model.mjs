@@ -1,10 +1,10 @@
 import * as THREE from '/vendor/three.module.js';
 const armorColors = {leather:'#85593a',chain:'#929fa2',iron:'#c6d0d7',gold:'#eac252',diamond:'#50d4d0'};
 export function voxelModel(actor) {
- const a=actor.appearance || {}, group=new THREE.Group();
+ const a=actor.appearance || {preset:actor.kind==='npc'?'monster':'human'}, group=new THREE.Group();
  const skin=a.skin || (a.preset==='monster'?'#7aab75':a.preset==='giant'?'#9ccde0':'#d6ae88');
  const shirt=a.clothes || (actor.kind==='pc'?'#347e8b':'#866158');
- const box=(w,h,d,x,y,z,color)=>{const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshStandardMaterial({color,roughness:.8,transparent:!!actor.hidden,opacity:actor.hidden?.45:1}));mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.actorId=actor.id;group.add(mesh);return mesh;};
+ const box=(w,h,d,x,y,z,color)=>{const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshStandardMaterial({color:new THREE.Color(color).convertSRGBToLinear(),roughness:.8,transparent:!!actor.hidden,opacity:actor.hidden?.45:1}));mesh.position.set(x,y,z);mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.actorId=actor.id;group.add(mesh);return mesh;};
  // Normalized body: 32 units tall, 16 units across, 8 units deep.
  box(8,8,8,0,28,0,skin);box(8,12,4,0,18,0,shirt);
  box(4,12,4,-6,18,0,skin);box(4,12,4,6,18,0,skin);

@@ -27,7 +27,7 @@ test('terrain edits, visibility and board shrink are validated and reversible', 
   let state = v2(); const input = wall(); delete input.id;
   state = executeAction(state, command(state, 'add-object', input), dm);
   const id = state.objects[0].id;
-  assert.throws(() => executeAction(state, command(state, 'edit-board', { width: 20, depth: 20 }), dm), /边界/);
+  assert.throws(() => executeAction(state, command(state, 'edit-board', { width: 20, depth: 20, extended: false }), dm), /边界/);
   assert.throws(() => executeAction(state, command(state, 'edit-object', { objectId: id, patch: { rotation: 45 } }), dm), /旋转/);
   assert.throws(() => executeAction(state, command(state, 'remove-object', { objectId: id }), player), /DM权限/);
   state = executeAction(state, command(state, 'edit-object', { objectId: id, patch: { hidden: true } }), dm);

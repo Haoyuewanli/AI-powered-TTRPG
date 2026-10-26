@@ -14,10 +14,10 @@ async function json(path) { return JSON.parse(await readFile(path, 'utf8')); }
 export function upgradeBattle(state, campaignId, battleId) {
   if (state.formatVersion === 2) {
     requireRule(state.campaignId === campaignId && state.battleId === battleId, '战斗文件与团目录不匹配');
-    return state;
+    return { ...state, board: { extended: true, baseEnabled: true, ...state.board } };
   }
   validateState(state);
-  return { ...state, formatVersion: 2, campaignId, battleId, undoStack: [], objects: [], diceMode: 'program' };
+  return { ...state, board: { extended: true, baseEnabled: true, ...state.board }, formatVersion: 2, campaignId, battleId, undoStack: [], objects: [], diceMode: 'program' };
 }
 
 function blankActor() {
@@ -31,7 +31,7 @@ function blankActor() {
 export function newBattleState(campaignId, battleId, title, template) {
   return {
     formatVersion: 2, rulesVersion: 'dnd2024-basic-v1', campaignId, battleId, revision: 0, title,
-    board: template ? structuredClone(template.board) : { width: 100, depth: 80, major: 5, minor: 1, terrain: 'open-flat' },
+    board: template ? structuredClone(template.board) : { width: 100, depth: 80, major: 5, minor: 1, terrain: 'open-flat', extended: true, baseEnabled: true },
     actors: template ? structuredClone(template.actors) : [blankActor()],
     objects: structuredClone(template?.objects || []), diceMode: template?.diceMode || 'program',
     combat: freshCombat(), events: [], appliedIds: [], undoStack: []

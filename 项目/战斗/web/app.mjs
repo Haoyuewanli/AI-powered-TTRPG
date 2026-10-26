@@ -60,7 +60,11 @@ function clearSession() {
 }
 function ensureBoard() {
   if (board) return;
-  try { board = new BattleBoard($('viewport'), choose, placeOnBoard, { canDrag: canDragActor, onDrop: dropActor, onHint: message => { const hint = $('drag-hint'); if (hint) { hint.textContent = message; hint.hidden = !message; } } }); }
+  try { board = new BattleBoard($('viewport'), choose, placeOnBoard, { canDrag: canDragActor, onDrop: dropActor,
+    terrainEditing: () => terrain?.editing(), stamping: () => terrain?.stamping(), acceptsObject: o => terrain?.accepts(o),
+    onSelectObject: id => {const accepted=terrain?.select(id); board?.update(state,selectedId);return accepted;}, canDragObject: () => terrain?.canDrag(),
+    objectDestination: (...args) => terrain.destination(...args), objectIds: () => terrain?.selectedIds(),
+    onObjectDrop: async (...args) => {try {await terrain.drop(...args);}catch(error){notify(error.message,true);}}, onHint: message => { const hint = $('drag-hint'); if (hint) { hint.textContent = message; hint.hidden = !message; } } }); }
   catch { $('board-error').textContent = '无法启用3D绘图，请检查浏览器硬件加速。可以继续用表单操作，正式进度保存在本机。'; $('board-error').hidden = false; }
 }
 function choose(id) {
