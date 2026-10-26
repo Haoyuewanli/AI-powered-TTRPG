@@ -77,6 +77,10 @@ function fillEditor(a) {
   $('edit-attacks').value = JSON.stringify(a.attacks, null, 2);
   $('edit-hidden').checked = a.hidden; $('edit-confirmed').checked = a.confirmed;
   $('reference').textContent = JSON.stringify(a.reference || { note: '此棋子没有附加原始资料' }, null, 2);
+  const look = a.appearance || { model: 'voxel', preset: a.kind === 'npc' ? 'monster' : 'human', skin: a.kind === 'npc' ? '#7aab75' : '#d6ae88', clothes: a.kind === 'pc' ? '#347e8b' : '#866158', hair: '#4d382c', weapon: 'none', material: 'iron', armor: {}, shield: false };
+  for (const key of ['model','preset','skin','clothes','hair','weapon','material']) $(`look-${key}`).value = look[key];
+  for (const key of ['head','chest','legs','feet']) $(`look-${key}`).value = look.armor[key] || 'none';
+  $('look-shield').checked = look.shield;
   editingRevision = state.revision; dirty = false; $('dirty-indicator').textContent = '';
 }
 function render(selectionChanged = false) {
@@ -256,6 +260,7 @@ $('dash').addEventListener('click', guarded(() => action('dash', { actorId: sele
 $('end').addEventListener('click', guarded(() => action('end')));
 $('move-form').addEventListener('submit', guarded(() => action('move', { actorId: selectedId, position: { x: Number($('move-x').value), z: Number($('move-z').value) } })));
 $('attack-form').addEventListener('submit', guarded(() => action('attack', { actorId: selectedId, targetId: $('target-choice').value, attackId: $('attack-choice').value, mode: $('roll-mode').value, ...dice.attackPayload() })));
+$('look-preset').addEventListener('change', () => { $('look-skin').value = { human: '#d6ae88', giant: '#9ccde0', monster: '#7aab75' }[$('look-preset').value]; dirty = true; $('dirty-indicator').textContent = '未保存'; });
 $('edit-form').addEventListener('input', () => { dirty = true; $('dirty-indicator').textContent = '未保存'; });
 $('reload-editor').addEventListener('click', () => { dirty = false; fillEditor(actor()); render(); });
 $('attack-template').addEventListener('click', () => {
@@ -270,6 +275,9 @@ $('edit-form').addEventListener('submit', guarded(async () => {
   patch.space = Object.fromEntries(['width', 'depth'].map(key => [key, Number($(`edit-space-${key}`).value)]));
   for (const key of ['immunities', 'resistances', 'vulnerabilities']) patch[key] = $(`edit-${key}`).value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
   for (const key of ['resources', 'notes']) patch[key] = $(`edit-${key}`).value;
+  patch.appearance = Object.fromEntries(['model','preset','skin','clothes','hair','weapon','material'].map(k => [k, $(`look-${k}`).value]));
+  patch.appearance.armor = Object.fromEntries(['head','chest','legs','feet'].map(k => [k, $(`look-${k}`).value]));
+  patch.appearance.shield = $('look-shield').checked;
   patch.hidden = $('edit-hidden').checked; patch.confirmed = $('edit-confirmed').checked;
   try { patch.attacks = JSON.parse($('edit-attacks').value); } catch { throw new Error('攻击列表的JSON格式有误，尚未保存。'); }
   await action('edit-actor', { actorId: selectedId, patch, reason: '本机DM资料设置' }, editingRevision);

@@ -61,7 +61,19 @@ export function applyDamage(actor, components) {
   return { details, total, absorbed, hp: actor.hp, tempHp: actor.tempHp };
 }
 
+export function validateAppearance(a) {
+  if (a === undefined) return;
+  requireRule(a && typeof a === 'object' && !Array.isArray(a), '外观格式无效');
+  requireRule(['voxel', 'box'].includes(a.model) && ['human', 'giant', 'monster'].includes(a.preset), '模型或外观预设无效');
+  for (const key of ['skin', 'clothes', 'hair']) requireRule(/^#[0-9a-f]{6}$/i.test(a[key]), '外观颜色须为六位色值');
+  const materials = ['none', 'leather', 'chain', 'iron', 'gold', 'diamond'];
+  requireRule(['none', 'sword', 'axe', 'club', 'bow'].includes(a.weapon) && materials.includes(a.material) && typeof a.shield === 'boolean', '装备外观无效');
+  for (const slot of ['head', 'chest', 'legs', 'feet']) requireRule(materials.includes(a.armor?.[slot]), '盔甲外观无效');
+  requireRule(Object.keys(a).every(k => ['model','preset','skin','clothes','hair','weapon','material','shield','armor'].includes(k)) && Object.keys(a.armor).every(k => ['head','chest','legs','feet'].includes(k)), '不支持的外观字段');
+}
+
 export function validateActor(actor, board) {
+  validateAppearance(actor.appearance);
   requireRule(typeof actor.id === 'string' && /^[a-zA-Z0-9_-]{1,60}$/.test(actor.id), '棋子ID无效');
   requireRule(['pc', 'npc'].includes(actor.kind), '角色类型无效');
   requireRule(actor.kind === 'pc' ? typeof actor.ownerId === 'string' && /^[\w-]{1,60}$/.test(actor.ownerId) : actor.ownerId === null, '角色归属无效');
@@ -171,7 +183,7 @@ export function validateState(state) {
 
 const editable = ['name', 'ac', 'maxHp', 'hp', 'tempHp', 'speed', 'initiativeBonus', 'attackLimit',
   'body', 'space', 'position', 'facing', 'immunities', 'resistances', 'vulnerabilities',
-  'notes', 'resources', 'hidden', 'confirmed', 'attacks', 'tiePriority'];
+  'notes', 'resources', 'hidden', 'confirmed', 'attacks', 'tiePriority', 'appearance'];
 const getActor = (state, id) => {
   const actor = state.actors.find(a => a.id === id);
   requireRule(actor, '棋子不存在或不可见', 404);
@@ -497,6 +509,7 @@ export function projectState(state, principal) {
   const actors = visible.map(actor => {
     const data = { id: actor.id, name: actor.name, kind: actor.kind, position: structuredClone(actor.position),
       facing: actor.facing, body: structuredClone(actor.body), space: structuredClone(actor.space) };
+    if (actor.appearance) data.appearance = structuredClone(actor.appearance);
     if (actor.ownerId === principal.id) {
       for (const key of ['ownerId', 'ac', 'maxHp', 'hp', 'tempHp', 'speed', 'confirmed', 'attacks', 'attackLimit',
         'initiativeBonus', 'immunities', 'resistances', 'vulnerabilities', 'resources']) data[key] = structuredClone(actor[key]);

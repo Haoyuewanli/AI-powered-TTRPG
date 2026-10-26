@@ -1,5 +1,6 @@
 import * as THREE from '/vendor/three.module.js';
 import { terrainGroup } from '/terrain-view.mjs';
+import { voxelModel } from '/voxel-model.mjs';
 import { largestFaces } from '/geometry.mjs';
 
 function textTexture(text, subtitle, background, width = 256, height = 256) {
@@ -258,13 +259,17 @@ export class BattleBoard {
     }
     this.renderer.domElement.dataset.objectCount = String((state.objects || []).length);
     if (!this.board || this.board.width !== state.board.width || this.board.depth !== state.board.depth) this.setGround(state.board);
-    const piecesKey = JSON.stringify(state.actors.map(a => [a.id, a.name, a.kind, a.body, a.space, a.position, a.facing, a.hidden])) + selected;
+    const piecesKey = JSON.stringify(state.actors.map(a => [a.id, a.name, a.kind, a.body, a.space, a.position, a.facing, a.hidden, a.appearance])) + selected;
     if (this.piecesKey === piecesKey) { this.requestRender(); return; }
     this.piecesKey = piecesKey;
     disposeGroup(this.pieces); this.meshes = []; this.selected = selected;
     this.renderer.shadowMap.needsUpdate = true;
     for (const actor of state.actors) {
       const group = new THREE.Group(); group.position.set(actor.position.x, actor.position.y || 0, actor.position.z); group.rotation.y = -actor.facing * Math.PI / 180;
+      if (actor.appearance?.model !== 'box') {
+        const model = voxelModel(actor); group.add(model);
+        model.traverse(mesh => { if (mesh.isMesh) this.meshes.push(mesh); });
+      } else {
       const color = actor.kind === 'pc' ? '#3b8595' : '#906b60';
       const materials = Array.from({ length: 6 }, () => new THREE.MeshStandardMaterial({ color, roughness: .65 }));
       const faces = largestFaces(actor.body), [front, back] = faces.materialIndices;
@@ -277,6 +282,7 @@ export class BattleBoard {
       group.add(box); this.meshes.push(box);
       const outline = new THREE.LineSegments(new THREE.EdgesGeometry(box.geometry), new THREE.LineBasicMaterial({ color: actor.id === selected ? '#ffe1a3' : '#b2cfcc', transparent: true, opacity: .6 }));
       outline.position.copy(box.position); group.add(outline);
+      }
       // Occupied rules space is axis-aligned even when the visual body faces another direction.
       const sx = actor.space.width / 2, sz = actor.space.depth / 2;
       const footprint = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([
