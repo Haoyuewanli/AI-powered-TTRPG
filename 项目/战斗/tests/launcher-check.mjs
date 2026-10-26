@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:net';
-import { mkdtemp, mkdir, readFile, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, access, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore } from '../src/store.mjs';
@@ -50,10 +50,16 @@ try {
   await assert.rejects(execute(process.execPath, [launcher, '--no-browser', '--port', String(port), '--campaign', other], { windowsHide: true }), /其他服务或战役/);
   await assert.rejects(execute(process.execPath, [launcher, ...args, '--workspace', join(directory, 'other-library')], { windowsHide: true }), /另一个工作区/);
   await stop(); token = null;
+  const lease = join(directory, '.工作区', '.workspace.lock');
+  await writeFile(lease, String(process.pid));
+  const releasing = new Promise((accept, reject) => setTimeout(() => {
+    rename(lease, join(directory, '.工作区', '已释放的测试锁')).then(accept, reject);
+  }, 350));
   await launch(); await login();
+  await releasing;
   const restored = await (await fetch(url + '/api/state', { headers: { Authorization: `Bearer ${token}` } })).json();
   assert.equal(restored.state.revision, 1); assert.equal(restored.state.actors[0].hp, 25);
   await stop(); token = null;
   console.log(JSON.stringify({ windowsCmdEntryTested: process.platform === 'win32', repeatedLaunchReusesProcess: true, differentCampaignRejected: true,
-    dmShutdownReleasesLock: true, restartRestoresSavedState: true, externalRequests: 0 }));
+    dmShutdownReleasesLock: true, waitsForClosingLease: true, restartRestoresSavedState: true, externalRequests: 0 }));
 } finally { if (token) await stop().catch(() => {}); }

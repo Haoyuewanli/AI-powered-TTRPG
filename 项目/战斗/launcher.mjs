@@ -22,6 +22,17 @@ async function occupied(port) {
     socket.once('connect', () => finish(true)); socket.once('error', () => finish(false)); socket.once('timeout', () => finish(false));
   });
 }
+async function liveLease(paths) {
+  for (const file of paths) {
+    let pid;
+    try { pid = Number(await readFile(file, 'utf8')); }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    if (!Number.isInteger(pid) || pid <= 0) return true;
+    try { process.kill(pid, 0); return true; }
+    catch (error) { if (error.code !== 'ESRCH') return true; }
+  }
+  return false;
+}
 
 try {
   const port = Number(argument('--port') || process.env.BATTLE_PORT || 4182);
@@ -35,6 +46,11 @@ try {
   const packageInfo = JSON.parse(await readFile(resolve(root, '../骰盘/node_modules/three/package.json'), 'utf8'));
   if (packageInfo.version !== '0.143.0') throw new Error('当前棋盘使用已锁定的Three.js 0.143.0，请先核对依赖版本。');
   let status = await health(url);
+  // HTTP closes before the asynchronous file leases are released. Never remove a live lease.
+  for (let attempt = 0; !status && attempt < 30; attempt++) {
+    if (!await liveLease([join(workspaceDirectory, '.workspace.lock'), join(directory, '.battle.lock')])) break;
+    await sleep(100); status = await health(url);
+  }
   if (status && (status.app !== 'local-battle-v1' || status.campaignKey !== campaignKey)) throw new Error('此端口运行的是其他服务或战役；请关闭它，或用 --port 指定其他端口。');
   if (status && status.coreVersion !== 'workspace-terrain-v2') throw new Error('本地核心已更新，请在旧窗口点击停止服务，再重新双击打开跑团。');
   if (status && status.workspaceKey !== workspaceKey) throw new Error('此端口属于另一个工作区，请关闭原服务或换用其他端口。');
