@@ -24,12 +24,12 @@ async function readBody(request) {
 
 export async function startApp({ campaignDir, workspaceDir, port = 4182, initial, persist } = {}) {
   const directory = resolve(campaignDir || await findCampaign(resolve(ROOT, '../存档')));
-  const workspace = await openWorkspace({ seedDirectory: directory,
-    workspaceDirectory: workspaceDir || (campaignDir ? resolve(directory, '.工作区') : resolve(ROOT, '../存档')),
+  const workspaceDirectory = resolve(workspaceDir || (campaignDir ? resolve(directory, '.工作区') : resolve(ROOT, '../存档')));
+  const workspace = await openWorkspace({ seedDirectory: directory, workspaceDirectory,
     initial: initial || (() => initializeCampaign(directory)), persist });
   const sessions = new Map();
   const staticFiles = new Map([
-    ...['workspace-panel', 'dice-panel'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
+    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
     ['/app.mjs', [join(ROOT, 'web/app.mjs'), 'text/javascript; charset=utf-8']],
@@ -56,7 +56,7 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
       const path = new URL(request.url, origin).pathname;
       if (request.method === 'GET' && path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
       if (request.method === 'GET' && path === '/health') return send(200, {
-        app: 'local-battle-v1', campaignKey: hash(directory.toLowerCase()).toString('hex') });
+        app: 'local-battle-v1', coreVersion: 'workspace-terrain-v2', campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
       if (request.method === 'POST' && path === '/api/login') {
         if (Date.now() - loginWindow.start > 60000) loginWindow = { start: Date.now(), count: 0 };
         if (++loginWindow.count > 30) throw new RuleError('尝试次数过多，请一分钟后再试', 429);

@@ -29,12 +29,15 @@ try {
   const directory = resolve(argument('--campaign') || await findCampaign(resolve(root, '../存档')));
   const workspaceDirectory = resolve(argument('--workspace') || (argument('--campaign') ? join(directory, '.工作区') : join(root, '../存档')));
   const campaignKey = createHash('sha256').update(directory.toLowerCase()).digest('hex');
+  const workspaceKey = createHash('sha256').update(workspaceDirectory.toLowerCase()).digest('hex');
   const url = `http://127.0.0.1:${port}`;
   await access(resolve(root, '../骰盘/node_modules/three/build/three.module.js'));
   const packageInfo = JSON.parse(await readFile(resolve(root, '../骰盘/node_modules/three/package.json'), 'utf8'));
   if (packageInfo.version !== '0.143.0') throw new Error('当前棋盘使用已锁定的Three.js 0.143.0，请先核对依赖版本。');
   let status = await health(url);
   if (status && (status.app !== 'local-battle-v1' || status.campaignKey !== campaignKey)) throw new Error('此端口运行的是其他服务或战役；请关闭它，或用 --port 指定其他端口。');
+  if (status && status.coreVersion !== 'workspace-terrain-v2') throw new Error('本地核心已更新，请在旧窗口点击停止服务，再重新双击打开跑团。');
+  if (status && status.workspaceKey !== workspaceKey) throw new Error('此端口属于另一个工作区，请关闭原服务或换用其他端口。');
   if (!status) {
     if (await occupied(port)) throw new Error('端口被其他程序占用，未启动新进程。请用 --port 指定其他端口。');
     const output = await open(join(directory, '服务输出.log'), 'a');
@@ -54,7 +57,7 @@ try {
       if (failed || child.exitCode !== null) throw new Error('启动失败，请查看战役目录的“服务错误.log”。');
       await sleep(200);
     }
-    if (!status || status.app !== 'local-battle-v1' || status.campaignKey !== campaignKey) throw new Error('服务未能就绪，请检查战役目录的日志。');
+    if (!status || status.app !== 'local-battle-v1' || status.campaignKey !== campaignKey || status.workspaceKey !== workspaceKey || status.coreVersion !== 'workspace-terrain-v2') throw new Error('服务未能就绪，请检查战役目录的日志。');
   }
   if (process.argv.includes('--credentials')) {
     console.log('DM凭据已取消，请在打开的窗口直接选择“我是DM”。');

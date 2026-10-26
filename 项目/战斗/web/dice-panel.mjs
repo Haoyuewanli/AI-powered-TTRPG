@@ -101,6 +101,7 @@ export function dicePanel({ api, action, getState, getActor, notify }) {
       return { manualRolls: { attack: readValues($('physical-d20')),
         damage: [...$('physical-damage').querySelectorAll('[data-damage-index]')].map(row => readValues(row)) } };
     },
+    clearAttack() { request++; planKey = ''; entryKey = ''; plan = null; $('physical-d20').replaceChildren(); $('physical-damage').replaceChildren(); },
     clear() {
       request++; actorKey = ''; planKey = ''; entryKey = ''; plan = null;
       for (const id of ['initiative-entries', 'physical-d20', 'physical-damage']) $(id).replaceChildren();

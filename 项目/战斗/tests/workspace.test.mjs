@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openWorkspace, upgradeBattle } from '../src/workspace.mjs';
@@ -60,4 +60,11 @@ test('legacy migration preserves a byte-for-byte original before replacing forma
   assert(backup); assert.equal(await readFile(join(config.seedDirectory, backup), 'utf8'), original); assert.equal(JSON.parse(await readFile(join(config.seedDirectory, backup), 'utf8')).formatVersion, 1);
   assert.equal(library.store.state.formatVersion, 2); assert.equal(library.store.state.actors[0].hp, 40);
   await library.close();
+});
+test('missing battle files never silently initialize an existing indexed battle from seed data', async () => {
+  const config = await paths(), library = await openWorkspace(config);
+  await library.close();
+  await rename(join(config.seedDirectory, '战斗状态.json'), join(config.seedDirectory, '保留原件.json'));
+  await assert.rejects(openWorkspace(config), /主文件及备份均不存在/);
+  assert.equal(JSON.parse(await readFile(join(config.seedDirectory, '保留原件.json'), 'utf8')).formatVersion, 2);
 });

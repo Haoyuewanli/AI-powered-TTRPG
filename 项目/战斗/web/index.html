@@ -27,11 +27,22 @@
     </div><p class="fine">复制的是所选战斗当前的HP、资料与盘面；新战斗从准备阶段开始。各场状态独立，角色成长不会自动回写。</p></details>
   </section>
   <section class="flow-guide"><strong id="flow-title"></strong><p id="flow-text"></p><button id="go-setup" class="quiet">前往战前布置</button></section>
+  <details id="terrain-panel" class="terrain-panel panel" hidden><summary>盘面与地形 · 墙 / 隆起 / 楼层 / 楼梯 / 道具 <span id="terrain-dirty"></span></summary>
+    <p class="fine">每场独立保存。墙/勾选阻挡的道具自动阻止基础移动；楼层通行、楼梯、高差攻击、掩护与视线请DM裁定。高度指底部离地距离，单位尺。地形朝向首版为90°步进。</p>
+    <div class="terrain-layout"><div><form id="board-form"><div class="fields two"><label>盘面宽（20～300）<input id="board-width" type="number" min="20" max="300" required></label><label>盘面深（20～300）<input id="board-depth" type="number" min="20" max="300" required></label></div><button>保存盘面大小</button><p class="fine">仅战前可改。缩小前须先移入所有棋子和物件，不会自动删除或挤压。</p></form>
+    <label>已放物件<select id="terrain-select"></select></label><button id="terrain-new">新物件</button><label class="check"><input id="terrain-place-mode" type="checkbox">点击空地移动所选物件（保留高度）</label>
+    <p class="fine">二楼示例：平台底高9、厚1，棋子脚底高10；三楼同理。楼梯沿本地Z方向升高。不会自动计算攀爬、楼梯路线或坠落。</p></div>
+    <form id="terrain-form"><div class="fields two"><label>类型<select id="terrain-type"><option value="wall">墙</option><option value="hill">隆起</option><option value="floor">楼层平台</option><option value="stairs">楼梯</option><option value="prop">道具</option></select></label><label>名称<input id="terrain-name" maxlength="80" required></label></div>
+    <div class="fields three"><label>中心X<input id="terrain-x" type="number" step="0.5" required></label><label>底部高Y<input id="terrain-y" type="number" min="0" max="100" step="0.5" required></label><label>中心Z<input id="terrain-z" type="number" step="0.5" required></label></div>
+    <div class="fields three"><label>宽<input id="terrain-width" type="number" min="0.5" max="300" step="0.5" required></label><label>深<input id="terrain-depth" type="number" min="0.5" max="300" step="0.5" required></label><label>高 / 厚<input id="terrain-height" type="number" min="0.5" max="60" step="0.5" required></label></div>
+    <div class="fields two"><label>旋转<select id="terrain-rotation"><option>0</option><option>90</option><option>180</option><option>270</option></select></label><div><label class="check"><input id="terrain-hidden" type="checkbox">对玩家隐藏</label><label class="check"><input id="terrain-blocks" type="checkbox">作为实体阻挡移动</label></div></div>
+    <div class="button-grid"><button id="terrain-save" class="primary" type="submit">添加到本场战斗</button><button id="terrain-reload" type="button">放弃表单编辑</button><button id="terrain-copy" type="button">复制物件</button><button id="terrain-remove" type="button">移出本场（可撤销）</button></div></form></div>
+  </details>
   <div class="workspace">
     <aside class="left-panel panel"><div class="panel-heading"><span>参战者</span><span id="round" class="muted"></span></div><div id="roster"></div>
       <section id="setup-panel" class="setup-panel" hidden><div class="eyebrow">SETUP / 战前布置</div><p class="fine">选中棋子后点击空地摆放，或修改坐标。新增/复制的资料需核对后才能开始。</p>
       <label class="check"><input id="place-mode" type="checkbox">点击空地摆放选中棋子</label>
-      <div class="fields two"><label>X / 尺<input id="place-x" type="number" step="0.5"></label><label>Z / 尺<input id="place-z" type="number" step="0.5"></label></div><button id="place-actor">应用位置</button>
+      <div class="fields two"><label>X / 尺<input id="place-x" type="number" step="0.5"></label><label>Z / 尺<input id="place-z" type="number" step="0.5"></label><label>脚底高Y / 尺<input id="place-y" type="number" step="0.5" min="0" max="100"></label><label>朝向 °<input id="place-facing" type="number" min="0" max="359"></label></div><button id="place-actor">应用位置</button>
       <button id="open-editor" class="primary">核对 / 编辑选中棋子</button>
       <details><summary>添加参战者</summary><form id="add-actor-form"><label>名称<input id="add-name" maxlength="80" required></label><label>类型<select id="add-kind"><option value="npc">NPC</option><option value="pc">玩家角色</option></select></label><label>玩家ID（NPC可留空）<input id="add-owner" maxlength="80" placeholder="player-2"></label><button>新增空白棋子</button></form></details>
       <div class="button-grid"><button id="clone-actor">复制选中棋子</button><button id="remove-actor" class="quiet">移出本场</button></div></section>
@@ -47,7 +58,7 @@
 
     <section class="board-panel"><div class="board-top"><div><span class="eyebrow">BATTLEFIELD</span><span id="board-size"></span></div><span class="badge subtle">大格 5 尺 <i>·</i> 小格 1 尺</span></div>
       <div id="viewport" tabindex="0" aria-label="3D战斗棋盘，支持鼠标和键盘操作"><div id="board-error" class="board-error" hidden></div></div>
-      <div class="board-bottom"><span>平坦开放场地 <i>·</i> 规则移动按 5 尺格结算</span><div><button id="zoom-in" aria-label="放大棋盘">＋</button><button id="zoom-out" aria-label="缩小棋盘">−</button><button id="reset-camera">复位视角</button></div></div>
+      <div class="board-bottom"><span>规则移动按 5 尺格结算 <i>·</i> 高差 / 掩护 / 视线由DM裁定</span><div><button id="zoom-in" aria-label="放大棋盘">＋</button><button id="zoom-out" aria-label="缩小棋盘">−</button><button id="reset-camera">复位视角</button></div></div>
     </section>
 
     <aside class="right-panel panel"><div class="panel-heading"><span id="selected-name">选择棋子</span><span id="selected-kind" class="muted"></span></div>
@@ -62,7 +73,7 @@
         <div class="fields three"><label>临时 HP<input id="edit-tempHp" type="number" min="0" required></label><label>速度<input id="edit-speed" type="number" min="0" required></label><label>先攻加值<input id="edit-initiativeBonus" type="number" required></label></div>
         <div class="fields two"><label>攻击次数 / 动作<input id="edit-attackLimit" type="number" min="1" max="10" required></label><label>同分优先级（小者先）<input id="edit-tiePriority" type="number" min="0" required></label></div>
         <p class="fine">下列为位置调整，不消耗移动力；回合内规则移动请用上方移动按钮。</p>
-        <div class="fields three"><label>位置 X<input id="edit-x" type="number" step="0.5" required></label><label>位置 Z<input id="edit-z" type="number" step="0.5" required></label><label>朝向 °<input id="edit-facing" type="number" min="0" max="359" required></label></div>
+        <div class="fields three"><label>位置 X<input id="edit-x" type="number" step="0.5" required></label><label>位置 Z<input id="edit-z" type="number" step="0.5" required></label><label>脚底高Y<input id="edit-y" type="number" step="0.5" min="0" max="100" required></label><label>朝向 °<input id="edit-facing" type="number" min="0" max="359" required></label></div>
         <div class="fields three"><label>外观宽 / 尺<input id="edit-width" type="number" step="0.1" min="0.2" required></label><label>外观深 / 尺<input id="edit-depth" type="number" step="0.1" min="0.2" required></label><label>外观高 / 尺<input id="edit-height" type="number" step="0.1" min="0.2" required></label></div>
         <div class="fields two"><label>规则占地宽 / 尺<input id="edit-space-width" type="number" min="1" required></label><label>规则占地深 / 尺<input id="edit-space-depth" type="number" min="1" required></label></div>
         <label>免疫（英文类型，逗号分隔）<input id="edit-immunities" placeholder="cold"></label><label>抗性<input id="edit-resistances" placeholder="fire,slashing"></label><label>易伤<input id="edit-vulnerabilities" placeholder="radiant"></label>

@@ -17,6 +17,17 @@ const page = await context.newPage(); page.on('pageerror', e => errors.push(e.me
 async function changed(run) { const old = app.store.state.revision; await run(); await page.waitForFunction(v => document.querySelector('#save-status').textContent.includes(`v${v + 1}`), old); }
 async function switched(run, prior = app.store.state.battleId) { await run(); await page.waitForFunction(id => document.querySelector('#battle-select').value !== id, prior); await page.waitForTimeout(80); }
 async function select(selection) { await page.locator('#campaign-select').selectOption(selection.campaignId); await page.locator('#battle-select').selectOption(selection.battleId); await page.locator('#open-battle').click(); await page.waitForFunction(id => document.querySelector('#battle-select').value === id && document.querySelector('#title').textContent.length > 0, selection.battleId); await page.waitForTimeout(120); }
+async function groundClick(x, z) {
+  await page.locator('#viewport').scrollIntoViewIfNeeded(); await page.locator('canvas[data-settled=true]').waitFor();
+  const point = await page.evaluate(async ({ x, z }) => {
+    const THREE = await import('/vendor/three.module.js'), canvas = document.querySelector('canvas'), box = canvas.getBoundingClientRect();
+    const view = JSON.parse(canvas.dataset.camera), cam = new THREE.PerspectiveCamera(44, box.width / box.height, .1, 1000);
+    cam.position.set(view.target[0] + view.distance * Math.sin(view.polar) * Math.sin(view.azimuth), view.distance * Math.cos(view.polar), view.target[2] + view.distance * Math.sin(view.polar) * Math.cos(view.azimuth));
+    cam.lookAt(new THREE.Vector3(...view.target)); cam.updateMatrixWorld();
+    const point = new THREE.Vector3(x, 0, z).project(cam); return { x: box.x + (point.x + 1) * box.width / 2, y: box.y + (1 - point.y) * box.height / 2 };
+  }, { x, z });
+  await page.mouse.click(point.x, point.y);
+}
 try {
   await page.goto(app.url); await page.locator('#enter-dm').click(); await page.locator('canvas[data-ready=true]').waitFor();
   await page.locator('#campaign-select option').first().waitFor({ state: 'attached' });
@@ -35,6 +46,36 @@ try {
   await page.locator('#new-campaign-name').fill('第二个团'); await switched(() => page.locator('#new-campaign-form button').click());
   assert.notEqual(app.workspace.selection.campaignId, first.campaignId);
   await select(first); checks.push('新建独立团并切回');
+  await page.locator('#terrain-panel > summary').click();
+  await page.locator('#board-width').fill('120'); await page.locator('#board-depth').fill('100'); await changed(() => page.locator('#board-form button').click());
+  for (const [type, name, x, z, y] of [['wall','墙',50,50,0], ['hill','隆起',70,70,0], ['floor','二楼',90,50,9], ['floor','三楼',90,50,19], ['stairs','楼梯',75,50,0], ['prop','HIDDEN_PROP_CANARY',100,85,0]]) {
+    await page.locator('#terrain-new').click(); await page.locator('#terrain-type').selectOption(type); await page.locator('#terrain-name').fill(name);
+    for (const [axis, value] of [['x',x], ['z',z], ['y',y]]) await page.locator(`#terrain-${axis}`).fill(String(value));
+    if (type === 'prop') await page.locator('#terrain-hidden').check();
+    await changed(() => page.locator('#terrain-save').click());
+  }
+  assert.equal(app.store.state.objects.length, 6); assert.equal(await page.locator('canvas').getAttribute('data-object-count'), '6');
+  const terrainId = app.store.state.objects[0].id;
+  await page.locator('#terrain-select').selectOption(terrainId); await page.locator('#terrain-rotation').selectOption('90'); await changed(() => page.locator('#terrain-save').click());
+  await page.locator('#terrain-place-mode').check(); await changed(() => groundClick(50,65));
+  assert.equal(app.store.state.objects[0].position.z, 65); await page.locator('#terrain-place-mode').uncheck();
+  checks.push('可改盘面及五种积木，二/三楼、旋转和点击摆放');
+  await page.locator('#roster [data-actor-id="pc-001"]').click(); await page.locator('#place-mode').check();
+  await changed(() => groundClick(37.5,42.5)); assert.equal(app.store.state.actors[0].position.x, 37.5);
+  await page.locator('#place-mode').uncheck(); await page.locator('#place-y').fill('10'); await changed(() => page.locator('#place-actor').click());
+  assert.equal(app.store.state.actors[0].position.y, 10);
+  await page.locator('#place-x').fill('22.5'); await page.locator('#place-z').fill('22.5'); await page.locator('#place-y').fill('0'); await changed(() => page.locator('#place-actor').click());
+  checks.push('点击摆放棋子与脚底高度设置');
+  const playerPage = await context.newPage(); playerPage.on('pageerror', e => errors.push(e.message));
+  await playerPage.goto(app.url); await playerPage.locator('#identity').fill('player-1'); await playerPage.locator('#login-form button').click(); await playerPage.locator('canvas[data-ready=true]').waitFor();
+  assert.equal(await playerPage.locator('canvas').getAttribute('data-object-count'), '5');
+  assert(!(await playerPage.content()).includes('HIDDEN_PROP_CANARY')); await playerPage.close();
+  await page.reload(); await page.locator('canvas[data-ready=true]').waitFor();
+  assert.equal(app.store.state.board.width, 120); assert.equal(await page.locator('canvas').getAttribute('data-object-count'), '6');
+  checks.push('隐藏地形不进玩家页面，重载保留盘面和地形');
+  await page.locator('#terrain-panel > summary').click();
+  await page.locator('#viewport').scrollIntoViewIfNeeded(); await page.locator('canvas[data-settled=true]').waitFor();
+  await page.locator('#viewport').screenshot({ path: join(output, '地形棋盘.png') });
   await changed(() => page.locator('#dice-mode').selectOption('physical'));
   for (const [id, value] of [['pc-001','20'], ['npc-001','1']]) await page.locator(`#initiative-entries [data-actor-id="${id}"] input`).fill(value);
   await changed(() => page.locator('#start').click()); assert.equal(app.store.state.combat.order[0], 'pc-001');

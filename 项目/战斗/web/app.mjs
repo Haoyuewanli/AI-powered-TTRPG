@@ -1,12 +1,13 @@
 import { BattleBoard } from '/board.mjs';
 import { largestFaces } from '/geometry.mjs';
+import { terrainPanel } from '/terrain-panel.mjs';
 import { workspacePanel } from '/workspace-panel.mjs';
 import { dicePanel } from '/dice-panel.mjs';
 
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem('battle-session') || '';
 let state = null, selectedId = null, board = null, busy = false, polling = false;
-let dirty = false, editingRevision = null, toastTimer, selection, library, dice, previewedProposal;
+let dirty = false, editingRevision = null, toastTimer, selection, library, dice, terrain, previewedProposal;
 const formFields = ['name', 'ac', 'hp', 'maxHp', 'tempHp', 'speed', 'initiativeBonus', 'attackLimit', 'tiePriority', 'facing'];
 const text = (tag, value, className) => { const item = document.createElement(tag); item.textContent = value; if (className) item.className = className; return item; };
 const actor = () => state?.actors.find(a => a.id === selectedId);
@@ -32,7 +33,7 @@ async function api(path, body) {
 }
 function clearSession() {
   token = ''; state = null; selectedId = null; dirty = false; editingRevision = null; selection = null;
-  library?.clear(); dice?.clear(); clearPreview();
+  library?.clear(); dice?.clear(); terrain?.clear(); clearPreview();
   sessionStorage.removeItem('battle-session');
   $('table').hidden = true; $('login').hidden = false;
   for (const id of ['roster', 'actor-info', 'events', 'reference']) $(id).replaceChildren();
@@ -52,7 +53,7 @@ function choose(id) {
 }
 function fillEditor(a) {
   for (const key of formFields) $(`edit-${key}`).value = a[key];
-  $('edit-x').value = a.position.x; $('edit-z').value = a.position.z;
+  $('edit-x').value = a.position.x; $('edit-z').value = a.position.z; $('edit-y').value = a.position.y || 0;
   for (const key of ['width', 'depth', 'height']) $(`edit-${key}`).value = a.body[key];
   for (const key of ['width', 'depth']) $(`edit-space-${key}`).value = a.space[key];
   for (const key of ['immunities', 'resistances', 'vulnerabilities']) $(`edit-${key}`).value = a[key].join(',');
@@ -85,7 +86,7 @@ function render(selectionChanged = false) {
   $('start').hidden = !isDm(); $('end').hidden = !isDm();
   $('shutdown').hidden = !isDm();
   $('setup-panel').hidden = !isDm();
-  for (const id of ['place-mode', 'place-actor', 'clone-actor', 'remove-actor']) $(id).disabled = busy || state.combat.phase === 'active';
+  for (const id of ['place-mode', 'place-actor', 'place-facing', 'clone-actor', 'remove-actor']) $(id).disabled = busy || state.combat.phase === 'active';
   $('add-actor-form').querySelector('button').disabled = busy || state.combat.phase === 'active';
   $('go-setup').hidden = !isDm();
   $('undo').hidden = !isDm(); $('undo').disabled = busy || !state.undoAvailable;
@@ -113,12 +114,13 @@ function render(selectionChanged = false) {
       $('actor-info').append(text('p', `${a.confirmed ? '资料已核对' : '资料待核对，尚不能开始'} · 速度 ${a.speed} 尺`, 'fine'));
       $('actor-info').append(text('p', a.resources, 'resource-note'));
     } else $('actor-info').append(text('p', '此视角不显示敌方精确数值和私密资料。', 'fine'));
+    if (isDm() && a.kind === 'pc') $('actor-info').append(text('p', `玩家登录ID：${a.ownerId}（也可输入角色名）`, 'fine'));
     const face = largestFaces(a.body);
-    $('actor-info').append(text('p', `位置 (${a.position.x}, ${a.position.z}) · 朝向 ${a.facing}°\n外观 ${a.body.width}×${a.body.depth}×${a.body.height} 尺\n占地 ${a.space.width}×${a.space.depth} 尺 · 最大两面 ${face.area} 平方尺`, 'resource-note'));
+    $('actor-info').append(text('p', `位置 (${a.position.x}, 高${a.position.y || 0}, ${a.position.z}) · 朝向 ${a.facing}°\n外观 ${a.body.width}×${a.body.depth}×${a.body.height} 尺\n占地 ${a.space.width}×${a.space.depth} 尺 · 最大两面 ${face.area} 平方尺`, 'resource-note'));
     if (isTurn(a) && owns(a)) $('actor-info').append(text('p', `本回合：移动 ${state.combat.moved || 0} 尺 · 已攻击 ${state.combat.attacksUsed || 0}/${a.attackLimit} 次 · 动作 ${state.combat.action}`, 'fine'));
     if (selectionChanged || !document.activeElement?.closest('#move-form')) {
       $('move-x').value = a.position.x; $('move-z').value = a.position.z;
-      if (!document.activeElement?.closest('#setup-panel')) { $('place-x').value = a.position.x; $('place-z').value = a.position.z; }
+      if (selectionChanged || !document.activeElement?.closest('#setup-panel')) { $('place-x').value = a.position.x; $('place-z').value = a.position.z; $('place-y').value = a.position.y || 0; $('place-facing').value = a.facing; }
     }
     const previousAttack = $('attack-choice').value, previousTarget = $('target-choice').value;
     $('attack-choice').replaceChildren(...(a.attacks || []).map(item => { const option = text('option', item.name); option.value = item.id; return option; }));
@@ -136,12 +138,12 @@ function render(selectionChanged = false) {
     const row = text('div', '', 'event'); row.append(text('small', `v${event.revision}${event.undoneBy ? ' · 已撤销' : ''}`), text('span', isDm() ? event.dmText : event.text)); if (event.undoneBy) row.classList.add('undone'); return row;
   }));
   if (!events.length) $('events').append(text('p', '尚无已保存的战斗事件。', 'fine'));
-  dice?.render(state);
+  dice?.render(state); terrain?.render(state);
   board?.update(state, selectedId);
 }
 function applyResult(result) {
   const switched = state && (state.campaignId !== result.state.campaignId || state.battleId !== result.state.battleId);
-  if (switched) { dirty = false; selectedId = null; editingRevision = null; dice?.clear(); clearPreview(); board?.clear(); }
+  if (switched) { dirty = false; selectedId = null; editingRevision = null; dice?.clear(); terrain?.clear(); clearPreview(); board?.clear(); }
   state = result.state; selection = result.selection; $('recovery').hidden = !result.recoveryNote; $('recovery').textContent = result.recoveryNote || ''; render();
 }
 async function loadState() {
@@ -154,7 +156,7 @@ async function sendCommand(command) {
   busy = true; render(); const generation = token;
   try {
     const result = await api('/api/action', command);
-    if (token === generation) { dirty = false; applyResult(result); notify(`已保存到本机 · 进度 v${state.revision}`); }
+    if (token === generation) { if (['attack', 'next', 'undo'].includes(command.type)) dice?.clearAttack(); dirty = false; applyResult(result); notify(`已保存到本机 · 进度 v${state.revision}`); }
   } catch (error) { if (token === generation) await loadState().catch(() => {}); throw error; }
   finally { busy = false; if (state) render(); }
 }
@@ -184,7 +186,7 @@ $('attack-template').addEventListener('click', () => {
 $('edit-form').addEventListener('submit', guarded(async () => {
   const patch = {};
   for (const key of formFields) patch[key] = key === 'name' ? $(`edit-${key}`).value : Number($(`edit-${key}`).value);
-  patch.position = { x: Number($('edit-x').value), z: Number($('edit-z').value) };
+  patch.position = { x: Number($('edit-x').value), y: Number($('edit-y').value), z: Number($('edit-z').value) };
   patch.body = Object.fromEntries(['width', 'depth', 'height'].map(key => [key, Number($(`edit-${key}`).value)]));
   patch.space = Object.fromEntries(['width', 'depth'].map(key => [key, Number($(`edit-space-${key}`).value)]));
   for (const key of ['immunities', 'resistances', 'vulnerabilities']) patch[key] = $(`edit-${key}`).value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
@@ -241,18 +243,19 @@ setInterval(async () => {
 function openEditor() { $('edit-details').open = true; $('edit-details').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
 $('open-editor').addEventListener('click', openEditor);
 $('go-setup').addEventListener('click', () => $('setup-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }));
-function canSwitch() { if (busy || dirty) { notify('请先保存或放弃当前棋子的编辑，再切换战斗。', true); return false; } return true; }
+function canSwitch() { if (busy || dirty || terrain?.dirty) { notify('请先保存或放弃当前棋子/地形的编辑，再切换或摆放。', true); return false; } return true; }
 async function placeActor(position) {
   if (!isDm() || state.combat.phase === 'active' || !actor()) return;
   if (!canSwitch()) return;
-  await action('edit-actor', { actorId: selectedId, patch: { position }, reason: '战前摆放' });
+  await action('edit-actor', { actorId: selectedId, patch: { position, facing: Number($('place-facing').value) }, reason: '战前摆放' });
 }
 async function placeOnBoard(point) {
+  if (isDm()) { try { if (await terrain?.place(point)) return; } catch (error) { notify(error.message, true); return; } }
   if (!$('place-mode').checked || !isDm() || state.combat.phase === 'active' || !actor()) return;
   const a = actor(), snap = (value, size) => Math.round((value - size / 2) / 5) * 5 + size / 2;
-  try { await placeActor({ x: snap(point.x, a.space.width), z: snap(point.z, a.space.depth) }); } catch (error) { notify(error.message, true); }
+  try { await placeActor({ x: snap(point.x, a.space.width), y: a.position.y || 0, z: snap(point.z, a.space.depth) }); } catch (error) { notify(error.message, true); }
 }
-$('place-actor').addEventListener('click', guarded(() => placeActor({ x: Number($('place-x').value), z: Number($('place-z').value) })));
+$('place-actor').addEventListener('click', guarded(() => placeActor({ x: Number($('place-x').value), y: Number($('place-y').value), z: Number($('place-z').value) })));
 $('add-actor-form').addEventListener('submit', guarded(async () => {
   await action('add-actor', { name: $('add-name').value, kind: $('add-kind').value, ownerId: $('add-owner').value });
   selectedId = state.actors.at(-1).id; render(true); openEditor();
@@ -261,5 +264,6 @@ $('clone-actor').addEventListener('click', guarded(async () => { await action('a
 $('remove-actor').addEventListener('click', guarded(() => action('remove-actor', { actorId: selectedId })));
 $('undo').addEventListener('click', guarded(() => action('undo')));
 library = workspacePanel({ api, apply: applyResult, notify, getState: () => state, canSwitch });
+terrain = terrainPanel({ action, getState: () => state, notify, canEdit: () => { if (busy || dirty) { notify('请先保存棋子编辑或等待当前操作完成', true); return false; } return true; } });
 dice = dicePanel({ api, action, getState: () => state, getActor: actor, notify });
 if (token) loadState().catch(error => notify(error.message, true));

@@ -48,6 +48,7 @@ try {
   assert.equal(saved.status, 200);
   const other = await mkdtemp(join(output, 'other-'));
   await assert.rejects(execute(process.execPath, [launcher, '--no-browser', '--port', String(port), '--campaign', other], { windowsHide: true }), /其他服务或战役/);
+  await assert.rejects(execute(process.execPath, [launcher, ...args, '--workspace', join(directory, 'other-library')], { windowsHide: true }), /另一个工作区/);
   await stop(); token = null;
   await launch(); await login();
   const restored = await (await fetch(url + '/api/state', { headers: { Authorization: `Bearer ${token}` } })).json();

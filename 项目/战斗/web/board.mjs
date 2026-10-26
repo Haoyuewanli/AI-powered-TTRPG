@@ -1,4 +1,5 @@
 import * as THREE from '/vendor/three.module.js';
+import { terrainGroup } from '/terrain-view.mjs';
 import { largestFaces } from '/geometry.mjs';
 
 function textTexture(text, subtitle, background, width = 256, height = 256) {
@@ -37,9 +38,9 @@ export class BattleBoard {
     const sun = new THREE.DirectionalLight('#ffe8bd', 1.35); sun.position.set(20, 70, -20); sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048); sun.shadow.camera.left = -100; sun.shadow.camera.right = 100;
     sun.shadow.camera.top = 100; sun.shadow.camera.bottom = -100; sun.shadow.camera.far = 250; sun.shadow.bias = -.00015;
-    sun.target.position.set(50, 0, 40); this.scene.add(sun, sun.target);
+    sun.target.position.set(50, 0, 40); this.scene.add(sun, sun.target); this.sun = sun;
     const rim = new THREE.DirectionalLight('#438aab', .7); rim.position.set(100, 35, 100); this.scene.add(rim);
-    this.ground = new THREE.Group(); this.pieces = new THREE.Group(); this.scene.add(this.ground, this.pieces);
+    this.ground = new THREE.Group(); this.pieces = new THREE.Group(); this.terrain = new THREE.Group(); this.scene.add(this.ground, this.terrain, this.pieces);
     this.target = new THREE.Vector3(50, 0, 40); this.wantedTarget = this.target.clone();
     this.orbit = { azimuth: .4, polar: .82, distance: 135 }; this.wanted = { ...this.orbit };
     this.ray = new THREE.Raycaster(); this.pointer = new THREE.Vector2(); this.meshes = [];
@@ -106,7 +107,7 @@ export class BattleBoard {
     this.wantedTarget.x = THREE.MathUtils.clamp(this.wantedTarget.x, -100, 300);
     this.wantedTarget.z = THREE.MathUtils.clamp(this.wantedTarget.z, -100, 300);
   }
-  zoom(factor) { this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * factor, 14, 350); this.requestRender(); }
+  zoom(factor) { this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * factor, 14, 700); this.requestRender(); }
   advanceKeyboard(seconds) {
     const held = (...keys) => keys.some(key => this.heldKeys.has(key)) ? 1 : 0;
     this.wanted.azimuth += (held('KeyQ', 'ArrowLeft') - held('KeyE', 'ArrowRight')) * 1.6 * seconds;
@@ -119,7 +120,7 @@ export class BattleBoard {
       this.pan(right * speed, forward * speed);
     }
     const zoom = held('Minus', 'NumpadSubtract') - held('Equal', 'NumpadAdd');
-    if (zoom) this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * Math.exp(zoom * 1.2 * seconds), 14, 350);
+    if (zoom) this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * Math.exp(zoom * 1.2 * seconds), 14, 700);
   }
   reset() {
     const { width = 100, depth = 80 } = this.board || {};
@@ -148,6 +149,10 @@ export class BattleBoard {
     disposeGroup(this.ground); this.board = board;
     this.renderer.shadowMap.needsUpdate = true;
     const { width, depth } = board;
+    this.reset();
+    const extent = Math.max(width, depth) / 2 + 25;
+    this.sun.target.position.set(width / 2, 0, depth / 2); this.sun.position.set(width / 2 - 30, 100, depth / 2 - 40);
+    Object.assign(this.sun.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, far: 400 }); this.sun.shadow.camera.updateProjectionMatrix();
     const slab = new THREE.Mesh(new THREE.BoxGeometry(width + 2, 1, depth + 2), new THREE.MeshStandardMaterial({ color: new THREE.Color('#172f3d').convertSRGBToLinear(), roughness: .8 }));
     slab.position.set(width / 2, -.6, depth / 2); this.ground.add(slab);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), new THREE.MeshStandardMaterial({ color: new THREE.Color('#132630').convertSRGBToLinear(), roughness: .95 }));
@@ -169,11 +174,21 @@ export class BattleBoard {
     }
   }
   update(state, selected) {
+    const terrainKey = JSON.stringify(state.objects || []);
+    if (this.terrainKey !== terrainKey) {
+      disposeGroup(this.terrain); this.terrainKey = terrainKey;
+      for (const object of state.objects || []) this.terrain.add(terrainGroup(object, false));
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+    this.renderer.domElement.dataset.objectCount = String((state.objects || []).length);
     if (!this.board || this.board.width !== state.board.width || this.board.depth !== state.board.depth) this.setGround(state.board);
+    const piecesKey = JSON.stringify(state.actors.map(a => [a.id, a.name, a.kind, a.body, a.space, a.position, a.facing, a.hidden])) + selected;
+    if (this.piecesKey === piecesKey) { this.requestRender(); return; }
+    this.piecesKey = piecesKey;
     disposeGroup(this.pieces); this.meshes = []; this.selected = selected;
     this.renderer.shadowMap.needsUpdate = true;
     for (const actor of state.actors) {
-      const group = new THREE.Group(); group.position.set(actor.position.x, 0, actor.position.z); group.rotation.y = -actor.facing * Math.PI / 180;
+      const group = new THREE.Group(); group.position.set(actor.position.x, actor.position.y || 0, actor.position.z); group.rotation.y = -actor.facing * Math.PI / 180;
       const color = actor.kind === 'pc' ? '#3b8595' : '#906b60';
       const materials = Array.from({ length: 6 }, () => new THREE.MeshStandardMaterial({ color, roughness: .65 }));
       const faces = largestFaces(actor.body), [front, back] = faces.materialIndices;
@@ -191,7 +206,7 @@ export class BattleBoard {
       const footprint = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([
         new THREE.Vector3(-sx, .07, -sz), new THREE.Vector3(sx, .07, -sz), new THREE.Vector3(sx, .07, sz), new THREE.Vector3(-sx, .07, sz)
       ]), new THREE.LineBasicMaterial({ color: actor.id === selected ? '#ffe1a3' : '#65aaa9' }));
-      footprint.position.set(actor.position.x, 0, actor.position.z); this.pieces.add(footprint);
+      footprint.position.set(actor.position.x, actor.position.y || 0, actor.position.z); this.pieces.add(footprint);
       const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: textTexture(actor.name, actor.hidden ? 'DM / HIDDEN' : actor.kind === 'pc' ? 'PLAYER' : 'NPC', '#122938', 512, 128), depthTest: false }));
       label.position.set(0, actor.body.height + 3, 0); label.scale.set(Math.max(12, actor.name.length * 1.1), 3, 1); group.add(label);
       this.pieces.add(group);
@@ -199,5 +214,5 @@ export class BattleBoard {
     this.renderer.domElement.dataset.actorCount = String(state.actors.length);
     this.renderer.domElement.dataset.ready = 'true'; this.requestRender();
   }
-  clear() { this.heldKeys.clear(); disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.requestRender(); }
+  clear() { this.heldKeys.clear(); this.piecesKey = null; this.terrainKey = null; disposeGroup(this.terrain); this.renderer.domElement.dataset.objectCount = '0'; disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.requestRender(); }
 }
