@@ -8,12 +8,14 @@ import { filesPanel } from '/files-panel.mjs';
 import { sharingPanel } from '/sharing-panel.mjs';
 import { actionId, copyText } from '/client-utils.mjs';
 import { valueBars } from '/value-bars.mjs';
+import { resourcePanel } from '/resource-panel.mjs';
 
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem('battle-session') || '';
 let state = null, selectedId = null, board = null, busy = false, polling = false;
 let dirty = false, editingRevision = null, toastTimer, selection, library, dice, terrain, previewedProposal, shell, sharing, files;
 let clientAudience = 'local', connected = true, sessionEpoch = 0, manualContext = '';
+let resources;
 const cancelled = () => Object.assign(new Error('操作所属的会话已结束'), { cancelled: true });
 const contextKey = () => state ? `${state.campaignId}/${state.battleId}` : '';
 const formFields = ['name', 'ac', 'hp', 'maxHp', 'tempHp', 'speed', 'initiativeBonus', 'attackLimit', 'tiePriority', 'facing'];
@@ -51,7 +53,7 @@ async function api(path, body) {
 function clearSession() {
   sessionEpoch++; manualContext = '';
   token = ''; state = null; selectedId = null; dirty = false; editingRevision = null; selection = null;
-  files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); shell?.update(null); clearPreview();
+  files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); resources?.clear(); shell?.update(null); clearPreview();
   sessionStorage.removeItem('battle-session');
   $('external-file-notice').hidden = true;
   $('table').hidden = true; $('login').hidden = false;
@@ -172,7 +174,7 @@ function render(selectionChanged = false) {
     const row = text('div', '', 'event'); row.append(text('small', `v${event.revision}${event.undoneBy ? ' · 已撤销' : ''}`), text('span', isDm() ? event.dmText : event.text)); if (event.undoneBy) row.classList.add('undone'); return row;
   }));
   if (!events.length) $('events').append(text('p', '尚无已保存的战斗事件。', 'fine'));
-  files?.update(state); dice?.render(state); terrain?.render(state);
+  files?.update(state); dice?.render(state); terrain?.render(state); resources?.update();
   board?.update(state, selectedId); shell?.update(state); sharing?.render(state); setConnection(connected);
 }
 function renderTasks() {
@@ -361,6 +363,7 @@ $('undo').addEventListener('click', guarded(() => action('undo')));
 library = workspacePanel({ api, apply: applyResult, notify, getState: () => state, canSwitch });
 terrain = terrainPanel({ action, getState: () => state, notify, canEdit: () => { if (busy || dirty) { notify('请先保存棋子编辑或等待当前操作完成', true); return false; } return true; } });
 dice = dicePanel({ api, action, getState: () => state, getActor: actor, notify });
+resources = resourcePanel({api,action,getState:()=>state,getActor:actor,notify,openTool:name=>shell?.openTool(name)});
 shell = initShell();
 files = filesPanel({api, apply:applyResult, notify, getState:()=>state, canEdit:canSwitch});
 sharing = sharingPanel({ api, notify, getState: () => state });

@@ -7,6 +7,7 @@ import { openWorkspace } from './src/workspace.mjs';
 import { initializeCampaign, findCampaign } from './src/campaign.mjs';
 import { projectState, handoff, RuleError, planAttack, parseDice } from './src/rules.mjs';
 import { createSharing } from './src/sharing.mjs';
+import { openPreferences } from './src/preferences.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const hash = value => createHash('sha256').update(value).digest();
@@ -32,8 +33,10 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
   const workspace = await openWorkspace({ seedDirectory: directory, workspaceDirectory,
     initial: initial || (() => initializeCampaign(directory)), persist });
   const sessions = new Map();
+  const preferences = await openPreferences(join(workspaceDirectory,'界面设置.json')).catch(async e=>{await workspace.close();throw e;});
   const staticFiles = new Map([
-    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
+    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars', 'resource-panel', 'resource-icons'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
+    ...['resources','rule-errors'].map(name => [`/${name}.mjs`, [join(ROOT,`src/${name}.mjs`),'text/javascript; charset=utf-8']]),
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
     ['/app.mjs', [join(ROOT, 'web/app.mjs'), 'text/javascript; charset=utf-8']],
@@ -45,7 +48,7 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
   ]);
   let loginWindow = { start: Date.now(), count: 0 };
   let closeApp, sharing;
-  const playerRoutes = new Set(['GET /api/state', 'GET /api/handoff', 'POST /api/action', 'POST /api/attack-plan', 'POST /api/logout']);
+  const playerRoutes = new Set(['GET /api/state', 'GET /api/handoff', 'POST /api/action', 'POST /api/attack-plan', 'POST /api/logout', 'GET /api/preferences','POST /api/preferences']);
   const handle = audience => async (request, response) => {
     const send = (status, body) => {
       response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -95,6 +98,10 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
         const principal = audience === 'player' ? sharing.principal(token) : sessions.get(token);
         if (!principal || principal.expires < Date.now()) throw new RuleError('请重新登录', 401);
         workspace.context(principal);
+        if (path === '/api/preferences') {
+          if (request.method === 'GET') return send(200,preferences.get(principal,workspace.selection.campaignId));
+          if (request.method === 'POST') return send(200,await preferences.save(principal,workspace.selection.campaignId,await readBody(request)));
+        }
         const reply = () => ({ state: projectState(workspace.store.state, principal),
           recoveryNote: audience === 'local' ? workspace.store.recoveryNote : null, selection: workspace.selection });
         if (path === '/api/files' && request.method === 'POST') {
