@@ -61,7 +61,7 @@ function clearSession() {
   $('external-file-notice').hidden = true;
   $('table').hidden = true; $('login').hidden = false;
   for (const id of ['roster', 'actor-info', 'events', 'reference']) $(id).replaceChildren();
-  for (const id of ['selected-name', 'selected-kind', 'turn-caption', 'title', 'role', 'save-status', 'recovery', 'latest-event-text', 'phase-label', 'board-size', 'round', 'dock-selected-name']) $(id).textContent = '';
+  for (const id of ['selected-name', 'selected-kind', 'turn-caption', 'title', 'role', 'save-status', 'recovery', 'latest-event-text', 'phase-label', 'board-size', 'round']) $(id).textContent = '';
   for (const item of $('table').querySelectorAll('input,textarea')) { item.value = ''; if (item.type === 'checkbox') item.checked = false; }
   for (const id of ['attack-choice', 'target-choice']) $(id).replaceChildren();
   board?.clear();
@@ -143,7 +143,6 @@ function render(selectionChanged = false) {
   $('next').disabled = busy || state.combat.phase !== 'active' || !current || !owns(current);
   $('dash').disabled = busy || !isTurn(a) || !owns(a) || a.hp <= 0 || state.combat.action !== 'none';
   $('selected-name').textContent = a?.name || '选择棋子';
-  if ($('dock-selected-name')) $('dock-selected-name').textContent = `${a?.name || '选择棋子'} · 数值与操作`;
   $('selected-kind').textContent = a ? a.kind === 'pc' ? 'PLAYER' : 'NPC' : '';
   $('actor-info').replaceChildren();
   if (a) {

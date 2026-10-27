@@ -2,7 +2,7 @@ import {resourceView} from '/resources.mjs';
 import {el,resourceIcon,glassContents,DEFAULT_LAYOUT} from '/resource-icons.mjs';
 const $=id=>document.getElementById(id);
 export function resourcePanel({api,action,getState,getActor,notify,openTool,onResource=()=>{}}) {
-  const root=el('section','','resource-section');root.id='resource-section';root.setAttribute('aria-label','资源与操作');
+  const root=el('section','','resource-section');root.id='resource-section';root.setAttribute('aria-label','角色资源');
   const heading=el('div','','resource-heading'),settings=el('button','资源与界面设置');settings.type='button';settings.id='resource-settings';
   heading.append(el('h3','资源'),settings);const row=el('div','','resource-row');row.id='resource-row';root.append(heading,row);$('actor-info').after(root);
   const dialog=el('dialog','','tool-dialog');dialog.id='resource-settings-dialog';dialog.dataset.dialog='resource-settings';dialog.setAttribute('aria-label','资源与界面设置');
@@ -20,8 +20,8 @@ export function resourcePanel({api,action,getState,getActor,notify,openTool,onRe
   const safe=fn=>async e=>{e?.preventDefault();try{await fn(e);}catch(err){notify(err.message,true);}};
   function resource() {return resourceView(getState(),getActor()).find(r=>r.id===$('style-resource').value);}
   function render() {
-    const state=getState(),actor=getActor();root.hidden=!state||!actor||!('hp' in actor);if(root.hidden)return;
-    for(const bar of document.querySelectorAll('.value-row[data-resource-id]')) {const color=prefs.value.resources?.[bar.dataset.resourceId]?.color;if(color)bar.style.setProperty('--bar-color',color);}
+    const state=getState(),actor=getActor();root.hidden=!state||!actor||!('hp' in actor);
+    if(root.hidden){row.replaceChildren();for(const fn of renderExtras)fn();return;}
     row.replaceChildren(...resourceView(state,actor).map(r=>{
       const b=el('button','','resource-button');b.type='button';b.dataset.resourceId=r.id;b.setAttribute('aria-label',`${r.name} ${r.current}/${r.max}，打开操作分类`);b.title=`${r.name} ${r.current}/${r.max}${r.source ? ` · ${r.source}`:''}`;
       b.append(resourceIcon(r,prefs.value),el('span',r.name),el('small',`${r.current}/${r.max}`));b.addEventListener('click',()=>onResource(r));return b;

@@ -5,8 +5,30 @@ const dmTools = new Set(['workspace', 'setup', 'terrain', 'actor', 'sharing', 'f
 export function initShell() {
   const compact = window.matchMedia('(max-width: 1100px)');
   const workspace = $('table-workspace'), actionPanel = $('action-panel');
-  const consolePanel = document.createElement('section'); consolePanel.id='battle-console'; consolePanel.className='panel'; consolePanel.setAttribute('aria-label','数值资源与操作');
-  const consoleTitle=document.createElement('strong');consoleTitle.id='dock-selected-name';consolePanel.append(consoleTitle);document.querySelector('.board-region').append(consolePanel);
+  const operationsPanel=document.createElement('aside');operationsPanel.id='operations-panel';operationsPanel.className='right-panel panel';operationsPanel.setAttribute('aria-label','分类常规操作');
+  operationsPanel.append($('hotbar-section'));workspace.append(operationsPanel);
+  const collapsed={actor:false,operations:false};
+  function buildSidebar(panel,key,title) {
+    panel.classList.add('battle-sidebar');
+    const body=document.createElement('div');body.id=`${key}-sidebar-body`;body.className='sidebar-body';body.append(...panel.childNodes);
+    const heading=document.createElement('header');heading.className='sidebar-heading';const h=document.createElement('h2');h.textContent=title;
+    const toggle=document.createElement('button');toggle.type='button';toggle.id=`toggle-${key}-sidebar`;toggle.className='sidebar-toggle';toggle.setAttribute('aria-controls',body.id);
+    toggle.addEventListener('click',()=>setCollapsed(key,!collapsed[key]));heading.append(h,toggle);panel.append(heading,body);
+    return {panel,body,toggle,title};
+  }
+  const sidebars={actor:buildSidebar(actionPanel,'actor','棋子与资源'),operations:buildSidebar(operationsPanel,'operations','常规操作')};
+  const operationCaption=document.createElement('p');operationCaption.id='operations-selected-name';operationCaption.className='sidebar-selected-name';sidebars.operations.body.prepend(operationCaption);
+  const empty=document.createElement('p');empty.id='operations-empty';empty.className='fine';empty.textContent='此视角不显示该棋子的操作资料，请选择自己的角色。';empty.hidden=true;sidebars.operations.body.append(empty);
+  function setCollapsed(key,value) {
+    const sidebar=sidebars[key];collapsed[key]=value;sidebar.body.hidden=value;sidebar.panel.classList.toggle('is-collapsed',value);
+    sidebar.toggle.textContent=value?'‹':'›';sidebar.toggle.setAttribute('aria-expanded',String(!value));
+    sidebar.toggle.setAttribute('aria-label',`${value?'展开':'收起'}${sidebar.title}栏`);sidebar.toggle.title=sidebar.toggle.getAttribute('aria-label');
+    workspace.dataset[`${key}Collapsed`]=String(value);
+  }
+  for(const key of Object.keys(sidebars))setCollapsed(key,false);
+  const switcher=document.createElement('nav');switcher.className='sidebar-switcher';switcher.setAttribute('aria-label','右栏快捷定位');
+  for(const [name,label] of [['actions','棋子与资源'],['operations','常规操作']]) {const button=document.createElement('button');button.type='button';button.textContent=label;button.addEventListener('click',()=>openTool(name));switcher.append(button);}
+  $('actions-dialog').querySelector('.dialog-heading').after(switcher);
   const dialogs = new Map([...document.querySelectorAll('[data-dialog]')].map(dialog => [dialog.dataset.dialog, dialog]));
   const returnFocus = new Map();
   let currentState = null, contextKey = '', sceneReturnFocus = null;
@@ -43,6 +65,11 @@ export function initShell() {
     document.querySelectorAll('.session-menu').forEach(menu => { menu.open = false; });
     if (restoreFocus) focusBack(target);
   }
+  function focusSidebar(key) {
+    const panel=sidebars[key].panel;panel.tabIndex=-1;
+    if(compact.matches)panel.scrollIntoView({block:'start'});
+    panel.focus({preventScroll:true});
+  }
   function openTool(name) {
     if (!currentState || (dmTools.has(name) && currentState.viewRole !== 'dm')) return false;
     const trigger = triggerFor(name);
@@ -59,39 +86,41 @@ export function initShell() {
       $('scene-tools').querySelector('[data-close-tool]').focus({ preventScroll: true });
       return true;
     }
-    if (name === 'actions' && !compact.matches) {
-      actionPanel.tabIndex = -1;
-      actionPanel.focus({ preventScroll: true });
-      return true;
+    const sidebarKey=name==='actions'?'actor':name==='operations'?'operations':null;
+    if(sidebarKey) {
+      setCollapsed(sidebarKey,false);
+      if(!compact.matches) {
+        for(const other of dialogs.values())closeDialog(other,false);
+        focusSidebar(sidebarKey);return true;
+      }
     }
-    const dialog = dialogs.get(name);
+    const dialog = dialogs.get(sidebarKey?'actions':name);
     if (!dialog) return false;
-    if (dialog.open) return true;
+    if (dialog.open) {if(sidebarKey)focusSidebar(sidebarKey);return true;}
     for (const other of dialogs.values()) closeDialog(other, false);
     if (name === 'actor') $('edit-details').open = true;
     if (name === 'exchange') $('exchange-panel').open = true;
     returnFocus.set(dialog, trigger);
     dialog.append($('toast'));
     dialog.showModal();
+    if(sidebarKey)focusSidebar(sidebarKey);
     return true;
   }
   function placeActions() {
     if (compact.matches) {
-      consolePanel.hidden=true;
-      if ($('actor-info').parentElement !== actionPanel) { const selected=actionPanel.querySelector('.selected-heading');selected.after($('actor-info'));$('actor-info').after($('resource-section')); }
-      if (actionPanel.parentElement !== $('actions-slot')) $('actions-slot').append(actionPanel);
+      if (actionPanel.parentElement !== $('actions-slot')) $('actions-slot').append(actionPanel,operationsPanel);
     } else {
-      consolePanel.hidden=false;if ($('actor-info').parentElement !== consolePanel) consolePanel.append($('actor-info'),$('resource-section'));
       closeDialog(dialogs.get('actions'), false);
-      if (actionPanel.parentElement !== workspace) workspace.append(actionPanel);
+      if (actionPanel.parentElement !== workspace) workspace.append(actionPanel,operationsPanel);
     }
   }
   function update(state) {
     currentState = state;
-    if (!state) { closeTools({ restoreFocus: false }); contextKey = ''; return; }
+    if (!state) { closeTools({ restoreFocus: false }); contextKey = '';operationCaption.textContent='';for(const key of Object.keys(sidebars))setCollapsed(key,false);return; }
     const nextKey = `${state.campaignId}/${state.battleId}/${state.viewRole}/${state.viewerId || ''}`;
     if (contextKey && contextKey !== nextKey) closeTools({ restoreFocus: false });
     contextKey = nextKey;
+    operationCaption.textContent=$('selected-name').textContent;
     $('table').dataset.phase = state.combat?.phase || 'preparing';
     $('table').dataset.role = state.viewRole;
     document.querySelectorAll('[data-dm-only]').forEach(element => { element.hidden = state.viewRole !== 'dm'; });
