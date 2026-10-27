@@ -46,6 +46,29 @@ DM日常只需这几步：
 
 界面只常驻棋盘、当前回合、行动与保存状态；资料、记录、主持交接和帮助按按钮打开。关闭工具保留尚未提交的资料草稿；要继续其他写操作，先保存或放弃资料编辑。不同角色的人工裁定输入会清空，避免把上个角色的治疗/伤害误用给下个角色。未提交输入不是正式存档。
 
+## 数值、资源、操作格与玻璃球
+
+宽屏棋盘下方显示所选角色的数值、资源和操作格；低高度窗口可在操作区内滚动，小屏从右下角“行动与掷骰”进入同一套界面。HP为红色，临时生命为青绿色，移动为蓝色；刻度条右侧是当前/上限。临时生命的分母是本次接受的授予量，受伤不会缩小分母；0/0为空条。AC等无消耗上限的数据用数值徽标。
+
+动作圆形、附赠动作三角形、反应菱形、攻击机会独立列出。普通法术位按环分组，4枚为带间隔的2×2；契约法术位与普通位分别记账。消耗后的符号变灰。较大资源池按32段等比显示，具体读数和数值条保留完整数量。已用动作但仍有额外攻击时，攻击机会和武器操作仍可用。
+
+点资源打开同色透明玻璃球，中心图标及消耗缺口与资源栏同步。环绕方格有前后景深，支持拖动、滚轮、左右按钮/方向键旋转；进入“法术→环级→具体法术”等下一层，面包屑和Esc逐层返回。每页最多8项，可翻页；也可切为列表。旋转、浏览、排序和取消都不会扣资源。
+
+操作格显示2024通用动作，以及本角色登记的武器、法术、职业特性与装备。拖动方格交换位置；“调整位置”还提供触摸拖动和前后移按钮。顺序按团、身份、角色保存。灰色项仍可打开查看原因，确认按钮会阻止非法使用。
+
+“资源与界面设置”提供：
+
+1. 每种资源的可用色、消耗色，以及透明底PNG/WebP导入。图片在本机归一为96像素纯色遮罩，由配色控制颜色；不加载远程图片或可执行SVG。
+2. 球内图标、名称和数量的拖动布局预览，也可填写百分比坐标或恢复默认。
+3. 主持核对本场资源的ID、当前量、上限、类型、来源及短休/长休/本人回合恢复量。`all`为全满，整数为恢复该数量，留空不自动恢复。长休不隐含套用短休配置；预掷结果须重新录入。
+4. 表单或JSON登记本场法术/特性/物品，填写启用的2024或兼容扩展来源、条件及组合费用。收录资料不等于启用，旧资源备注也不会自动变成职业能力。
+
+武器和疾走直接进入已有本地结算。其他操作明确标为“主持裁定”：主持核对触及、体型、成分、触发、检定/豁免、专注及最终效果，再确认费用与伤害/治疗/临时生命等结果。一次提交整体成功才扣费、写文件，可撤销；不会凭法术名字自动推算全部效果。玩家可生成提议交给主持，不能自行应用DM裁定。若局面在填写期间更新，须重新选择操作，旧提议不能覆盖新状态。
+
+采用2024费用：普通跳跃花移动预算；推撞/擒抱是徒手打击分支，使用攻击机会；轻型额外攻击、Nick、蘸取/涂层等须登记具体能力/物品规则。不能直接套用BG3的附赠动作或伤害。每回合最多消耗一个法术位，普通与契约位共同计数；反应在本人回合开始恢复。资源有余量不等于当前可操作；尚未轮到时仍显示真实余量，操作确认按回合限制。上一回合动作、攻击和移动余额以只读回合记录展示，不参与第二套结算。短/长休由主持在战斗结束后明确记录，仅恢复配置的资源；其他休息效果仍须核对。关窗口、刷新或切换战斗不会自动回满。
+
+资源池保存在各场`战斗状态.json`的`actors[].resourcePools`，操作保存在`actors[].operations`。旧存档新增显示基准和默认空池前会保留升级前原件，不猜测真实角色的职业或数值。界面配色、图片、布局及排序存于工作区`界面设置.json`，按团与身份隔离，不占战斗版本与撤销历史。无效设置文件会保留原件并显示恢复提示；不支持的较新版本不会被覆盖。备份时请一并保存整个存档目录。
+
 ## 方块人物、拖动与搭地图
 
 “行动与掷骰”现在所有窗口尺寸都可见；宽屏会定位右栏，窄屏打开抽屉。战前待办列出尚未核对、起始HP不合适或未提交先攻的具体角色，点角色按钮直接核对；必须点保存，单独勾选不算完成。
@@ -182,13 +205,16 @@ DM打开回合栏“地形”：先改盘面宽/深并保存，再选墙、隆�
 | `add-actor` / `remove-actor` | 新增/复制：`name,kind,ownerId?,copyActorId?`；移出：`actorId` | DM，非战斗中 |
 | `set-dice-mode` | `mode: program / physical` | DM |
 | `undo` | `{}` | DM |
+| `use-operation` | `actorId,operationId,targetId?,slotId?,movementCost?,reason?,result?,publicNote?`；result支持`heal,temporaryHp,replaceTemporaryHp,damage:[{type,amount}],position`；费用从目录读取 | 武器/疾走由角色控制者；特殊效果仅DM |
+| `spend-resources` | `actorId,reason,costs:[{resourceId,amount}]`，一次性校验组合费用 | DM |
+| `rest` | `actorId,kind:short/long,reason`，只按明确配置恢复，长休清临时生命 | DM，非战斗中 |
 | `adjudicate` | `actorId, reason`；可选 `damage:[{type,amount}], heal, temporaryHp, resources, consumeAction, publicNote` | DM |
 
 多团API（DM）：`GET /api/catalog`，`POST /api/select {campaignId,battleId}`，`POST /api/campaigns {name,copyCurrent}`，`POST /api/battles {name,templateBattleId?}`。攻击计划 `POST /api/attack-plan` 只返回所需骰型/颗数，不掷骰或暴露敌方数值；攻击可附 `manualRolls:{attack:[原始d20],damage:[[各项伤害骰]]}`。
 
 API：`POST /api/login` 输入 `{id}` 得到会话令牌（DM的id为`DM`，均无需口令），后续使用 `Authorization: Bearer <token>`；`GET /api/state`、`GET /api/handoff`、`POST /api/action`、`POST /api/logout`、DM专用 `POST /api/shutdown`。上述本机入口只接受本机Host及同源浏览器请求，启动器同时核对核心版本与工作区，避免旧核心或另一工作区被误复用；不提供文件系统通配访问。调用本机HTTP接口不需要模型服务。
 
-分享API仅本机DM：`GET /api/sharing`查看状态，`POST /api/sharing {operation}`开启/关闭/邀请；operation为`enable,disable,invite,revoke,start-online,stop-online`，邀请附actorId，撤回附inviteId。独立玩家入口只开放静态界面、`/api/client-info`、`/api/join {invite}`及玩家态state/action/attack-plan/handoff/logout。邀请经链接片段传入，在页面换会话后从地址栏移除；玩家和本机令牌互不通用。短轮询只读最新状态，所有写入仍经同一事务队列和版本检查。
+分享API仅本机DM：`GET /api/sharing`查看状态，`POST /api/sharing {operation}`开启/关闭/邀请；operation为`enable,disable,invite,revoke,start-online,stop-online`，邀请附actorId，撤回附inviteId。独立玩家入口只开放静态界面、`/api/client-info`、`/api/join {invite}`及玩家态state/action/attack-plan/handoff/logout/preferences。邀请经链接片段传入，在页面换会话后从地址栏移除；玩家和本机令牌互不通用。短轮询只读最新状态，所有写入仍经同一事务队列和版本检查。
 
 职责分开在 `src/rules.mjs`（规则和权限投影）、`src/store.mjs`（持久化）、`src/workspace.mjs`（团和战斗索引/切换）、`src/campaign.mjs`（资料载入）、`web/board.mjs`与`web/terrain-view.mjs`（显示）、`web/app.mjs`（交互）、`web/shell.mjs`（工具与自适应布局）、`src/sharing.mjs`（玩家接入）、`src/tunnel.mjs`（线上连接工具）。后续主持适配器只交换局面与提议，新增动作沿用同一校验入口；换棋子模型无需改规则占地。存档格式及规则范围都有版本标识；不支持的新版本会拒绝载入，避免静默错算。当前事件写在单一JSON内，长战役时应评估文件体积后再拆日志，首轮未引入数据库。
 
@@ -217,3 +243,9 @@ node tests/files-browser-check.mjs
 基础测试仅用Node标准库与合成数据。浏览器检查使用现有Codex运行环境的Playwright和已装Edge；可用 `BATTLE_PLAYWRIGHT_MODULE`、`BATTLE_BROWSER` 指定路径，不是运行本产品所需依赖。检查输出集中到 `开发记录/临时/战斗测试/`、`战斗浏览器检查/`、`战斗流程检查/`、`地形检查/`、`多团检查/`、`战斗启动检查/`、`本地窗口恢复检查/`、`界面联机检查/`、`局域网与触摸检查/`、`方块地图检查/`、`文件刷新检查/`，不使用真实角色进行攻击测试。窗口恢复检查阻断外部请求、通过根目录实际入口启动，在合成战役中保存后强制终止本次测试进程，验证重新打开后可继续修改同一存档。
 
 规则依据为本地固定快照 `c1425c8e90804766689a0db7ec416833f3fc3046` 中《玩家手册2024》“战斗流程”“移动和位置”“攻击检定”“远程攻击”“重击”“抗性和易伤”“临时生命值”。实际执行结果与保存点见工作区 `开发记录/整理记录.md`；资料有翻译与勘误限制，未进行完整官方规则一致性审查。
+
+界面设置API：GET /api/preferences仅返回当前团与当前身份的设置和设置版本；POST /api/preferences携带campaignId、expectedRevision及value。资源量与规则资料不能通过此接口改写。共享纯数据模块src/resources.mjs管理费用及恢复，src/action-catalog.mjs管理操作与可用性；web/resource-orbit.mjs与操作格仅引用同一目录，新增具体规则仍接use-operation及原事务队列。
+
+攻击资料可选costs:[{resourceId,amount}]登记每次尝试消耗的弹药或库存，费用引用已有非环位资源池。命中或未命中均扣一次；不合法目标/骰点不扣。只有登记的库存才会自动扣除；精通、轻型/Nick、命中后追加施法与其他特殊条件仍须主持核对。
+
+本机另备独立的项目/存档/资源界面试玩/打开试玩.cmd，包含合成牧师、训练守卫及一/二环、引导神力和五个操作；初始资料待核对、尚未开战。其数值仅供流程与存档试玩，不代表完整职业卡或平衡遭遇。重复双击继续同一文件。该目录属于本地私人存档，不纳入Git。

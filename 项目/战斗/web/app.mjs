@@ -10,13 +10,15 @@ import { actionId, copyText } from '/client-utils.mjs';
 import { valueBars } from '/value-bars.mjs';
 import { resourcePanel } from '/resource-panel.mjs';
 import { actionPanel } from '/action-panel.mjs';
+import { resourceOrbit } from '/resource-orbit.mjs';
+import { resourceView } from '/resources.mjs';
 
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem('battle-session') || '';
 let state = null, selectedId = null, board = null, busy = false, polling = false;
 let dirty = false, editingRevision = null, toastTimer, selection, library, dice, terrain, previewedProposal, shell, sharing, files;
 let clientAudience = 'local', connected = true, sessionEpoch = 0, manualContext = '';
-let resources, operations;
+let resources, operations, orbit;
 const cancelled = () => Object.assign(new Error('操作所属的会话已结束'), { cancelled: true });
 const contextKey = () => state ? `${state.campaignId}/${state.battleId}` : '';
 const formFields = ['name', 'ac', 'hp', 'maxHp', 'tempHp', 'speed', 'initiativeBonus', 'attackLimit', 'tiePriority', 'facing'];
@@ -54,12 +56,12 @@ async function api(path, body) {
 function clearSession() {
   sessionEpoch++; manualContext = '';
   token = ''; state = null; selectedId = null; dirty = false; editingRevision = null; selection = null;
-  files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); resources?.clear(); operations?.clear(); shell?.update(null); clearPreview();
+  files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); resources?.clear(); operations?.clear(); orbit?.clear(); shell?.update(null); clearPreview();
   sessionStorage.removeItem('battle-session');
   $('external-file-notice').hidden = true;
   $('table').hidden = true; $('login').hidden = false;
   for (const id of ['roster', 'actor-info', 'events', 'reference']) $(id).replaceChildren();
-  for (const id of ['selected-name', 'selected-kind', 'turn-caption', 'title', 'role', 'save-status', 'recovery', 'latest-event-text', 'phase-label', 'board-size', 'round']) $(id).textContent = '';
+  for (const id of ['selected-name', 'selected-kind', 'turn-caption', 'title', 'role', 'save-status', 'recovery', 'latest-event-text', 'phase-label', 'board-size', 'round', 'dock-selected-name']) $(id).textContent = '';
   for (const item of $('table').querySelectorAll('input,textarea')) { item.value = ''; if (item.type === 'checkbox') item.checked = false; }
   for (const id of ['attack-choice', 'target-choice']) $(id).replaceChildren();
   board?.clear();
@@ -141,6 +143,7 @@ function render(selectionChanged = false) {
   $('next').disabled = busy || state.combat.phase !== 'active' || !current || !owns(current);
   $('dash').disabled = busy || !isTurn(a) || !owns(a) || a.hp <= 0 || state.combat.action !== 'none';
   $('selected-name').textContent = a?.name || '选择棋子';
+  if ($('dock-selected-name')) $('dock-selected-name').textContent = `${a?.name || '选择棋子'} · 数值与操作`;
   $('selected-kind').textContent = a ? a.kind === 'pc' ? 'PLAYER' : 'NPC' : '';
   $('actor-info').replaceChildren();
   if (a) {
@@ -217,9 +220,9 @@ async function loadState() {
   applyResult(result);
 }
 async function sendCommand(command) {
-  if (busy) return;
+  if (busy) throw new Error('正在保存上一项操作，请稍后再试。');
   if (!connected) throw new Error('连接恢复后再操作；当前动作尚未提交。');
-  if (dirty && !(command.type === 'edit-actor' && command.payload?.actorId === selectedId && command.expectedRevision === editingRevision)) { shell?.openTool('actor'); throw new Error('角色资料还没保存。请先保存，或点击“放弃编辑并重载”。'); }
+  if (dirty && !(command.type === 'edit-actor' && command.payload?.actorId === selectedId && command.expectedRevision === editingRevision && formFields.every(key=>Object.hasOwn(command.payload?.patch||{},key)))) { shell?.openTool('actor'); throw new Error('角色资料还没保存。请先保存，或点击“放弃编辑并重载”。'); }
   busy = true; render(); const generation = token;
   try {
     const result = await api('/api/action', command);
@@ -364,8 +367,9 @@ $('undo').addEventListener('click', guarded(() => action('undo')));
 library = workspacePanel({ api, apply: applyResult, notify, getState: () => state, canSwitch });
 terrain = terrainPanel({ action, getState: () => state, notify, canEdit: () => { if (busy || dirty) { notify('请先保存棋子编辑或等待当前操作完成', true); return false; } return true; } });
 dice = dicePanel({ api, action, getState: () => state, getActor: actor, notify });
-resources = resourcePanel({api,action,getState:()=>state,getActor:actor,notify,openTool:name=>shell?.openTool(name),onResource:()=>operations?.showCategory('')});
-operations = actionPanel({resources,getState:()=>state,getActor:actor,action,notify,openTool:name=>shell?.openTool(name),openCategory:category=>operations.showCategory(category)});
+resources = resourcePanel({api,action,getState:()=>state,getActor:actor,notify,openTool:name=>shell?.openTool(name),onResource:r=>orbit?.open(r)});
+operations = actionPanel({resources,getState:()=>state,getActor:actor,action,notify,openTool:name=>shell?.openTool(name),openCategory:category=>orbit?.open(resourceView(state,actor()).find(r=>r.id==='action'),category)});
+orbit = resourceOrbit({resources,operations,getState:()=>state,getActor:actor,openTool:name=>shell?.openTool(name)});
 shell = initShell();
 files = filesPanel({api, apply:applyResult, notify, getState:()=>state, canEdit:canSwitch});
 sharing = sharingPanel({ api, notify, getState: () => state });

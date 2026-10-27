@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import { distanceBetween, overlaps, objectBounds, pathMeetsObject } from './geometry.mjs';
-import { validateResources, beginTurn, recoverResources, spendResources } from './resources.mjs';
+import { validateResources, beginTurn, recoverResources, spendResources, costProblem } from './resources.mjs';
 import { validateOperations, actionCatalog, operationCosts } from './action-catalog.mjs';
 
 import { RuleError, requireRule, integer } from './rule-errors.mjs';
@@ -67,9 +67,9 @@ export function validateAppearance(a) {
 }
 
 export function validateActor(actor, board) {
+  requireRule(actor && typeof actor === 'object' && actor.body && actor.space && actor.position, '角色缺少body、space或position对象');
   validateResources(actor);
   validateOperations(actor);
-  requireRule(actor && typeof actor === 'object' && actor.body && actor.space && actor.position, '角色缺少body、space或position对象');
   validateAppearance(actor.appearance);
   requireRule(typeof actor.id === 'string' && /^[a-zA-Z0-9_-]{1,60}$/.test(actor.id), '棋子ID无效');
   requireRule(['pc', 'npc'].includes(actor.kind), '角色类型无效');
@@ -104,6 +104,7 @@ export function validateActor(actor, board) {
     requireRule(Array.isArray(attack.damage) && attack.damage.length > 0 && attack.damage.length <= 8, '伤害分项无效');
     for (const damage of attack.damage) { parseDice(damage.formula); requireRule(DAMAGE_TYPES.includes(damage.type), '伤害类型无效'); }
     requireRule(!attack.manualEffect || (typeof attack.manualEffect === 'string' && attack.manualEffect.length <= 1000), '附加效应说明无效');
+    if(attack.costs!==undefined) requireRule(Array.isArray(attack.costs) && attack.costs.length<=10 && attack.costs.every(c=>c&&Number.isInteger(c.amount)&&c.amount>0&&c.amount<=1000&&actor.resourcePools?.some(r=>r.id===c.resourceId&&!['slots','pact'].includes(r.kind))), '每次攻击的额外费用须引用已有的非环位资源池；命中后施法请另行裁定');
   }
 }
 
@@ -166,6 +167,10 @@ export function validateState(state) {
   requireRule(new Set((state.objects || []).map(o => o.id)).size === (state.objects || []).length, '地形ID重复');
   for (const object of state.objects || []) validateObject(object, state.board);
   requireRule(['preparing', 'active', 'ended'].includes(state.combat.phase), '战斗阶段无效');
+  if(state.combat.turnHistory!==undefined) {
+    requireRule(record(state.combat.turnHistory)&&Object.keys(state.combat.turnHistory).every(id=>state.actors.some(a=>a.id===id)),'回合显示记录无效');
+    for(const receipt of Object.values(state.combat.turnHistory)){requireRule(record(receipt)&&['none','attack','dash','manual'].includes(receipt.action),'回合动作记录无效');integer(receipt.moved,0,10000,'回合移动记录');integer(receipt.attacksUsed,0,10,'回合攻击记录');}
+  }
   validateInitiativeCollection(state);
   requireRule(Array.isArray(state.events) && Array.isArray(state.appliedIds), '事件记录无效');
   requireRule(state.events.every(e => e && typeof e.publicText === 'string' && typeof e.dmText === 'string' && Number.isInteger(e.revision)) && state.appliedIds.every(id => typeof id === 'string'), '事件字段无效');
@@ -207,6 +212,7 @@ export function planAttack(state, payload, principal) {
   requireRule(target.hp > 0, '目标已倒地；后续攻击、死亡豁免与濒死伤害请由DM裁定');
   requireRule(['none', 'attack'].includes(state.combat.action) && state.combat.attacksUsed < actor.attackLimit, '本回合攻击次数已用完或已使用其他动作');
   const attack = actor.attacks.find(a => a.id === payload.attackId); requireRule(attack, '未设置该攻击，请由DM补充角色攻击资料');
+  const problem=costProblem(state,actor,[{resourceId:'attack',amount:1},...(attack.costs||[])]);requireRule(!problem,problem);
   requireRule((actor.position.y || 0) === (target.position.y || 0), '高差攻击、掩护和视线尚未自动化，请DM人工裁定');
   requireRule(!(state.objects || []).some(o => (o.blocksMovement || ['hill', 'floor', 'stairs'].includes(o.type)) && pathMeetsObject(actor, target.position, o)), '攻击线路可能受地形影响，掩护和视线请DM人工裁定');
   const distance = distanceBetween(actor, target);
@@ -257,6 +263,7 @@ export function executeAction(original, command, principal, { draw = die, id = r
         const actor=getActor(state, source.id);
         requireRule(actor.kind===source.kind && actor.ownerId===source.ownerId, '不能通过资料刷新改变角色ID或归属');
         for(const key of editable) if(Object.hasOwn(source,key) && !['position','facing'].includes(key)) actor[key]=structuredClone(source[key]);
+        if(Object.hasOwn(source,'tempHp') && !Object.hasOwn(source,'tempHpBase')) actor.tempHpBase=actor.tempHp;
         validateActor(actor,state.board);
       }
       dmText='DM将资料库中选定角色的资料应用到本场；位置保持不变，其他战斗不变。';break;
@@ -416,7 +423,7 @@ export function executeAction(original, command, principal, { draw = die, id = r
         result = applyDamage(target, damage.map(d => ({ type: d.type, amount: d.total })));
         rolls.push(...damage);
       }
-      state.combat.action = 'attack'; state.combat.attacksUsed++;
+      spendResources(state,actor,[{resourceId:'attack',amount:1},...(attack.costs||[])]);
       publicText = `${actor.name} → ${target.name}：${attack.name}，d20[${roll.values.join(',')}]${attack.bonus >= 0 ? '+' : ''}${attack.bonus}=${roll.natural + attack.bonus}，${hit ? `${critical ? '重击，' : '命中，'}造成 ${result.total} 伤害` : '未命中'}。`;
       if (hit) publicText += ` 伤害骰：${rolls.slice(1).map(r => `${r.type} [${r.values.join(',')}]${r.modifier >= 0 ? '+' : ''}${r.modifier}`).join('；')}。`;
       if (hit && attack.manualEffect) publicText += ` 待DM裁定：${attack.manualEffect}`;
@@ -442,6 +449,7 @@ export function executeAction(original, command, principal, { draw = die, id = r
     case 'remove-actor': {
       dmOnly(principal); requireRule(state.combat.phase !== 'active' && state.actors.length > 1, '只可战前移出棋子，且至少保留一个');
       const actor = getActor(state, payload.actorId); state.actors = state.actors.filter(a => a.id !== actor.id);
+      if(state.combat.turnHistory)delete state.combat.turnHistory[actor.id];
       dmText = `将 ${actor.name} 移出本场战斗（原卡不变，可撤销）。`; break;
     }
     case 'edit-board': {
@@ -511,11 +519,13 @@ export function executeAction(original, command, principal, { draw = die, id = r
     case 'next': {
       requireRule(state.combat.phase === 'active', '战斗尚未开始');
       owned(getActor(state, state.combat.order[state.combat.index]), principal);
+      (state.combat.turnHistory ??= {})[state.combat.order[state.combat.index]]={action:state.combat.action,moved:state.combat.moved,attacksUsed:state.combat.attacksUsed};
       state.combat.index = (state.combat.index + 1) % state.combat.order.length;
       if (state.combat.index === 0) state.combat.round++;
       Object.assign(state.combat, { moved: 0, attacksUsed: 0, action: 'none' });
       state.combat.slotSpentBy = [];
       beginTurn(getActor(state,state.combat.order[state.combat.index]));
+      delete state.combat.turnHistory[state.combat.order[state.combat.index]];
       publicText = '当前回合结束。'; break;
     }
     case 'end': dmOnly(principal); state.combat.phase = 'ended'; state.initiativeCollection = null; publicText = 'DM结束了这场战斗。'; break;
@@ -636,7 +646,8 @@ export function projectState(state, principal) {
       currentActorId: allowedIds.has(current) ? current : null,
       ...(state.actors.find(a => a.id === current)?.ownerId === principal.id ?
         { moved: state.combat.moved, attacksUsed: state.combat.attacksUsed, action: state.combat.action } : {}),
-      slotSpentBy: (state.combat.slotSpentBy || []).filter(id => state.actors.some(a => a.id === id && a.ownerId === principal.id)) },
+      slotSpentBy: (state.combat.slotSpentBy || []).filter(id => state.actors.some(a => a.id === id && a.ownerId === principal.id)),
+      turnHistory:Object.fromEntries(Object.entries(state.combat.turnHistory||{}).filter(([id])=>state.actors.some(a=>a.id===id&&a.ownerId===principal.id)).map(([id,r])=>[id,structuredClone(r)])) },
     events: state.events.filter(e => e.publicText).map(e => ({ revision: e.revision, time: e.time, text: e.publicText, undoneBy: e.undoneBy })) };
 }
 

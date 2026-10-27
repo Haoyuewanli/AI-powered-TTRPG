@@ -15,15 +15,17 @@ export function resourcePanel({api,action,getState,getActor,notify,openTool,onRe
   <details><summary>资源JSON批量编辑</summary><p class="fine">沿用同一资料校验；可用于导入已核对角色的多个资源。</p><textarea id="pools-json" rows="8" spellcheck="false"></textarea><button type="button" id="pools-apply">应用资源JSON</button></details>
   <div class="fields two"><label>休息类型<select id="rest-kind"><option value="short">短休</option><option value="long">长休</option></select></label><label>休息依据<input id="rest-reason" placeholder="确认时长、安全环境及恢复条件"></label></div><button id="record-rest" type="button">记录选中角色休息</button></section></div>`;
   $('table').append(dialog);
-  let prefs={revision:0,value:{}},scope='',loadPromise,styleId='',image='',draft={},layout=structuredClone(DEFAULT_LAYOUT),renderExtras=()=>{};
+  let prefs={revision:0,value:{}},scope='',loadPromise,styleId='',image='',draft={},layout=structuredClone(DEFAULT_LAYOUT),renderExtras=[];
+  let dataRevision;
   const safe=fn=>async e=>{e?.preventDefault();try{await fn(e);}catch(err){notify(err.message,true);}};
   function resource() {return resourceView(getState(),getActor()).find(r=>r.id===$('style-resource').value);}
   function render() {
     const state=getState(),actor=getActor();root.hidden=!state||!actor||!('hp' in actor);if(root.hidden)return;
+    for(const bar of document.querySelectorAll('.value-row[data-resource-id]')) {const color=prefs.value.resources?.[bar.dataset.resourceId]?.color;if(color)bar.style.setProperty('--bar-color',color);}
     row.replaceChildren(...resourceView(state,actor).map(r=>{
       const b=el('button','','resource-button');b.type='button';b.dataset.resourceId=r.id;b.setAttribute('aria-label',`${r.name} ${r.current}/${r.max}，打开操作分类`);b.title=`${r.name} ${r.current}/${r.max}${r.source ? ` · ${r.source}`:''}`;
       b.append(resourceIcon(r,prefs.value),el('span',r.name),el('small',`${r.current}/${r.max}`));b.addEventListener('click',()=>onResource(r));return b;
-    }));renderExtras();
+    }));for(const fn of renderExtras)fn();
   }
   async function update() {
     const state=getState();if(!state)return;
@@ -74,6 +76,7 @@ export function resourcePanel({api,action,getState,getActor,notify,openTool,onRe
   }));
   $('resource-style-form').addEventListener('submit',safe(async()=>{captureStyle();draft.layout=layout;await save(draft);}));
   function fillPools(selected='') {
+    dataRevision=getState().revision;
     const a=getActor();$('resource-data-settings').hidden=getState().viewRole!=='dm';
     $('pool-choice').replaceChildren(el('option','新增资源'),...(a.resourcePools||[]).map(r=>{const o=el('option',r.name);o.value=r.id;return o;}));$('pool-choice').options[0].value='';$('pool-choice').value=selected;
     $('pools-json').value=JSON.stringify(a.resourcePools||[],null,2);fillPool();
@@ -89,10 +92,10 @@ export function resourcePanel({api,action,getState,getActor,notify,openTool,onRe
     if(['slots','pact'].includes(r.kind))r.level=Number($('pool-detail').value);if(r.kind==='dice')r.sides=Number($('pool-detail').value);if(r.kind==='rolls')r.values=$('pool-values').value.split(',').filter(s=>s.trim()).map(Number);
     for(const k of ['short','long','turn']){const v=$(`pool-${k}`).value.trim();if(v)r.recovery[k]=v==='all'?v:Number(v);}
     const pools=structuredClone(a.resourcePools||[]),index=pools.findIndex(p=>p.id===r.id);if(index>=0)pools[index]=r;else pools.push(r);
-    await action('edit-actor',{actorId:a.id,patch:{resourcePools:pools},reason:'主持核对结构化资源'});fillPools(r.id);
+    await action('edit-actor',{actorId:a.id,patch:{resourcePools:pools},reason:'主持核对结构化资源'},dataRevision);fillPools(r.id);
   }));
-  $('pool-remove').addEventListener('click',safe(async()=>{const a=getActor(),id=$('pool-choice').value;if(!id)return;await action('edit-actor',{actorId:a.id,patch:{resourcePools:(a.resourcePools||[]).filter(r=>r.id!==id)},reason:'主持移出资源资料'});fillPools();}));
-  $('pools-apply').addEventListener('click',safe(async()=>{await action('edit-actor',{actorId:getActor().id,patch:{resourcePools:JSON.parse($('pools-json').value)},reason:'主持导入已核对资源'});fillPools();}));
+  $('pool-remove').addEventListener('click',safe(async()=>{const a=getActor(),id=$('pool-choice').value;if(!id)return;await action('edit-actor',{actorId:a.id,patch:{resourcePools:(a.resourcePools||[]).filter(r=>r.id!==id)},reason:'主持移出资源资料'},dataRevision);fillPools();}));
+  $('pools-apply').addEventListener('click',safe(async()=>{await action('edit-actor',{actorId:getActor().id,patch:{resourcePools:JSON.parse($('pools-json').value)},reason:'主持导入已核对资源'},dataRevision);fillPools();}));
   $('record-rest').addEventListener('click',safe(()=>action('rest',{actorId:getActor().id,kind:$('rest-kind').value,reason:$('rest-reason').value})));
-  return {update,clear(){scope='';prefs={revision:0,value:{}};row.replaceChildren();dialog.close();root.hidden=true;},get preferences(){return prefs.value;},save,get root(){return root;},onRender(fn){renderExtras=fn;}};
+  return {update,ready:()=>loadPromise,clear(){scope='';prefs={revision:0,value:{}};draft={};row.replaceChildren();for(const id of ['pool-choice','style-resource'])$(id).replaceChildren();dialog.close();root.hidden=true;},get preferences(){return prefs.value;},save,get root(){return root;},onRender(fn){renderExtras.push(fn);}};
 }

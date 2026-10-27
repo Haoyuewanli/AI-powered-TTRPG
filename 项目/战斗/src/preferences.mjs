@@ -1,6 +1,7 @@
-import {readFile} from 'node:fs/promises';
+import {readFile,copyFile} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
 import {atomicJson} from './store.mjs';
-import {requireRule} from './rule-errors.mjs';
+import {requireRule,RuleError} from './rule-errors.mjs';
 const record = x => x && typeof x === 'object' && !Array.isArray(x);
 const color = x => typeof x === 'string' && /^#[\da-f]{6}$/i.test(x);
 const key = x => typeof x === 'string' && /^[\w-]{1,100}$/.test(x) && !['__proto__','constructor','prototype'].includes(x);
@@ -29,11 +30,23 @@ export function validatePreferences(value) {
 }
 export async function openPreferences(path) {
   let data={formatVersion:1,entries:{}};
-  try { data=JSON.parse(await readFile(path,'utf8')); requireRule(data.formatVersion===1 && record(data.entries),'界面设置文件版本无效'); for(const entry of Object.values(data.entries)) {requireRule(Number.isInteger(entry.revision)&&entry.revision>=0,'界面设置版本无效');validatePreferences(entry.value);} }
-  catch(e) {if(e.code!=='ENOENT') throw e;}
+  let recoveryNote='';
+  try {
+    data=JSON.parse(await readFile(path,'utf8'));requireRule(record(data),'界面设置文件格式无效');
+    if(data.formatVersion!==1){const e=new RuleError('不支持的界面设置版本；原文件已保留');e.code='UNSUPPORTED_PREFERENCES';throw e;}
+    requireRule(record(data.entries),'界面设置条目无效');for(const entry of Object.values(data.entries)){requireRule(record(entry)&&Number.isInteger(entry.revision)&&entry.revision>=0,'界面设置版本无效');validatePreferences(entry.value);}
+  }
+  catch(e) {
+    if(e.code==='UNSUPPORTED_PREFERENCES')throw e;
+    if(e instanceof SyntaxError || e instanceof RuleError) {
+      await copyFile(path,`${path}.损坏-${randomUUID()}.json`);data={formatVersion:1,entries:{}};
+      await atomicJson(path,data);recoveryNote='界面设置文件无效，已保留原件并恢复默认外观；战斗进度未重置。';
+    } else if(e.code!=='ENOENT') throw e;
+  }
   let queue=Promise.resolve();
   const scope=(principal,campaignId)=>`${campaignId}:${principal.role}:${principal.id}`;
   return {
+    recoveryNote,
     get(principal,campaignId) {return structuredClone(data.entries[scope(principal,campaignId)] || {revision:0,value:{}});},
     save(principal,campaignId,payload) {
       const task=queue.then(async()=>{

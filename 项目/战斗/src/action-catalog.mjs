@@ -12,7 +12,8 @@ export const COMMON_OPERATIONS=[
   common('hide','躲藏','eye','common','action','核对遮蔽/掩护、敌方视线、DC15敏捷（隐匿）及失效条件。'),
   common('influence','影响','voice','common','action','根据态度、请求与沟通选择检定；不能代替主持决定NPC。',{target:true}),
   common('magic','魔法','spark','spells',null,'选择已登记法术、魔法物品或特性；按对应条文支付费用。',{mode:'navigate'}),
-  common('ready','预备','clock','common','action','说明感知触发和行动；之后响应另耗反应。预备法术还须核对法术位、专注与时限。'),
+  common('ready','预备','clock','common','action','本入口预备非施法行动，说明感知触发和行动；响应时另耗反应。预备法术请登记含动作、法术位及专注条件的独立操作。'),
+  common('release-ready','响应预备行动','clock','features','reaction','核对已预备的行动、感知触发、时限与效果。释放已预备法术不再次消耗先前付过的法术位；专注由主持核对。'),
   common('search','搜索','eye','common','action','选择感知（洞悉、医药、察觉或生存）及具体目的。'),
   common('study','研究','book','common','action','选择智力相关技能与线索，主持确定DC和信息。'),
   common('utilize','操作','hand','items','action','操作非魔法物件；具体物品可改变动作需求。'),
@@ -30,19 +31,19 @@ export const COMMON_OPERATIONS=[
 ];
 export function validateOperations(actor) {
   const list=actor.operations ?? [];
-  requireRule(Array.isArray(list) && list.length<=180 && new Set(list.map(o=>o.id)).size===list.length,'操作目录须为唯一ID数组（最多180项）');
+  requireRule(Array.isArray(list) && list.length<=180 && list.every(o=>o&&typeof o==='object'&&!Array.isArray(o)) && new Set(list.map(o=>o.id)).size===list.length,'操作目录须为唯一ID数组（最多180项）');
   for(const o of list) {
-    requireRule(o && /^[\w-]{1,60}$/.test(o.id) && typeof o.name==='string' && o.name.trim().length>0 && o.name.length<=80,'操作名称或ID无效');
+    requireRule(o && typeof o.id==='string' && /^[\w-]{1,60}$/.test(o.id) && typeof o.name==='string' && o.name.trim().length>0 && o.name.length<=80,'操作名称或ID无效');
     requireRule(['spells','features','items','weapons','movement'].includes(o.category) && ['2024','compatible-expansion'].includes(o.ruleset),'操作分类或启用规则版本无效');
     requireRule(typeof o.source==='string' && o.source.trim().length>0 && o.source.length<=1000 && typeof o.notes==='string' && o.notes.length<=2000,'操作须有来源与规则说明');
-    requireRule(typeof o.target==='boolean' && Array.isArray(o.costs) && o.costs.length<=10 && o.costs.every(c=>typeof c.resourceId==='string' && /^[\w-]{1,60}$/.test(c.resourceId) && Number.isInteger(c.amount) && c.amount>0 && c.amount<=1000),'操作费用无效');
+    requireRule(typeof o.target==='boolean' && Array.isArray(o.costs) && o.costs.length<=10 && o.costs.every(c=>c&&typeof c.resourceId==='string' && /^[\w-]{1,60}$/.test(c.resourceId) && Number.isInteger(c.amount) && c.amount>0 && c.amount<=1000),'操作费用无效');
     requireRule(!o.costs.some(c=>['action','attack'].includes(c.resourceId)) || !o.costs.some(c=>c.resourceId==='reaction'),'反应操作不能同时占用本人回合动作/攻击');
     for(const c of o.costs)requireRule(['action','attack','bonus','reaction'].includes(c.resourceId) || actor.resourcePools?.some(r=>r.id===c.resourceId),'操作费用引用了不存在的资源池');
     if(o.category==='spells')requireRule(Number.isInteger(o.spellLevel)&&o.spellLevel>=0&&o.spellLevel<=9&&['expend','free'].includes(o.slotMode),'法术须填写环级及耗位/免费施法方式');
   }
 }
 export function actionCatalog(actor) {
-  return [...COMMON_OPERATIONS,...(actor.attacks||[]).map(a=>({id:`weapon:${a.id}`,name:a.name,icon:a.kind==='ranged'?'bow':'sword',category:'weapons',costs:[{resourceId:'attack',amount:1}],source:'本场已核对的2024攻击资料',notes:a.manualEffect||'本地校验触及/射程、攻击与伤害骰、AC、抗性与临时生命。',mode:'attack',attackId:a.id})),
+  return [...COMMON_OPERATIONS,...(actor.attacks||[]).map(a=>({id:`weapon:${a.id}`,name:a.name,icon:a.kind==='ranged'?'bow':'sword',category:'weapons',costs:[{resourceId:'attack',amount:1},...(a.costs||[])],source:'本场已核对的2024攻击资料',notes:a.manualEffect||'本地校验触及/射程、攻击与伤害骰、AC、抗性与临时生命。',mode:'attack',attackId:a.id})),
     ...(actor.operations||[]).map(o=>({...o,id:`custom:${o.id}`,icon:o.category==='spells'?'spark':o.category==='items'?'bottle':'star',mode:'adjudicate'}))];
 }
 export function eligibleSlots(actor,operation) {return (actor.resourcePools||[]).filter(r=>['slots','pact'].includes(r.kind) && r.level>=operation.spellLevel);}

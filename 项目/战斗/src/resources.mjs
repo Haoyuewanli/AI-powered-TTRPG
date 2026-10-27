@@ -7,9 +7,9 @@ export function validateResources(actor) {
   if (actor.tempHpBase !== undefined) check(number(actor.tempHpBase) && actor.tempHpBase >= actor.tempHp, '临时生命显示基准不能小于当前值');
   if (actor.economy !== undefined) check(actor.economy && ['bonusUsed','reactionUsed'].every(k => typeof actor.economy[k] === 'boolean'), '回合资源状态无效');
   const pools = actor.resourcePools ?? [];
-  check(Array.isArray(pools) && pools.length <= 80 && new Set(pools.map(r => r.id)).size === pools.length, '资源池须为不重复ID的数组（最多80项）');
+  check(Array.isArray(pools) && pools.length <= 80 && pools.every(r=>r&&typeof r==='object'&&!Array.isArray(r)) && new Set(pools.map(r => r.id)).size === pools.length, '资源池须为不重复ID的数组（最多80项）');
   for (const r of pools) {
-    check(identifier(r.id) && !['action','bonus','reaction','attack'].includes(r.id) && typeof r.name === 'string' && r.name.trim().length > 0 && r.name.length <= 80, '资源ID或名称无效');
+    check(identifier(r.id) && !['action','bonus','reaction','attack','movement'].includes(r.id) && typeof r.name === 'string' && r.name.trim().length > 0 && r.name.length <= 80, '资源ID或名称无效');
     check(RESOURCE_KINDS.includes(r.kind) && number(r.max, 1000) && number(r.current, r.max), '资源类型、当前量或上限无效');
     check(typeof r.source === 'string' && r.source.length > 0 && r.source.length <= 1000, '资源须注明已核对的规则来源');
     if (['slots','pact'].includes(r.kind)) check(Number.isInteger(r.level) && r.level >= 1 && r.level <= 9 && r.max <= 20, '法术位须填写1～9环，上限不超过20');
@@ -39,11 +39,16 @@ export function beginTurn(actor) {
   recoverResources(actor, 'turn');
 }
 export function resourceView(state, actor) {
-  const c = state.combat, turn = c.phase === 'active' && (c.currentActorId || c.order?.[c.index]) === actor.id;
+  const c = state.combat, current = c.phase!=='preparing' && (c.currentActorId || c.order?.[c.index]) === actor.id;
+  // Receipts show the last completed turn; only combat's active fields settle mechanics.
+  const receipt=current?c:c.turnHistory?.[actor.id] || {action:'none',moved:0,attacksUsed:0};
+  const budget=actor.speed*(receipt.action==='dash'?2:1);
   return [
-    { id:'action', name:'动作', kind:'action', current:turn && c.action === 'none' ? 1 : 0, max:1, color:'#62ce8b' },
-    { id:'bonus', name:'附赠动作', kind:'bonus', current:turn && !actor.economy?.bonusUsed ? 1 : 0, max:1, color:'#ee9b50' },
-    { id:'reaction', name:'反应', kind:'reaction', current:c.phase === 'active' && !actor.economy?.reactionUsed ? 1 : 0, max:1, color:'#b58be8' },
+    { id:'action', name:'动作', kind:'action', current:receipt.action === 'none' ? 1 : 0, max:1, color:'#62ce8b' },
+    { id:'bonus', name:'附赠动作', kind:'bonus', current:!actor.economy?.bonusUsed ? 1 : 0, max:1, color:'#ee9b50' },
+    { id:'reaction', name:'反应', kind:'reaction', current:!actor.economy?.reactionUsed ? 1 : 0, max:1, color:'#b58be8' },
+    { id:'attack', name:'攻击机会', kind:'attack', current:['none','attack'].includes(receipt.action) ? Math.max(0,actor.attackLimit-receipt.attacksUsed) : 0, max:actor.attackLimit, color:'#e5bc6e' },
+    { id:'movement', name:'移动', kind:'movement', current:Math.max(0,budget-receipt.moved), max:budget, color:'#72aee8' },
     ...(actor.resourcePools || []).map(r => ({...r, color: r.kind === 'slots' ? '#6fb5f0' : r.kind === 'pact' ? '#cb87e8' : '#e0c36a'}))
   ];
 }
@@ -53,6 +58,7 @@ export function costProblem(state, actor, costs) {
   if (!turn && !costs.some(c => c.resourceId === 'reaction')) return '尚未进入该角色回合';
   const totals = new Map();
   for (const c of costs) totals.set(c.resourceId, (totals.get(c.resourceId) || 0) + c.amount);
+  if(totals.has('action') && totals.has('attack')) return '一次攻击机会已包含攻击动作，不能另收一次动作费用';
   for (const [key, amount] of totals) {
     if (['action','bonus','attack'].includes(key) && !turn) return '该费用仅能在自己的回合使用';
     if (key === 'action' && (amount !== 1 || state.combat.action !== 'none')) return '动作已使用';
@@ -69,7 +75,7 @@ export function costProblem(state, actor, costs) {
   return '';
 }
 export function spendResources(state, actor, costs) {
-  check(Array.isArray(costs) && costs.length <= 20 && costs.every(c => identifier(c.resourceId) && Number.isInteger(c.amount) && c.amount > 0 && c.amount <= 1000), '费用格式无效');
+  check(Array.isArray(costs) && costs.length <= 20 && costs.every(c => c && identifier(c.resourceId) && Number.isInteger(c.amount) && c.amount > 0 && c.amount <= 1000), '费用格式无效');
   const problem = costProblem(state, actor, costs); check(!problem, problem);
   for (const c of costs) {
     if (c.resourceId === 'action') state.combat.action = 'manual';

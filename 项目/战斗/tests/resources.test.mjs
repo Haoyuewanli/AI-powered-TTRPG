@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {executeAction, projectState, applyDamage, validateState} from '../src/rules.mjs';
-import {normalizeResources} from '../src/resources.mjs';
+import {normalizeResources,resourceView} from '../src/resources.mjs';
 import {fixture,active,command,dm,player} from './fixture.mjs';
 const pool = (id='wild',kind='pool') => ({id,name:id,kind,current:2,max:2,recovery:{short:1,long:'all'},source:'合成测试：2024已核对',...(kind==='slots'||kind==='pact'?{level:1}:{})});
 test('legacy normalization keeps free text and stable temporary HP baseline',()=>{
@@ -25,4 +25,10 @@ test('rest only restores configured amount and never runs during combat',()=>{
 });
 test('player projections never expose enemy pools and reject invalid saved counters',()=>{
   const s=normalizeResources(active());s.actors[1].resourcePools=[pool()];const p=projectState(s,player);assert.equal(p.actors[1].resourcePools,undefined);assert.deepEqual(p.actors[0].resourcePools,[]);s.actors[1].resourcePools[0].current=3;assert.throws(()=>validateState(s),/上限/);
+});
+test('waiting turn is distinct from spent resources; receipts preserve actual use until owner starts',()=>{
+  const preparing=normalizeResources(fixture());assert.equal(resourceView(preparing,preparing.actors[0]).find(r=>r.id==='action').current,1);
+  let s=normalizeResources(active());s=executeAction(s,command(s,'dash',{actorId:'pc-001'}),player);s.combat.moved=10;s=executeAction(s,command(s,'next'),dm);
+  let views=resourceView(s,s.actors[0]);assert.equal(views.find(r=>r.id==='action').current,0);assert.equal(views.find(r=>r.id==='bonus').current,1);assert.equal(views.find(r=>r.id==='movement').current,50);assert.equal(resourceView(s,s.actors[1]).find(r=>r.id==='action').current,1);
+  assert.equal(projectState(s,{role:'player',id:'other'}).combat.turnHistory['pc-001'],undefined);s=executeAction(s,command(s,'next'),dm);views=resourceView(s,s.actors[0]);assert.equal(views.find(r=>r.id==='action').current,1);assert.equal(views.find(r=>r.id==='movement').current,30);
 });

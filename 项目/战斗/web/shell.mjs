@@ -5,6 +5,8 @@ const dmTools = new Set(['workspace', 'setup', 'terrain', 'actor', 'sharing', 'f
 export function initShell() {
   const compact = window.matchMedia('(max-width: 1100px)');
   const workspace = $('table-workspace'), actionPanel = $('action-panel');
+  const consolePanel = document.createElement('section'); consolePanel.id='battle-console'; consolePanel.className='panel'; consolePanel.setAttribute('aria-label','数值资源与操作');
+  const consoleTitle=document.createElement('strong');consoleTitle.id='dock-selected-name';consolePanel.append(consoleTitle);document.querySelector('.board-region').append(consolePanel);
   const dialogs = new Map([...document.querySelectorAll('[data-dialog]')].map(dialog => [dialog.dataset.dialog, dialog]));
   const returnFocus = new Map();
   let currentState = null, contextKey = '', sceneReturnFocus = null;
@@ -75,8 +77,11 @@ export function initShell() {
   }
   function placeActions() {
     if (compact.matches) {
+      consolePanel.hidden=true;
+      if ($('actor-info').parentElement !== actionPanel) { const selected=actionPanel.querySelector('.selected-heading');selected.after($('actor-info'));$('actor-info').after($('resource-section')); }
       if (actionPanel.parentElement !== $('actions-slot')) $('actions-slot').append(actionPanel);
     } else {
+      consolePanel.hidden=false;if ($('actor-info').parentElement !== consolePanel) consolePanel.append($('actor-info'),$('resource-section'));
       closeDialog(dialogs.get('actions'), false);
       if (actionPanel.parentElement !== workspace) workspace.append(actionPanel);
     }

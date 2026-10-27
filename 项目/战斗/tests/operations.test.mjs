@@ -24,3 +24,9 @@ test('2024 shove spends one attack, leaves extra attack; jump never spends bonus
 test('catalog, validation and handoff share stable operation definitions without enemy leakage',()=>{
   const s=initial(),o=actionCatalog(s.actors[0]).find(o=>o.id==='custom:heal');assert.equal(operationProblem(s,s.actors[0],o),'');s.actors[0].resourcePools[0].current=0;assert.match(operationProblem(s,s.actors[0],o),/不足/);const packet=handoff(s,player);assert.equal(packet.operationCatalog.length,1);assert.equal(packet.operationCatalog[0].operations.some(o=>o.id==='common:study'),true);s.actors[0].operations[0].costs.push({resourceId:'unknown',amount:1});assert.throws(()=>validateState(s),/不存在/);
 });
+test('registered weapon ammunition costs settle on a miss, and invalid rolls never spend',()=>{
+  const s=initial();s.actors[0].resourcePools.push({id:'ammo',name:'投掷库存',kind:'inventory',current:1,max:1,recovery:{},source:'合成：2024物品库存'});s.actors[0].attacks[0].costs=[{resourceId:'ammo',amount:1}];
+  const payload={actorId:'pc-001',targetId:'npc-001',attackId:'sword',manualRolls:{attack:[0]}};assert.throws(()=>executeAction(s,command(s,'attack',payload),player),/d20/);assert.equal(s.actors[0].resourcePools[1].current,1);
+  const n=executeAction(s,command(s,'attack',{...payload,manualRolls:{attack:[1]}}),player);assert.equal(n.actors[0].resourcePools[1].current,0);assert.equal(n.actors[1].hp,40);
+  n.combat.action='none';n.combat.attacksUsed=0;assert.match(operationProblem(n,n.actors[0],actionCatalog(n.actors[0]).find(o=>o.id==='weapon:sword')),/不足/);assert.throws(()=>executeAction(n,command(n,'attack',{...payload,manualRolls:{attack:[1]}}),player),/不足/);
+});
