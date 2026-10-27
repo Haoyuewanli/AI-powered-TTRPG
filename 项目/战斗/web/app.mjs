@@ -108,7 +108,7 @@ function render(selectionChanged = false) {
   $('roster').replaceChildren(...state.actors.map(item => {
     const button = document.createElement('button'); button.className = `roster-item${item.id === selectedId ? ' selected' : ''}`;
     button.dataset.actorId = item.id;
-    if (item.id === currentId()) button.append(text('span', '当前回合', 'tag'));
+    if (state.combat.phase === 'active' && item.id === currentId()) button.append(text('span', '当前回合', 'tag'));
     button.append(text('strong', item.name));
     button.append(text('small', `${item.kind === 'pc' ? '玩家角色' : 'NPC'}${item.hidden ? ' · 对玩家隐藏' : ''} · ${'hp' in item ? `HP ${item.hp}/${item.maxHp}${item.confirmed ? '' : ' · 待核对'}` : '状态由DM掌握'}`));
     button.addEventListener('click', () => choose(item.id)); return button;
@@ -122,7 +122,9 @@ function render(selectionChanged = false) {
   $('undo').hidden = !isDm(); $('undo').disabled = busy || !state.undoAvailable;
   $('undo').textContent = '撤销上一步'; $('undo').title = `可回退 ${state.undoAvailable || 0} 步，保留原始记录`;
   $('flow-title').textContent = isDm() ? 'DM主持流程' : '玩家操作流程';
-  $('flow-text').textContent = isDm() ? (state.combat.phase === 'active' ?
+  $('flow-text').textContent = state.combat.phase === 'ended' ? (isDm() ?
+    '本场战斗已结束，进度已保存。可以查看战斗记录，或在“团与战斗”中新建下一场。' :
+    '本场战斗已结束，进度已保存。可以查看战斗记录，等待主持安排下一场。') : isDm() ? (state.combat.phase === 'active' ?
     '正在战斗：选中当前行动者 → 移动或攻击 → 结束当前回合。NPC行动由你或外部AI选择；特殊效果用人工裁定。结束后可保留本场并新建下一场。' :
     '① 选择团与战斗 → ② 战前布置参战者 → ③ 核对资料并勾选“已核对” → ④ 选择程序骰或线下骰 → ⑤ 收集先攻后开始。下方“主持交接”可交给外部AI。') :
     '先在行动区提交自己的先攻。轮到你时拖动自己的棋子，或选择攻击与目标；需要的骰点都在行动区填写，完成后结束回合。';
@@ -177,7 +179,7 @@ function render(selectionChanged = false) {
 }
 function renderTasks() {
   const area = $('battle-tasks'); area.replaceChildren();
-  area.hidden = state.combat.phase === 'active';
+  area.hidden = state.combat.phase !== 'preparing';
   if (area.hidden) return;
   area.append(text('strong', isDm() ? '开始战斗 · 下一步' : '我的待办'));
   const add = (label, fn) => { const b = text('button', label); b.type = 'button'; b.addEventListener('click', fn); area.append(b); };

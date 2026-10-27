@@ -63,13 +63,17 @@ export function dicePanel({ api, action, getState, getActor, notify }) {
         row.append(element('span', actor.name), selectModes()); return row;
       }));
     }
-    $('initiative-options').hidden = !dm || !!collection || state.combat.phase === 'active';
+    $('initiative-options').hidden = !dm || !!collection || state.combat.phase !== 'preparing';
     const area = $('initiative-collection');
     const activeDie = document.activeElement?.closest('#initiative-collection') ? document.activeElement.dataset.dieKey : null;
     const previous = new Map([...area.querySelectorAll('input')].map(i => [i.dataset.dieKey, i.value]));
     area.replaceChildren();
     area.hidden = state.combat.phase === 'active';
     if (state.combat.phase === 'active') return;
+    if (state.combat.phase === 'ended') {
+      area.append(element('p', dm ? '本场战斗已结束并保存。可查看战斗记录，或在“团与战斗”中新建下一场。' : '本场战斗已结束并保存，等待主持安排下一场。'));
+      return;
+    }
     if (!collection) {
       area.append(element('p', dm ? '核对资料后，点“收集先攻”。程序会等待每位玩家提交。' : '等待主持发起先攻；发起后可在这里填写或掷骰。'));
       return;
