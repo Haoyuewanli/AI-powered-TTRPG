@@ -5,6 +5,7 @@ import { atomicJson, openStore, acquireLock } from './store.mjs';
 import { dataFiles } from './local-files.mjs';
 import { initializeCampaign } from './campaign.mjs';
 import { RuleError, requireRule, validateState } from './rules.mjs';
+import { normalizeResources } from './resources.mjs';
 
 const freshCombat = () => ({ phase: 'preparing', round: 0, order: [], index: 0, moved: 0, attacksUsed: 0, action: 'none' });
 const validId = id => typeof id === 'string' && /^[\w-]{1,100}$/.test(id);
@@ -13,6 +14,7 @@ const isWithin = (root, path) => { const rel = relative(root, path); return !rel
 async function json(path) { return JSON.parse((await readFile(path, 'utf8')).replace(/^\uFEFF/,'')); }
 
 export function upgradeBattle(state, campaignId, battleId) {
+  normalizeResources(state);
   if (state.formatVersion === 2) {
     requireRule(state.campaignId === campaignId && state.battleId === battleId, '战斗文件与团目录不匹配');
     return { ...state, board: { extended: true, baseEnabled: true, ...state.board } };

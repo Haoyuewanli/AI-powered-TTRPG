@@ -7,6 +7,7 @@ import { initShell } from '/shell.mjs';
 import { filesPanel } from '/files-panel.mjs';
 import { sharingPanel } from '/sharing-panel.mjs';
 import { actionId, copyText } from '/client-utils.mjs';
+import { valueBars } from '/value-bars.mjs';
 
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem('battle-session') || '';
@@ -141,10 +142,7 @@ function render(selectionChanged = false) {
   $('actor-info').replaceChildren();
   if (a) {
     if ('hp' in a) {
-      const stats = text('div', '', 'stat-grid');
-      for (const [label, value] of [['HP', `${a.hp}/${a.maxHp}`], ['AC', a.ac], ['临时 HP', a.tempHp]]) {
-        const box = text('div', '', 'stat'); box.append(text('strong', String(value)), text('span', label)); stats.append(box);
-      }
+      const stats = valueBars(state,a);
       $('actor-info').append(stats);
       $('actor-info').append(text('p', `${a.confirmed ? '资料已核对' : '资料待核对，尚不能开始'} · 速度 ${a.speed} 尺`, 'fine'));
       $('actor-info').append(text('p', a.resources, 'resource-note'));
