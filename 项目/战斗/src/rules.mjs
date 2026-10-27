@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import { distanceBetween, overlaps, objectBounds, pathMeetsObject } from './geometry.mjs';
 import { validateResources, beginTurn, recoverResources, spendResources } from './resources.mjs';
+import { validateOperations, actionCatalog, operationCosts } from './action-catalog.mjs';
 
 import { RuleError, requireRule, integer } from './rule-errors.mjs';
 export { RuleError, requireRule, integer } from './rule-errors.mjs';
@@ -67,6 +68,7 @@ export function validateAppearance(a) {
 
 export function validateActor(actor, board) {
   validateResources(actor);
+  validateOperations(actor);
   requireRule(actor && typeof actor === 'object' && actor.body && actor.space && actor.position, '角色缺少body、space或position对象');
   validateAppearance(actor.appearance);
   requireRule(typeof actor.id === 'string' && /^[a-zA-Z0-9_-]{1,60}$/.test(actor.id), '棋子ID无效');
@@ -184,7 +186,7 @@ export function validateState(state) {
 
 const editable = ['name', 'ac', 'maxHp', 'hp', 'tempHp', 'speed', 'initiativeBonus', 'attackLimit',
   'body', 'space', 'position', 'facing', 'immunities', 'resistances', 'vulnerabilities',
-  'notes', 'resources', 'hidden', 'confirmed', 'attacks', 'tiePriority', 'appearance', 'resourcePools', 'tempHpBase'];
+  'notes', 'resources', 'hidden', 'confirmed', 'attacks', 'tiePriority', 'appearance', 'resourcePools', 'tempHpBase', 'operations'];
 const getActor = (state, id) => {
   const actor = state.actors.find(a => a.id === id);
   requireRule(actor, '棋子不存在或不可见', 404);
@@ -525,6 +527,33 @@ export function executeAction(original, command, principal, { draw = die, id = r
       dmText = `${actor.name}：${payload.reason}；费用 ${JSON.stringify(payload.costs)}`;
       break;
     }
+    case 'use-operation': {
+      const actor=getActor(state,payload.actorId);owned(actor,principal);
+      const operation=actionCatalog(actor).find(o=>o.id===payload.operationId);
+      requireRule(operation && !['reference','navigate'].includes(operation.mode),'该操作须先选择具体能力或登记资料');
+      if(operation.mode==='attack')return executeAction(original,{...command,type:'attack',payload:{...payload,attackId:operation.attackId}},principal,{draw,id,now});
+      if(operation.mode==='dash')return executeAction(original,{...command,type:'dash',payload:{actorId:actor.id}},principal,{draw,id,now});
+      dmOnly(principal);
+      requireRule(typeof payload.reason==='string' && payload.reason.trim().length>=2 && payload.reason.length<=2000,'请主持核对条件、检定/豁免及结果后填写依据');
+      const target=payload.targetId ? getActor(state,payload.targetId) : actor;
+      requireRule(!operation.target || payload.targetId,'请选择操作目标');
+      if(operation.reach)requireRule(distanceBetween(actor,target)<=operation.reach && (actor.position.y||0)===(target.position.y||0),'目标超出触及；特殊触及请登记独立操作');
+      spendResources(state,actor,operationCosts(actor,operation,payload.slotId));
+      if(operation.movement) {
+        integer(payload.movementCost,1,600,'实际移动消耗');
+        const allowance=actor.speed*(state.combat.action==='dash'?2:1);
+        requireRule(state.combat.moved+payload.movementCost<=allowance,'移动预算不足');state.combat.moved+=payload.movementCost;
+      }
+      const result=payload.result || {};
+      requireRule(result && typeof result==='object' && !Array.isArray(result) && Object.keys(result).every(k=>['damage','heal','temporaryHp','replaceTemporaryHp','position'].includes(k)),'裁定结果字段无效');
+      if(result.damage) {requireRule(Array.isArray(result.damage)&&result.damage.length<=20,'伤害分项无效');applyDamage(target,result.damage);}
+      if(result.heal!==undefined){integer(result.heal,0,10000,'治疗');target.hp=Math.min(target.maxHp,target.hp+result.heal);}
+      if(result.temporaryHp!==undefined){integer(result.temporaryHp,0,10000,'临时生命');if(result.temporaryHp>target.tempHp||result.replaceTemporaryHp===true){target.tempHp=result.temporaryHp;target.tempHpBase=target.tempHp;}}
+      if(result.position!==undefined){target.position=structuredClone(result.position);validateActor(target,state.board);}
+      dmText=`${actor.name} 使用 ${operation.name} → ${target.name}；来源：${operation.source}；费用：${JSON.stringify(operationCosts(original.actors.find(a=>a.id===actor.id),operation,payload.slotId))}；裁定：${payload.reason}；结果：${JSON.stringify(result)}`;
+      publicText=typeof payload.publicNote==='string'?payload.publicNote.slice(0,2000):'';
+      break;
+    }
     case 'rest': {
       dmOnly(principal);
       requireRule(state.combat.phase !== 'active', '请结束战斗后记录休息');
@@ -586,7 +615,7 @@ export function projectState(state, principal) {
     if (actor.appearance) data.appearance = structuredClone(actor.appearance);
     if (actor.ownerId === principal.id) {
       for (const key of ['ownerId', 'ac', 'maxHp', 'hp', 'tempHp', 'speed', 'confirmed', 'attacks', 'attackLimit',
-        'initiativeBonus', 'immunities', 'resistances', 'vulnerabilities', 'resources', 'tempHpBase','resourcePools','economy']) if (actor[key] !== undefined) data[key] = structuredClone(actor[key]);
+        'initiativeBonus', 'immunities', 'resistances', 'vulnerabilities', 'resources', 'tempHpBase','resourcePools','economy','operations']) if (actor[key] !== undefined) data[key] = structuredClone(actor[key]);
     }
     return data;
   });
@@ -623,6 +652,7 @@ export function handoff(state, principal) {
     actions: { move: '{actorId,position:{x,z}}：5尺格规则移动', attack: '{actorId,targetId,attackId,mode:normal|advantage|disadvantage}：普通攻击',
       next: '{}：结束当前回合', dash: '{actorId}：疾走', adjudicate: '仅DM：{actorId,reason,publicNote,heal?,damage?:[{type,amount}],resources?,consumeAction?}',
       'spend-resources': '仅DM：{actorId,reason,costs:[{resourceId,amount}]}；组合费用原子校验；优先使用use-operation',
+      'use-operation': '{actorId,operationId,targetId?,slotId?,movementCost?,reason?,result?:{heal?,temporaryHp?,damage?:[{type,amount}],position?},publicNote?}；本地武器/疾走直接结算；其他仅DM确认后原子扣费并应用结果。目录见actor.operations及operationCatalog',
       rest: '仅DM、非战斗中：{actorId,kind:short|long,reason}，仅按明确配置恢复资源；不自动裁定全部休息效果',
       'edit-actor': '仅DM：{actorId,patch,reason}：明确资料或位置调整',
       'collect-initiative': '仅DM：{modes?:{角色ID:normal|advantage|disadvantage}}，发起先攻收集',
@@ -631,6 +661,7 @@ export function handoff(state, principal) {
       'clear-initiative': '仅DM：{actorId}，清除误填的单项先攻再重填',
       start: '仅DM：{}，已收集时沿用全部提交；未收集的旧流程在线下模式需manualRolls.initiative', end: '仅DM：{}' },
     state: view,
+    operationCatalog: view.actors.filter(a=>a.attacks).map(a=>({actorId:a.id,operations:actionCatalog(a)})),
     proposal: { campaignId: state.campaignId, battleId: state.battleId, actionId: randomUUID(), expectedRevision: state.revision, type: 'move',
       payload: { actorId: candidate?.id,
         position: { x: (candidate?.position.x || 12.5) + 5, z: candidate?.position.z || 12.5 } } } };
