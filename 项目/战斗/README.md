@@ -253,3 +253,11 @@ node tests/files-browser-check.mjs
 攻击资料可选costs:[{resourceId,amount}]登记每次尝试消耗的弹药或库存，费用引用已有非环位资源池。命中或未命中均扣一次；不合法目标/骰点不扣。只有登记的库存才会自动扣除；精通、轻型/Nick、命中后追加施法与其他特殊条件仍须主持核对。
 
 本机另备独立的项目/存档/资源界面试玩/打开试玩.cmd，包含合成牧师、训练守卫及一/二环、引导神力和五个操作；初始资料待核对、尚未开战。其数值仅供流程与存档试玩，不代表完整职业卡或平衡遭遇。重复双击继续同一文件。该目录属于本地私人存档，不纳入Git。
+
+## 主持手动记录与统一操作代码
+
+全部实际结算及基础掷骰函数集中在src/operations.mjs，src/rules.mjs保留旧导入兼容；action-catalog.mjs只负责界面可用目录。新增命令仍通过/api/action、版本、权限、重复ID和原子存档校验。
+
+左栏DM工具打开“主持记录与通用掷骰”：通用骰输入公式、用途与来源，人工模式只填原始点，本地计算总数；优势/劣势仅用于一颗d20检定。仅记录是默认模式，保存外部已经发生的事实和骰点，不再掷骰、扣资源或修改生命。记录并应用须明确填写目标、数值与费用，再预览确认；伤害填减免前分类值，外部已核定的结果填最终HP及可选最终临时生命，避免重复减免。费用从所选行动者扣，结果应用到目标。公开说明留空则为DM私密日志。局面变化须重新预览，撤销保留原审计。
+
+接口：roll-dice {actorId?,label,formula,mode?,values?,origin?,note?,publicNote?}；人工来源origin为physical-dice/external-tool/dm-recorded。manual-record {mode:record-only/apply,actorId?,targetId?,label,note,rolls:[{formula,values,origin,mode?}],application?,publicNote?}；application允许heal、减免前damage、finalHp、temporaryHp授予量、finalTempHp最终余额和costs数组。finalHp不与damage/heal混填；finalTempHp不与damage或temporaryHp混填。角色/战斗ID和操作版本仍在统一envelope中。通用掷骰本身只记录，不自动代表攻击、伤害或消耗行动。

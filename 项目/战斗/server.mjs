@@ -35,7 +35,7 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
   const sessions = new Map();
   const preferences = await openPreferences(join(workspaceDirectory,'界面设置.json')).catch(async e=>{await workspace.close();throw e;});
   const staticFiles = new Map([
-    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars', 'resource-panel', 'resource-icons', 'action-panel','action-icons','resource-orbit'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
+    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars', 'resource-panel', 'resource-icons', 'action-panel','action-icons','resource-orbit','manual-record-panel'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
     ...['resources','rule-errors','action-catalog'].map(name => [`/${name}.mjs`, [join(ROOT,`src/${name}.mjs`),'text/javascript; charset=utf-8']]),
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
@@ -67,7 +67,7 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
       if (request.method === 'GET' && path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
       if (request.method === 'GET' && path === '/api/client-info') return send(200, { audience });
       if (audience === 'local' && request.method === 'GET' && path === '/health') return send(200, {
-        app: 'local-battle-v1', coreVersion: 'battle-resources-v5', campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
+        app: 'local-battle-v1', coreVersion: 'manual-operations-v6', campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
       if (audience === 'player' && request.method === 'POST' && path === '/api/join') {
         const body = await readBody(request);
         return send(200, sharing.join(body.invite));
