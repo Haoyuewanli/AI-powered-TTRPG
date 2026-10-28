@@ -1,5 +1,6 @@
 import { spawn, execFile } from 'node:child_process';
-import { mkdir, open, access } from 'node:fs/promises';
+import { mkdir, open, access, readFile, writeFile, rename, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createConnection } from 'node:net';
@@ -87,22 +88,67 @@ async function openBrowser(url) {
   await new Promise((accept, reject) => execFile('rundll32.exe', ['url.dll,FileProtocolHandler', localUrl(url)], { windowsHide: true }, error => error ? reject(error) : accept()));
 }
 
-export async function launchPlatform({ port = parsePort(process.env.RPG_PLATFORM_PORT), noBrowser = false } = {}) {
+async function launchAt(port, autoPort) {
   port = parsePort(port);
   let url = port ? `http://127.0.0.1:${port}` : '', pid, reused = false;
   const status = port ? await readHealth(url) : null;
-  if (status) { assertCompatible(status); reused = true; pid = status.pid; }
+  if (status) {
+    try { assertCompatible(status); }
+    catch (error) { if (autoPort) return null; throw error; }
+    reused = true; pid = status.pid;
+  }
   else {
-    if (port && await occupied(port)) throw new Error('端口被其他程序占用，未启动或停止任何既有服务；请用--port指定其他端口。');
+    if (port && await occupied(port)) {
+      if (autoPort) return null;
+      throw new Error('端口被其他程序占用，未启动或停止任何既有服务；请用--port指定其他端口。');
+    }
     try { ({ url, pid } = await startChild(port)); }
     catch (error) {
       const concurrent = port ? await readHealth(url) : null;
-      if (!concurrent) throw error;
-      assertCompatible(concurrent); reused = true; pid = concurrent.pid;
+      if (!concurrent) {
+        if (autoPort && port && await occupied(port)) return null;
+        throw error;
+      }
+      try { assertCompatible(concurrent); }
+      catch (mismatch) { if (autoPort) return null; throw mismatch; }
+      reused = true; pid = concurrent.pid;
     }
   }
-  if (!noBrowser) await openBrowser(url);
   return { url, reused, pid };
+}
+
+async function rememberedEndpoint(file) {
+  try {
+    const bytes = await readFile(file); if (bytes.length > 4096) return null;
+    const url = localUrl(JSON.parse(bytes.toString('utf8')).url);
+    const status = await readHealth(url); if (!status) return null;
+    assertCompatible(status);
+    return { url, reused: true, pid: status.pid };
+  } catch { return null; }
+}
+
+async function rememberEndpoint(file, url) {
+  const temporary = file + '.' + randomUUID() + '.tmp';
+  try {
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(temporary, JSON.stringify({ url }) + '\n', { flag: 'wx' });
+    await rename(temporary, file);
+  } finally { await unlink(temporary).catch(() => {}); }
+}
+
+export async function launchPlatform({ port, noBrowser = false, autoPort = port === undefined && process.env.RPG_PLATFORM_PORT === undefined } = {}) {
+  port = parsePort(port ?? process.env.RPG_PLATFORM_PORT);
+  const endpointFile = join(ROOT, '.runtime', 'launch-' + projectKey(defaultProjectRoot()) + '.json');
+  let result = autoPort ? await rememberedEndpoint(endpointFile) : null;
+  result ||= await launchAt(port, autoPort);
+  result ||= await launchAt(0, false);
+  if (autoPort) {
+    try { await rememberEndpoint(endpointFile, result.url); }
+    catch { result.warning = '平台已启动，但重开地址未能保存。请保留当前地址，核对程序目录的写入权限。'; }
+  }
+  const { url } = result;
+  if (!noBrowser) await openBrowser(url);
+  return result;
 }
 
 const direct = process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
@@ -110,8 +156,9 @@ if (direct) {
   try {
     const index = process.argv.indexOf('--port');
     if (index >= 0 && process.argv[index + 1] === undefined) throw new Error('--port需要端口参数');
-    const port = parsePort(index < 0 ? process.env.RPG_PLATFORM_PORT : process.argv[index + 1]);
+    const port = index < 0 ? undefined : parsePort(process.argv[index + 1]);
     const result = await launchPlatform({ port, noBrowser: process.argv.includes('--no-browser') });
+    if (result.warning) console.warn(result.warning);
     console.log(`独立跑团平台${result.reused ? '已复用' : '已就绪'}：${result.url}`);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
