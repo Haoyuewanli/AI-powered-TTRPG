@@ -3,6 +3,8 @@ import { distanceBetween, overlaps, objectBounds, pathMeetsObject } from './geom
 import { validateResources, beginTurn, recoverResources, spendResources, costProblem } from './resources.mjs';
 import { validateOperations, actionCatalog, operationCosts } from './action-catalog.mjs';
 import { validateInventory, getItem, getItemUse, inventoryChoices, consumeInventory } from './inventory.mjs';
+import { ITEM_CATALOG } from '../data/items-2024.mjs';
+import { createClassTestActors } from './testing-presets.mjs';
 
 import { RuleError, requireRule, integer } from './rule-errors.mjs';
 export { RuleError, requireRule, integer } from './rule-errors.mjs';
@@ -339,6 +341,45 @@ export function executeAction(original, command, principal, { draw = die, id = r
   const payload = command.payload || {};
   let publicText = '', dmText = '', rolls = [], eventExtra = {};
   switch (command.type) {
+    case 'add-testing-actors': {
+      dmOnly(principal); recordFields(payload, ['batch'], '资源测试预设');
+      requireRule(state.combat.phase === 'preparing', '仅可在准备阶段导入资源测试预设');
+      requireRule([1, 2].includes(payload.batch), '测试批次须为1或2');
+      const actors = createClassTestActors({batch: payload.batch});
+      requireRule(!actors.some(actor => state.actors.some(existing => existing.id === actor.id || existing.ownerId === actor.ownerId)), '测试角色或所属身份已存在，不能重复导入');
+      requireRule(state.actors.length + actors.length <= 40, '本场最多40个棋子，不能导入部分测试批次');
+      const originalCount = state.actors.length;
+      const width = state.board.width + (state.board.extended ? 100 : 0), depth = state.board.depth + (state.board.extended ? 100 : 0);
+      const candidates = [];
+      for (let z = 2.5; z < depth; z += 5) for (let x = 2.5; x < width; x += 5) candidates.push({x, y: 0, z});
+      const makeStock = (item, id, quantity) => ({id, itemId: item.id, quantity, ...(item.chargesPerItem ? {charges: item.chargesPerItem} : {})});
+      const potion = ITEM_CATALOG.find(item => item.id === 'phb24-gear-potion-of-healing');
+      for (const [index, actor] of actors.entries()) {
+        const free = position => {
+          const candidate = {...actor, position};
+          const onBoard = state.board.extended || position.x >= 2.5 && position.z >= 2.5 && position.x + 2.5 <= state.board.width && position.z + 2.5 <= state.board.depth;
+          return onBoard && !state.actors.some(existing => overlaps(candidate, existing)) && !(state.objects || []).some(object =>
+            (object.blocksMovement || ['hill', 'floor', 'stairs'].includes(object.type)) && pathMeetsObject(candidate, position, object));
+        };
+        const position = [actor.position, ...candidates].find(free);
+        requireRule(position, '盘面没有足够的空位置，请调整盘面后重新导入');
+        actor.position = {...position}; actor.tiePriority = originalCount + index;
+        const samples = [...new Map([potion, ...ITEM_CATALOG.slice(index * 3, index * 3 + 3)].map(item => [item.id, item])).values()];
+        actor.inventory = samples.map((item, itemIndex) => makeStock(item, `personal-test-${itemIndex + 1}`, 1 + index % 3));
+        validateActor(actor, state.board); state.actors.push(actor);
+      }
+      const party = state.partyInventory ?? [], addedItems = [];
+      for (const [index, item] of ITEM_CATALOG.entries()) if (!party.some(stack => stack.itemId === item.id)) {
+        let stockId = `test-stock-${index + 1}`;
+        while (party.some(stack => stack.id === stockId)) stockId += '-new';
+        party.push(makeStock(item, stockId, 5)); addedItems.push(item.id);
+      }
+      state.partyInventory = party; validateInventory(party, '团队测试背包');
+      state.initiativeCollection = null;
+      eventExtra = {classTestImport: {batch: payload.batch, actorIds: actors.map(actor => actor.id), presetVersion: 1, addedInventoryItemIds: addedItems}};
+      dmText = `导入第${payload.batch}批24个PHB2024子职的20级合成资源测试角色；原角色保留，资源资料待核对，团队背包补齐目录。预设不代表完整角色卡，特殊条件与效果须主持确认。`;
+      break;
+    }
     case 'edit-inventory': {
       dmOnly(principal);
       recordFields(payload, ['scope', 'actorId', 'inventory', 'reason'], '背包编辑');
@@ -872,6 +913,7 @@ export function handoff(state, principal) {
       'roll-dice': '仅DM：{actorId?,label,formula,mode?:normal|advantage|disadvantage,values?:[原始骰点],origin?:physical-dice|external-tool|dm-recorded,note?,publicNote?}；提供values时必须注明人工来源，不提供则本地掷骰；只记录不自动应用效果，线下骰场次必须提供原始骰点',
       'manual-record': '仅DM：{mode?:record-only|apply,actorId?,targetId?,operationId?,label,note,finalResult?,publicNote?,rolls?:[{formula,values,origin,mode?}],application?:{heal?,damage?:[{type,amount}],finalHp?,temporaryHp?,finalTempHp?,replaceTemporaryHp?,costs?:[{resourceId,amount}]}}；默认仅记录，不能带非空application；apply显式扣行动者资源、应用到目标。damage为减免前伤害，finalHp为直接核定最终HP且不能与damage/heal混填；不自动重掷、推断费用或恢复资源',
       'edit-inventory': '仅DM：{scope:personal|party,actorId?,inventory:[{id,itemId,quantity,charges?}],reason}；替换单个个人或团队背包，个人须指定actorId，可撤销',
+      'add-testing-actors': '仅DM、准备阶段：{batch:1|2}；本地生成24个PHB2024子职20级资源测试角色、差异个人库存并补齐团队目录，不覆盖原角色，须核对后开战；重复或超过40人时拒绝整批',
       'use-item': '{actorId,targetId?,scope:personal|party,stackId,useId,partyAccessible?,reason?,result?,manualRolls?,rollOrigin?,manualCosts?,publicNote?}；用途、费用及消耗数量来自物品目录。玩家仅战斗内使用个人背包自动治疗；团队须DM明确确认可取用，复杂效果须DM依据。非战斗仅DM确认且不扣回合动作，手工费用须为空；治疗量按目录掷骰并封顶。result不含costs，伤害为减免前分类数值，finalHp为最终HP',
       next: '{}：结束当前回合', dash: '{actorId}：疾走', adjudicate: '仅DM：{actorId,reason,publicNote,heal?,damage?:[{type,amount}],resources?,consumeAction?}',
       'spend-resources': '仅DM：{actorId,reason,costs:[{resourceId,amount}]}；组合费用原子校验；优先使用use-operation',

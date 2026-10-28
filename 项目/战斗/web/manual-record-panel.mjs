@@ -10,7 +10,7 @@ export function manualRecordPanel({action,getState,getActor,notify}) {
   <label>向玩家公开的内容（留空为DM私密记录）<textarea id="record-public" maxlength="2000" rows="2"></textarea></label><div class="button-grid"><button type="button" id="record-preview">预览记录</button><button type="submit" id="record-save" class="primary" disabled>确认保存记录</button></div><p id="record-preview-status" class="fine" role="status"></p><textarea id="record-preview-json" rows="6" readonly hidden aria-label="待提交主持记录"></textarea></form>`;
   $('dm-tools').append(root);
   for(const [id,name] of [['acid','强酸'],['bludgeoning','钝击'],['cold','寒冷'],['fire','火焰'],['force','力场'],['lightning','闪电'],['necrotic','暗蚀'],['piercing','穿刺'],['poison','毒素'],['psychic','心灵'],['radiant','光耀'],['slashing','挥砍'],['thunder','雷鸣']]){const o=el('option',name);o.value=id;$('record-damage-type').append(o);}
-  let context='',previewed=null,submitting=false;
+  let context='',targetsKey='',previewed=null,submitting=false;
   const safe=fn=>async e=>{e?.preventDefault();try{await fn(e);}catch(error){notify(error.message,true);}};
   function invalidate(message='内容尚未提交，请预览后保存。') {previewed=null;$('record-save').disabled=true;$('record-preview-json').hidden=true;$('record-preview-status').textContent=message;}
   function mode() {const apply=$('record-mode').value==='apply';$('record-application').hidden=!apply;$('record-application').disabled=!apply;const final=$('record-result-mode').value==='final-hp';$('record-delta-fields').hidden=final;$('record-final-hp-label').hidden=!final;}
@@ -50,9 +50,11 @@ export function manualRecordPanel({action,getState,getActor,notify}) {
     const s=getState(),a=getActor();root.hidden=!s||s.viewRole!=='dm'||!a;if(root.hidden)return;
     const next=`${s.campaignId}/${s.battleId}/${a.id}`;
     if(context!==next) {context=next;$('manual-record-form').reset();$('general-roll-form').reset();$('record-rolls').replaceChildren();$('general-roll-result').textContent='';$('record-target').replaceChildren(...s.actors.map(actor=>{const o=el('option',actor.name);o.value=actor.id;return o;}));$('record-target').value=a.id;mode();rollSource();invalidate();}
+    const nextTargets=JSON.stringify(s.actors.map(actor=>[actor.id,actor.name]));
+    if(targetsKey!==nextTargets){targetsKey=nextTargets;const selected=$('record-target').value;$('record-target').replaceChildren(...s.actors.map(actor=>{const o=el('option',actor.name);o.value=actor.id;return o;}));$('record-target').value=s.actors.some(actor=>actor.id===selected)?selected:a.id;invalidate();}
     $('general-roll-source').options[0].disabled=s.diceMode==='physical';
     if(s.diceMode==='physical'&&$('general-roll-source').value==='program'){$('general-roll-source').value='physical-dice';rollSource();}
     if(previewed&&previewed.revision!==s.revision)invalidate('局面已更新，请重新预览记录。');
   }
-  return {render,prepare({label,note}){render();root.open=true;$('record-mode').value='record-only';$('record-label').value=label.slice(0,80);$('record-note').value=note.slice(0,2000);mode();invalidate();root.scrollIntoView({block:'center'});},clear(){context='';previewed=null;root.open=false;$('record-target').replaceChildren();$('record-rolls').replaceChildren();$('record-preview-json').value='';$('record-preview-json').hidden=true;$('general-roll-result').textContent='';}};
+  return {render,prepare({label,note}){render();$('manual-record-form').reset();$('record-rolls').replaceChildren();$('record-target').value=getActor().id;root.open=true;$('record-mode').value='record-only';$('record-label').value=label.slice(0,80);$('record-note').value=note.slice(0,2000);mode();invalidate();root.scrollIntoView({block:'center'});},clear(){context='';targetsKey='';previewed=null;root.open=false;$('record-target').replaceChildren();$('record-rolls').replaceChildren();$('record-preview-json').value='';$('record-preview-json').hidden=true;$('general-roll-result').textContent='';}};
 }
