@@ -1,3 +1,4 @@
+import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -43,7 +44,7 @@ async function openWindow(profileName) {
   const page = context.pages().find(p => p.url().startsWith(url)) || await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(url);
-  await page.locator('#enter-dm').click(); await page.locator('canvas[data-ready="true"]').waitFor();
+  await page.locator('#enter-dm').click(); await enterBattle(page);await page.locator('canvas[data-ready="true"]').waitFor();
   await page.locator('canvas[data-settled="true"]').waitFor();
   token = await page.evaluate(() => sessionStorage.getItem('battle-session'));
   return page;

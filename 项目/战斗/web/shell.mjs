@@ -9,10 +9,11 @@ export function initShell() {
   const consoleTitle=document.createElement('strong');consoleTitle.id='dock-selected-name';consolePanel.append(consoleTitle);document.querySelector('.board-region').append(consolePanel);
   const dialogs = new Map([...document.querySelectorAll('[data-dialog]')].map(dialog => [dialog.dataset.dialog, dialog]));
   const returnFocus = new Map();
-  let currentState = null, contextKey = '', sceneReturnFocus = null;
+  let currentState = null, contextKey = '', sceneReturnFocus = null, battleVisible = true;
 
   const visible = element => element?.isConnected && !element.disabled && element.getClientRects().length > 0;
   function focusBack(element) {
+    if (!battleVisible) return;
     const target = visible(element) ? element : $('viewport');
     if (visible(target)) target.focus({ preventScroll: true });
   }
@@ -44,7 +45,7 @@ export function initShell() {
     if (restoreFocus) focusBack(target);
   }
   function openTool(name) {
-    if (!currentState || (dmTools.has(name) && currentState.viewRole !== 'dm')) return false;
+    if (!battleVisible || !currentState || (dmTools.has(name) && currentState.viewRole !== 'dm')) return false;
     const trigger = triggerFor(name);
     document.querySelectorAll('.session-menu').forEach(menu => { menu.open = false; });
     if (sceneNames.has(name)) {
@@ -99,8 +100,16 @@ export function initShell() {
     $('latest-event-text').textContent = latest ? (state.viewRole === 'dm' ? latest.dmText || latest.text : latest.text) || '已保存新的操作' : '这里会留下每一步已保存的结果';
     placeActions();
   }
+  function setVisible(value) {
+    const next = !!value;
+    if (battleVisible === next) return;
+    battleVisible = next;
+    if (!next) closeTools({ restoreFocus: false });
+    else placeActions();
+  }
 
   document.addEventListener('click', event => {
+    if (!battleVisible) return;
     const open = event.target.closest('button[data-tool]');
     if (open) { openTool(open.dataset.tool); return; }
     const close = event.target.closest('[data-close-tool]');
@@ -111,7 +120,7 @@ export function initShell() {
     if (!event.target.closest('.session-menu')) document.querySelectorAll('.session-menu').forEach(menu => { menu.open = false; });
   });
   document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape' || [...dialogs.values()].some(dialog => dialog.open)) return;
+    if (!battleVisible || event.key !== 'Escape' || [...dialogs.values()].some(dialog => dialog.open)) return;
     if (!$('scene-tools').hidden) { event.preventDefault(); closeScene(); }
     document.querySelectorAll('.session-menu').forEach(menu => { menu.open = false; });
   });
@@ -125,5 +134,5 @@ export function initShell() {
   }
   compact.addEventListener('change', placeActions);
   placeActions();
-  return { openTool, closeTools, update };
+  return { openTool, closeTools, update, setVisible };
 }

@@ -1,3 +1,4 @@
+import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -54,13 +55,13 @@ try{
   assert.equal(requests.filter(request=>new URL(request.url).pathname==='/api/login').length,0,'tool must not create its own DM login');
   checks.push('无会话、过期401与玩家403仅提示返回既有DM登录，不自动登录或显示目录');
 
-  await enter(page,null);await page.locator('#auth-required a').click();await page.locator('#identity:visible').waitFor();await page.locator('#identity').fill('DM');await page.locator('#login-form button').click();await page.locator('canvas[data-ready="true"]').waitFor();
+  await enter(page,null);await page.locator('#auth-required a').click();await page.locator('#identity:visible').waitFor();await page.locator('#identity').fill('DM');await page.locator('#login-form button').click();await enterBattle(page);await page.locator('canvas[data-ready="true"]').waitFor();
   const navigationToken=await page.evaluate(()=>sessionStorage.getItem('battle-session'));
   const navigationState=async()=>{const response=await fetch(app.url+'/api/state',{headers:{Authorization:`Bearer ${navigationToken}`}});assert.equal(response.status,200);return (await response.json()).state;};
   const beforeNavigation=await navigationState();assert(beforeNavigation.campaignId&&beforeNavigation.battleId);assert.equal(beforeNavigation.viewRole,'dm');
   await page.getByRole('button',{name:'本地文件',exact:true}).click();await page.locator('#files-dialog:visible').waitFor();await page.getByRole('button',{name:'管理模组封面',exact:true}).click();await page.waitForURL(app.url+'/module-covers');await page.locator('#library-content:visible').waitFor();
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('battle-session')),navigationToken);
-  await page.getByRole('link',{name:'← 返回跑团',exact:true}).click();await page.waitForURL(app.url+'/');await page.locator('canvas[data-ready="true"]').waitFor();assert.equal(await page.evaluate(()=>sessionStorage.getItem('battle-session')),navigationToken);
+  await page.getByRole('link',{name:'← 返回跑团',exact:true}).click();await page.waitForURL(app.url+'/');await enterBattle(page);await page.locator('canvas[data-ready="true"]').waitFor();assert.equal(await page.evaluate(()=>sessionStorage.getItem('battle-session')),navigationToken);
   const afterNavigation=await navigationState();for(const key of ['campaignId','battleId','viewRole','revision'])assert.equal(afterNavigation[key],beforeNavigation[key]);assert.deepEqual(app.store.state,baseline);
   assert.equal(requests.filter(request=>request.method==='POST'&&new URL(request.url).pathname==='/api/action').length,0);
   checks.push('既有DM登录与本地文件入口可进入封面页并返回，同一会话、团、战斗和身份保持，纯导航不提交战斗操作');

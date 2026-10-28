@@ -1,3 +1,4 @@
+import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -9,10 +10,10 @@ const output=fileURLToPath(new URL('../../../开发记录/临时/操作格检查
 const app=await startApp({campaignDir:directory,port:0,initial:()=>{const s=active();s.actors[1].hp=20;s.actors[0].resourcePools=[{id:'slot-1',name:'一环位',kind:'slots',level:1,current:4,max:4,source:'合成 PHB2024',recovery:{long:'all'}}];s.actors[0].operations=[{id:'heal',name:'合成治疗',category:'spells',ruleset:'2024',source:'合成测试效果，不用于真实角色',notes:'主持确认后的治疗',spellLevel:1,slotMode:'expend',costs:[{resourceId:'action',amount:1}],target:true}];return s;}});
 const browser=await chromium.launch({executablePath:process.env.BATTLE_BROWSER||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true,args:['--use-angle=swiftshader-webgl','--enable-unsafe-swiftshader']});const page=await browser.newPage({viewport:{width:1440,height:1040}}),checks=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
 try {
-  await page.goto(app.url);await page.locator('#enter-dm').click();await page.locator('#operation-grid button').first().waitFor();await page.waitForTimeout(200);
+  await page.goto(app.url);await page.locator('#enter-dm').click();await enterBattle(page);await page.locator('#operation-grid button').first().waitFor();await page.waitForTimeout(200);
   const before=app.store.state.revision;
   await page.locator('[data-operation-id="common:dash"] button').first().dragTo(page.locator('[data-operation-id="common:attack"] button').first());await page.waitForFunction(()=>document.querySelector('#operation-grid .operation-cell')?.dataset.operationId==='common:dash');assert.equal(app.store.state.revision,before);
-  await page.reload();await page.waitForFunction(()=>document.querySelector('#operation-grid .operation-cell')?.dataset.operationId==='common:dash');checks.push('拖动交换与页面重开恢复顺序，不消耗资源');
+  await page.reload();await enterBattle(page);await page.waitForFunction(()=>document.querySelector('#operation-grid .operation-cell')?.dataset.operationId==='common:dash');checks.push('拖动交换与页面重开恢复顺序，不消耗资源');
   await page.locator('#hotbar-sort').click();await page.getByRole('button',{name:'疾走后移',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#operation-grid .operation-cell')?.dataset.operationId==='common:attack');await page.locator('#hotbar-sort').click();checks.push('键盘/触摸替代排序');
   await page.locator('#hotbar-filter').selectOption('spells');await page.locator('[data-operation-id="custom:heal"] button').click();await page.locator('#operation-dialog[open]').waitFor();assert.match(await page.locator('#operation-cost').textContent(),/动作.*一环位/);await page.keyboard.press('Escape');assert.equal(app.store.state.revision,before);assert.equal(app.store.state.actors[0].resourcePools[0].current,4);checks.push('查看组合费用和取消不扣费');
   await page.locator('[data-operation-id="custom:heal"] button').click();await page.locator('#operation-reason').fill('已核对目标、施法动作与治疗结果');await page.locator('#operation-heal').fill('7');await page.locator('#operation-submit').click();await page.waitForFunction(()=>!document.querySelector('#operation-dialog').open);assert.equal(app.store.state.actors[1].hp,27);assert.equal(app.store.state.actors[0].resourcePools[0].current,3);assert.equal(app.store.state.combat.action,'manual');checks.push('主持一次确认同时扣动作/法术位并应用治疗');

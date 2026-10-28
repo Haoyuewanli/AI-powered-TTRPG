@@ -1,3 +1,4 @@
+import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,7 +12,7 @@ const app = await startApp({campaignDir:await mkdtemp(join(output,'flow-')),port
 const browser = await chromium.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true,args:['--use-angle=swiftshader-webgl','--enable-unsafe-swiftshader']});
 try {
  const page=await browser.newPage({viewport:{width:1366,height:768}}); const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(app.url);await page.locator('#enter-dm').click();await page.locator('canvas[data-ready=true]').waitFor();
+ await page.goto(app.url);await page.locator('#enter-dm').click();await enterBattle(page);await page.locator('canvas[data-ready=true]').waitFor();
  for(const size of [{width:1920,height:1080},{width:390,height:844},{width:1366,height:768}]) {
   await page.setViewportSize(size);await page.locator('#open-actions').click();
   assert.ok(await page.locator('#battle-tasks').isVisible());await page.keyboard.press('Escape');

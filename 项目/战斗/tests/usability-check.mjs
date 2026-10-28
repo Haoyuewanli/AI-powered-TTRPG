@@ -1,3 +1,4 @@
+import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -40,7 +41,7 @@ async function context(viewport = { width: 1440, height: 1000 }) {
   return result;
 }
 async function settle(page) {
-  await page.locator('canvas[data-ready="true"]').waitFor();
+  await enterBattle(page);await page.locator('canvas[data-ready="true"]').waitFor();
   await page.waitForTimeout(100);
   await page.locator('canvas[data-settled="true"]').waitFor({ timeout: 20000 });
 }

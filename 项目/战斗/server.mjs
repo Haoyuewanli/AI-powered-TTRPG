@@ -43,6 +43,10 @@ export async function startApp({ campaignDir, workspaceDir, modulesDir, port = 4
   ]);
   const staticFiles = new Map([
     ...modulePages,
+    ['/platform-shell.mjs', [resolve(ROOT, '../平台/web/platform-shell.mjs'), 'text/javascript; charset=utf-8']],
+    ['/platform-shell.css', [resolve(ROOT, '../平台/web/platform-shell.css'), 'text/css; charset=utf-8']],
+    ['/dialogue-workspace.mjs', [resolve(ROOT, '../平台/web/dialogue-workspace.mjs'), 'text/javascript; charset=utf-8']],
+    ['/dialogue-workspace.css', [resolve(ROOT, '../平台/web/dialogue-workspace.css'), 'text/css; charset=utf-8']],
     ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars', 'resource-panel', 'resource-icons', 'action-panel','action-icons','resource-orbit'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
     ...['resources','rule-errors','action-catalog'].map(name => [`/${name}.mjs`, [join(ROOT,`src/${name}.mjs`),'text/javascript; charset=utf-8']]),
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
@@ -75,7 +79,7 @@ export async function startApp({ campaignDir, workspaceDir, modulesDir, port = 4
       if (request.method === 'GET' && path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
       if (request.method === 'GET' && path === '/api/client-info') return send(200, { audience });
       if (audience === 'local' && request.method === 'GET' && path === '/health') return send(200, {
-        app: 'local-battle-v1', coreVersion: 'battle-resources-v5', capabilities: { moduleCovers: 1 }, campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
+        app: 'local-battle-v1', coreVersion: 'battle-resources-v5', capabilities: { moduleCovers: 1, platformShell: 1 }, campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
       if (audience === 'player' && request.method === 'POST' && path === '/api/join') {
         const body = await readBody(request);
         return send(200, sharing.join(body.invite));

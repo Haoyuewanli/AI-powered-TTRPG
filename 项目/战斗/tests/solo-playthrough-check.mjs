@@ -1,3 +1,4 @@
+import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import { mkdir,mkdtemp,readFile,writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -23,7 +24,7 @@ export function trial(){
  const page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.message));
  async function changed(run){const v=app.store.state.revision;await run();await page.waitForFunction(v=>document.querySelector('#save-status').textContent.includes(`v${v+1}`),v);}
  try{
-  await page.goto(app.url);await page.locator('#enter-dm').click();await page.locator('canvas[data-ready=true]').waitFor();
+  await page.goto(app.url);await page.locator('#enter-dm').click();await enterBattle(page);await page.locator('canvas[data-ready=true]').waitFor();
   for(const id of ['pc-001','npc-001']){
    await page.locator(`[data-actor-id="${id}"]`).first().click();await page.locator('[data-tool=actor]:visible').first().click();
    await page.locator('#edit-confirmed').check();await changed(()=>page.locator('#edit-form button[type=submit]').click());await page.keyboard.press('Escape');
@@ -55,9 +56,9 @@ export function trial(){
   await page.keyboard.press('Escape');
   const saved=await readFile(join(dir,'战斗状态.json'));await page.screenshot({path:join(out,'结束战斗.png')});
   await app.close();app=await startApp({campaignDir:dir,port:0});assert.deepEqual(await readFile(join(dir,'战斗状态.json')),saved);
-  await page.goto(app.url);await page.locator('#enter-dm').click();await page.locator('canvas[data-ready=true]').waitFor();assert.equal(app.store.state.actors[0].hp,17);assert.equal(app.store.state.combat.phase,'ended');assert.equal(await page.locator('#table').getAttribute('data-phase'),'ended');checks.push('关闭核心后重开，同一存档、HP与结束状态恢复');
+  await page.goto(app.url);await page.locator('#enter-dm').click();await enterBattle(page);await page.locator('canvas[data-ready=true]').waitFor();assert.equal(app.store.state.actors[0].hp,17);assert.equal(app.store.state.combat.phase,'ended');assert.equal(await page.locator('#table').getAttribute('data-phase'),'ended');checks.push('关闭核心后重开，同一存档、HP与结束状态恢复');
   const playerPage=await ctx.newPage();playerPage.on('pageerror',e=>errors.push(e.message));
-  await playerPage.goto(app.url);await playerPage.locator('#identity').fill('player-1');await playerPage.locator('#login-form button').click();await playerPage.locator('canvas[data-ready=true]').waitFor();
+  await playerPage.goto(app.url);await playerPage.locator('#identity').fill('player-1');await playerPage.locator('#login-form button').click();await enterBattle(playerPage);await playerPage.locator('canvas[data-ready=true]').waitFor();
   assert.equal(await playerPage.locator('#roster .tag').count(),0);assert.equal(await playerPage.locator('#battle-tasks').isVisible(),false);
   assert.match(await playerPage.locator('#initiative-collection').textContent(),/已结束并保存，等待主持/);
   assert.match(await playerPage.locator('#flow-text').textContent(),/等待主持安排下一场/);checks.push('玩家重开后也显示结束状态，不引导提交先攻');

@@ -1,3 +1,4 @@
+import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import { mkdir,mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ const browser=await chromium.launch({executablePath:'C:/Program Files (x86)/Micr
 const errors=[];
 try {
  const page=await browser.newPage({viewport:{width:1600,height:1000}});page.on('pageerror',e=>errors.push(e.message));
- await page.goto(app.url);await page.locator('#enter-dm').click();await page.locator('canvas[data-ready=true]').waitFor();
+ await page.goto(app.url);await page.locator('#enter-dm').click();await enterBattle(page);await page.locator('canvas[data-ready=true]').waitFor();
  async function settle(){await page.waitForTimeout(120);await page.locator('canvas[data-settled=true]').waitFor();}
  async function point(p){await settle();return page.evaluate(async p=>{const T=await import('/vendor/three.module.js');const el=document.querySelector('canvas'),r=el.getBoundingClientRect(),v=JSON.parse(el.dataset.camera);const c=new T.PerspectiveCamera(44,r.width/r.height,.1,5000);c.position.set(v.target[0]+v.distance*Math.sin(v.polar)*Math.sin(v.azimuth),v.distance*Math.cos(v.polar),v.target[2]+v.distance*Math.sin(v.polar)*Math.cos(v.azimuth));c.lookAt(new T.Vector3(...v.target));c.updateMatrixWorld();const q=new T.Vector3(p.x,p.y,p.z).project(c);return{x:r.x+(q.x+1)*r.width/2,y:r.y+(1-q.y)*r.height/2};},p);}
  async function changed(fn){const before=app.store.state.revision;await fn();await page.waitForFunction(v=>document.querySelector('#save-status').textContent.includes(`v${v}`),before+1);assert.equal(app.store.state.revision,before+1);}

@@ -1,0 +1,68 @@
+#dialogue-workspace{--dialogue-ink:#34374d;--dialogue-quiet:#5d617b;--dialogue-paper:#f7f8fb;--dialogue-light:#d9f6ff;--dialogue-shadow:#9a9cc5;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px;height:min(74vh,760px);min-height:490px;min-width:0;width:100%;color:var(--dialogue-ink);font:13px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}
+#dialogue-workspace *{box-sizing:border-box}
+#dialogue-workspace button,#dialogue-workspace select,#dialogue-workspace textarea{font:inherit;color:inherit}
+#dialogue-workspace button{cursor:pointer}
+#dialogue-workspace button:disabled{opacity:.42;cursor:default}
+#dialogue-workspace button:focus-visible,#dialogue-workspace select:focus-visible,#dialogue-workspace textarea:focus-visible{outline:2px solid #647da0;outline-offset:2px}
+#dialogue-workspace .dialogue-toolbar{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+#dialogue-workspace .dialogue-heading{display:flex;align-items:center;gap:10px;margin-right:auto}
+#dialogue-workspace .dialogue-heading>strong{font:400 23px/1.4 "Songti SC","SimSun",serif;letter-spacing:.08em}
+#dialogue-workspace .dialogue-demo-label{display:inline-block;font-size:11px;color:var(--dialogue-quiet);background:#e8e9f3;padding:3px 7px;border-radius:2px}
+#dialogue-workspace .dialogue-field{display:flex;align-items:center;gap:7px;font-size:12px;white-space:nowrap;color:var(--dialogue-ink)}
+#dialogue-workspace select{min-width:0;max-width:100%;border:1px solid #c6c9d7;background:#f7f8fb;border-radius:2px;padding:6px 8px}
+#dialogue-workspace .dialogue-region-picker{display:none}
+#dialogue-workspace .dialogue-body{display:grid;grid-template-columns:138px minmax(0,1fr);gap:16px;min-height:0;min-width:0}
+#dialogue-workspace .dialogue-sources{display:flex;flex-direction:column;gap:9px;min-width:0;padding:12px 8px 12px 0}
+#dialogue-workspace .dialogue-source-title{font-weight:500;font-size:12px;margin-bottom:5px}
+#dialogue-workspace .dialogue-button{border:0;background:#eef0f7;border-radius:2px;min-height:34px;padding:6px 10px;transition:background 160ms,box-shadow 160ms,transform 180ms;touch-action:manipulation}
+#dialogue-workspace .dialogue-button:not(:disabled):hover,#dialogue-workspace .dialogue-button:not(:disabled):focus-visible{background:var(--dialogue-light);box-shadow:inset 0 1px 0 #fff,0 12px 20px -16px #646c95;transform:translateY(-3px)}
+#dialogue-workspace .dialogue-source{min-height:42px;text-align:left;background:#f5f6fb;box-shadow:0 13px 20px -19px #555e86;overflow-wrap:anywhere}
+#dialogue-workspace .dialogue-source-note{font-size:11px;color:var(--dialogue-quiet);margin:10px 1px 0;line-height:1.9}
+#dialogue-workspace .dialogue-panes{display:grid;gap:12px;min-height:0;min-width:0;grid-template-areas:"pane1";grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+#dialogue-workspace[data-dialogue-layout=columns] .dialogue-panes{grid-template-areas:"pane1 pane2";grid-template-columns:repeat(2,minmax(0,1fr))}
+#dialogue-workspace[data-dialogue-layout=rows] .dialogue-panes{grid-template-areas:"pane1" "pane2";grid-template-rows:repeat(2,minmax(0,1fr))}
+#dialogue-workspace[data-dialogue-layout=grid] .dialogue-panes{grid-template-areas:"pane1 pane2" "pane3 pane4";grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+#dialogue-workspace[data-dialogue-layout=left-stack] .dialogue-panes{grid-template-areas:"pane1 pane3" "pane2 pane3";grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+#dialogue-workspace[data-dialogue-layout=right-stack] .dialogue-panes{grid-template-areas:"pane1 pane2" "pane1 pane3";grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr))}
+#dialogue-workspace .dialogue-pane{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-height:0;min-width:0;background:#f7f8fbe8;box-shadow:0 18px 30px -25px #545d82;outline:1px solid #cdd0df;outline-offset:-1px;overflow:hidden}
+#dialogue-workspace .dialogue-pane[data-dialogue-active=true]{outline-color:#969ebf}
+#dialogue-workspace .dialogue-pane.dialogue-drop-target{outline:2px solid #6f8fa5;background:#ecf8fc}
+#dialogue-workspace .dialogue-pane-header{display:flex;align-items:stretch;min-width:0;min-height:39px;background:#e8eaf3}
+#dialogue-workspace .dialogue-pane-number{padding:9px 8px;color:#686e8c;font-size:11px;flex:none}
+#dialogue-workspace .dialogue-tabs{display:flex;align-items:stretch;min-width:0;overflow:auto;scrollbar-width:thin;overscroll-behavior:contain;padding:0 3px}
+#dialogue-workspace .dialogue-tab-item{display:flex;align-items:stretch;flex:none;min-width:0;max-width:260px;margin-right:3px}
+#dialogue-workspace .dialogue-tab{min-width:0;min-height:39px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0;padding:7px 9px;background:transparent;font-size:12px}
+#dialogue-workspace .dialogue-tab[aria-selected=true]{background:var(--dialogue-paper);box-shadow:inset 0 2px 0 #8a98b6}
+#dialogue-workspace .dialogue-tab-close{flex:none;min-width:28px;padding:4px 6px;background:transparent;font-size:17px;line-height:1}
+#dialogue-workspace .dialogue-dragging{opacity:.45}
+#dialogue-workspace .dialogue-empty-tab{padding:9px 2px;font-size:11px;color:var(--dialogue-quiet);white-space:nowrap}
+#dialogue-workspace .dialogue-panel{min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain}
+#dialogue-workspace .dialogue-empty{margin:0;padding:24px;color:var(--dialogue-quiet);font-size:12px;line-height:1.9}
+#dialogue-workspace .dialogue-pane-controls{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0;padding:5px 7px;background:#e9ecf4c9;flex-wrap:wrap}
+#dialogue-workspace .dialogue-pane-controls .dialogue-button{font-size:11px;min-height:28px;padding:3px 7px;background:#f8f9fc}
+#dialogue-workspace .dialogue-destination{font-size:11px;padding:3px 4px;min-height:28px;max-width:90px}
+#dialogue-workspace .dialogue-chat{height:100%;display:flex;flex-direction:column;min-height:0;min-width:0}
+#dialogue-workspace .dialogue-messages{flex:1;min-height:55px;overflow:auto;padding:14px 16px;overscroll-behavior:contain}
+#dialogue-workspace .dialogue-message{max-width:88%;margin-bottom:12px;background:#e9edf6;border-radius:2px;padding:8px 11px;overflow-wrap:anywhere}
+#dialogue-workspace .dialogue-message-self{margin-left:auto;background:#dff0f6}
+#dialogue-workspace .dialogue-speaker{font-size:11px;font-weight:500;color:#656c87}
+#dialogue-workspace .dialogue-message p{margin:3px 0 0;font-size:12px;line-height:1.8}
+#dialogue-workspace .dialogue-chat-form{display:grid;gap:4px;padding:8px 12px 9px;margin:0;flex:none;background:#f8f9fc;min-width:0}
+#dialogue-workspace .dialogue-composer-label{font-size:11px;color:var(--dialogue-quiet)}
+#dialogue-workspace textarea{display:block;width:100%;min-height:48px;max-height:160px;resize:vertical;padding:7px 9px;border:1px solid #c8ccdb;border-radius:2px;background:#fff;font-size:12px}
+#dialogue-workspace .dialogue-compose-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:var(--dialogue-quiet)}
+#dialogue-workspace .dialogue-send{background:#d9edf6;min-height:30px;padding:4px 15px;font-size:12px}
+#dialogue-workspace .dialogue-resource{padding:22px;min-width:0}
+#dialogue-workspace .dialogue-resource h3{font:400 24px/1.5 "Songti SC","SimSun",serif;letter-spacing:.06em;margin:17px 0 12px}
+#dialogue-workspace .dialogue-resource-intro{font-size:12px;color:var(--dialogue-quiet);line-height:1.9}
+#dialogue-workspace .dialogue-resource dl{display:grid;grid-template-columns:44px minmax(0,1fr);gap:12px 9px;font-size:12px;margin:22px 0}
+#dialogue-workspace .dialogue-resource dt{color:var(--dialogue-quiet)}
+#dialogue-workspace .dialogue-resource dd{margin:0;overflow-wrap:anywhere}
+#dialogue-workspace .dialogue-resource-footnote{font-size:11px;line-height:1.8;color:var(--dialogue-quiet)}
+#dialogue-workspace .dialogue-map{display:grid;grid-template-rows:minmax(0,1fr) auto;gap:12px;align-items:center;height:100%;min-height:0;margin:0;padding:14px}
+#dialogue-workspace .dialogue-map canvas{display:block;width:100%;height:100%;min-height:0;object-fit:contain;border:1px solid #b8becb}
+#dialogue-workspace .dialogue-map figcaption{font-size:11px;color:var(--dialogue-quiet);line-height:1.8;align-self:stretch}
+#dialogue-workspace .dialogue-status{font-size:11px;color:var(--dialogue-quiet);margin:0;line-height:1.8;overflow-wrap:anywhere;min-height:20px}
+@media(max-width:1000px){#dialogue-workspace .dialogue-body{grid-template-columns:112px minmax(0,1fr);gap:10px}#dialogue-workspace .dialogue-pane-controls{gap:3px;padding:4px}#dialogue-workspace .dialogue-pane-controls .dialogue-button{padding:3px 5px}#dialogue-workspace .dialogue-resource{padding:16px}}
+@media(max-width:759px){#dialogue-workspace{height:min(76vh,720px);min-height:480px;gap:9px}#dialogue-workspace .dialogue-toolbar{gap:9px}#dialogue-workspace .dialogue-heading{width:100%;margin:0}#dialogue-workspace .dialogue-region-picker{display:flex}#dialogue-workspace .dialogue-field{font-size:11px;gap:5px}#dialogue-workspace .dialogue-field select{padding:5px;max-width:124px}#dialogue-workspace .dialogue-body{grid-template-columns:84px minmax(0,1fr);gap:8px}#dialogue-workspace .dialogue-sources{gap:7px;padding:6px 0}#dialogue-workspace .dialogue-source{font-size:11px;padding:6px;min-height:39px}#dialogue-workspace .dialogue-source-note{font-size:10px}#dialogue-workspace .dialogue-panes{grid-template-areas:"pane1"!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important}#dialogue-workspace .dialogue-pane{grid-area:pane1!important}#dialogue-workspace .dialogue-pane[data-dialogue-active=false]{display:none}#dialogue-workspace .dialogue-pane-number{padding:10px 5px}#dialogue-workspace .dialogue-tab{max-width:160px;padding:7px 6px;font-size:11px}#dialogue-workspace .dialogue-tab-close{min-width:24px}#dialogue-workspace .dialogue-pane-controls{justify-content:flex-start}#dialogue-workspace .dialogue-messages{padding:10px 8px}#dialogue-workspace .dialogue-message{max-width:96%;padding:7px 8px}#dialogue-workspace .dialogue-chat-form{padding:7px}#dialogue-workspace .dialogue-resource{padding:12px}#dialogue-workspace .dialogue-resource h3{font-size:21px}#dialogue-workspace .dialogue-map{padding:9px}}
+@media(prefers-reduced-motion:reduce){#dialogue-workspace .dialogue-button{transition:none}#dialogue-workspace .dialogue-button:not(:disabled):hover,#dialogue-workspace .dialogue-button:not(:disabled):focus-visible{transform:none}}

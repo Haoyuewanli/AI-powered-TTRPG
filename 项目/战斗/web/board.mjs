@@ -46,16 +46,12 @@ export class BattleBoard {
     this.target = new THREE.Vector3(50, 0, 40); this.wantedTarget = this.target.clone();
     this.orbit = { azimuth: .4, polar: .82, distance: 135 }; this.wanted = { ...this.orbit };
     this.ray = new THREE.Raycaster(); this.pointer = new THREE.Vector2(); this.meshes = [];
-    this.autoFit = true; this.frame = 0; this.drag = null; this.heldKeys = new Set();
-    this.resize = new ResizeObserver(() => {
-      const width = container.clientWidth, height = container.clientHeight;
-      if (!width || !height) return;
-      this.camera.aspect = width / height; this.camera.updateProjectionMatrix();
-      this.renderer.setSize(width, height, false); if (this.autoFit) this.reset(); this.requestRender();
-    }); this.resize.observe(container);
+    this.autoFit = true; this.frame = 0; this.drag = null; this.heldKeys = new Set(); this.visible = true;
+    this.resize = new ResizeObserver(() => this.resizeViewport()); this.resize.observe(container);
     const canvas = this.renderer.domElement;
     canvas.addEventListener('contextmenu', event => event.preventDefault());
     canvas.addEventListener('pointerdown', event => {
+      if (!this.visible) return;
       if (this.drag) { this.cancelDrag(); return; }
       event.preventDefault(); container.focus(); canvas.setPointerCapture(event.pointerId);
       this.cast(event);
@@ -76,6 +72,7 @@ export class BattleBoard {
         context: this.state ? { campaignId: this.state.campaignId, battleId: this.state.battleId, revision: this.state.revision } : null };
     });
     canvas.addEventListener('pointermove', event => {
+      if (!this.visible) return;
       const drag = this.drag;
       if (!drag || event.pointerId !== drag.pointerId) return;
       const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
@@ -91,6 +88,7 @@ export class BattleBoard {
       this.requestRender();
     });
     canvas.addEventListener('pointerup', event => {
+      if (!this.visible) return;
       const drag = this.drag;
       if (!drag || event.pointerId !== drag.pointerId) return;
       const destination = drag.destination;
@@ -106,8 +104,9 @@ export class BattleBoard {
     });
     canvas.addEventListener('pointercancel', () => this.cancelDrag());
     canvas.addEventListener('lostpointercapture', () => this.cancelDrag());
-    canvas.addEventListener('wheel', event => { event.preventDefault(); if (!this.drag?.actor && !this.drag?.object) this.zoom(Math.exp(event.deltaY * .001)); }, { passive: false });
+    canvas.addEventListener('wheel', event => { if (!this.visible) return; event.preventDefault(); if (!this.drag?.actor && !this.drag?.object) this.zoom(Math.exp(event.deltaY * .001)); }, { passive: false });
     container.addEventListener('keydown', event => {
+      if (!this.visible) return;
       if (event.code === 'Escape') { this.cancelDrag(); return; }
       if (this.drag?.actor || this.drag?.object || event.ctrlKey || event.altKey || event.metaKey) return;
       if (event.code === 'Digit0' || event.code === 'Numpad0') {
@@ -128,6 +127,29 @@ export class BattleBoard {
     document.addEventListener('visibilitychange', () => { if (document.hidden) releaseKeys(); });
     canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); this.container.dispatchEvent(new CustomEvent('board-error', { detail: '3D绘图暂时中断，请刷新页面；已保存的战斗进度仍在本机。' })); });
     this.requestRender();
+  }
+  resizeViewport() {
+    if (!this.visible) return;
+    const width = this.container.clientWidth, height = this.container.clientHeight;
+    if (!width || !height) return;
+    this.camera.aspect = width / height; this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height, false);
+    if (this.autoFit) this.reset();
+    this.requestRender();
+  }
+  setVisible(value) {
+    const visible = !!value;
+    if (this.visible === visible) return;
+    this.visible = visible;
+    this.renderer.domElement.dataset.visible = String(visible);
+    this.heldKeys.clear(); this.lastFrame = 0;
+    if (!visible) {
+      this.cancelDrag();
+      if (this.frame) cancelAnimationFrame(this.frame);
+      this.frame = 0;
+      this.wanted = { ...this.orbit }; this.wantedTarget.copy(this.target);
+      this.renderer.domElement.dataset.settled = 'true';
+    } else this.resizeViewport();
   }
   cast(event) {
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -190,6 +212,7 @@ export class BattleBoard {
     this.requestRender();
   }
   pan(right, forward) {
+    if (!this.visible) return;
     this.autoFit = false;
     const angle = this.wanted.azimuth;
     this.wantedTarget.x += right * Math.cos(angle) - forward * Math.sin(angle);
@@ -197,8 +220,9 @@ export class BattleBoard {
     this.wantedTarget.x = THREE.MathUtils.clamp(this.wantedTarget.x, -10000, 10000);
     this.wantedTarget.z = THREE.MathUtils.clamp(this.wantedTarget.z, -10000, 10000);
   }
-  zoom(factor) { this.autoFit = false; this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * factor, 14, 700); this.requestRender(); }
+  zoom(factor) { if (!this.visible) return; this.autoFit = false; this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * factor, 14, 700); this.requestRender(); }
   advanceKeyboard(seconds) {
+    if (!this.visible) return;
     this.autoFit = false;
     const held = (...keys) => keys.some(key => this.heldKeys.has(key)) ? 1 : 0;
     this.wanted.azimuth += (held('KeyQ', 'ArrowLeft') - held('KeyE', 'ArrowRight')) * 1.6 * seconds;
@@ -228,10 +252,11 @@ export class BattleBoard {
     this.wanted = { azimuth, polar, distance: distance * 1.08 }; this.requestRender();
   }
   requestRender() {
-    if (this.frame) return;
+    if (!this.visible || this.frame) return;
     this.renderer.domElement.dataset.settled = 'false';
     this.frame = requestAnimationFrame(time => {
       this.frame = 0;
+      if (!this.visible) return;
       const elapsed = this.lastFrame ? THREE.MathUtils.clamp(time - this.lastFrame, 0, 64) : 16;
       const factor = 1 - Math.exp(-elapsed / 50); this.lastFrame = time;
       if (this.heldKeys.size) this.advanceKeyboard(elapsed / 1000);
@@ -331,5 +356,5 @@ export class BattleBoard {
     this.renderer.domElement.dataset.actorCount = String(state.actors.length);
     this.renderer.domElement.dataset.ready = 'true'; this.requestRender();
   }
-  clear() { this.cancelDrag(); this.state = null; this.heldKeys.clear(); this.piecesKey = null; this.terrainKey = null; disposeGroup(this.terrain); this.renderer.domElement.dataset.objectCount = '0'; disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.requestRender(); }
+  clear() { this.cancelDrag(); this.state = null; this.heldKeys.clear(); this.piecesKey = null; this.terrainKey = null; disposeGroup(this.terrain); this.renderer.domElement.dataset.objectCount = '0'; disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.renderer.clear(); this.requestRender(); }
 }
