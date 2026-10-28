@@ -12,16 +12,15 @@ import { resourcePanel } from '/resource-panel.mjs';
 import { actionPanel } from '/action-panel.mjs';
 import { resourceOrbit } from '/resource-orbit.mjs';
 import { resourceView } from '/resources.mjs';
-import { createPlatformShell } from '/platform-shell.mjs';
-import { createDialogueWorkspace } from '/dialogue-workspace.mjs';
+import { manualRecordPanel } from '/manual-record-panel.mjs';
+import { inventoryPanel } from '/inventory-panel.mjs';
 
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem('battle-session') || '';
 let state = null, selectedId = null, board = null, busy = false, polling = false;
 let dirty = false, editingRevision = null, toastTimer, selection, library, dice, terrain, previewedProposal, shell, sharing, files;
 let clientAudience = 'local', connected = true, sessionEpoch = 0, manualContext = '';
-let resources, operations, orbit;
-let platform, dialogue, pendingWrites = 0;
+let resources, operations, orbit, manualRecords, inventory;
 const cancelled = () => Object.assign(new Error('操作所属的会话已结束'), { cancelled: true });
 const contextKey = () => state ? `${state.campaignId}/${state.battleId}` : '';
 const formFields = ['name', 'ac', 'hp', 'maxHp', 'tempHp', 'speed', 'initiativeBonus', 'attackLimit', 'tiePriority', 'facing'];
@@ -37,15 +36,6 @@ function notify(message, error = false) {
 }
 const guarded = fn => async event => { event?.preventDefault(); try { await fn(event); } catch (error) { if (!error.cancelled) notify(error.message || '操作未完成，请刷新后核对。', true); } };
 async function api(path, body) {
-  const writing = body !== undefined;
-  if (writing) pendingWrites++;
-  try { return await requestApi(path, body); }
-  finally { if (writing) { pendingWrites--; updatePlatform(); } }
-}
-function updatePlatform() {
-  platform?.update({ state, selection, audience: clientAudience, connected, busy: busy || pendingWrites > 0 });
-}
-async function requestApi(path, body) {
   const epoch = sessionEpoch, requestToken = token, context = contextKey();
   let response;
   try {
@@ -68,16 +58,15 @@ async function requestApi(path, body) {
 function clearSession() {
   sessionEpoch++; manualContext = '';
   token = ''; state = null; selectedId = null; dirty = false; editingRevision = null; selection = null;
-  files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); resources?.clear(); operations?.clear(); orbit?.clear(); shell?.update(null); clearPreview();
+  files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); resources?.clear(); operations?.clear(); orbit?.clear(); manualRecords?.clear(); inventory?.clear(); shell?.update(null); clearPreview();
   sessionStorage.removeItem('battle-session');
   $('external-file-notice').hidden = true;
   $('table').hidden = true; $('login').hidden = false;
   for (const id of ['roster', 'actor-info', 'events', 'reference']) $(id).replaceChildren();
-  for (const id of ['selected-name', 'selected-kind', 'turn-caption', 'title', 'role', 'save-status', 'recovery', 'latest-event-text', 'phase-label', 'board-size', 'round', 'dock-selected-name']) $(id).textContent = '';
+  for (const id of ['selected-name', 'selected-kind', 'turn-caption', 'title', 'role', 'save-status', 'recovery', 'latest-event-text', 'phase-label', 'board-size', 'round']) $(id).textContent = '';
   for (const item of $('table').querySelectorAll('input,textarea')) { item.value = ''; if (item.type === 'checkbox') item.checked = false; }
   for (const id of ['attack-choice', 'target-choice']) $(id).replaceChildren();
   board?.clear();
-  dialogue?.clear(); platform?.clear(); updatePlatform();
 }
 function ensureBoard() {
   if (board) return;
@@ -85,7 +74,7 @@ function ensureBoard() {
     terrainEditing: () => terrain?.editing(), stamping: () => terrain?.stamping(), acceptsObject: o => terrain?.accepts(o),
     onSelectObject: id => {const accepted=terrain?.select(id); board?.update(state,selectedId);return accepted;}, canDragObject: () => terrain?.canDrag(),
     objectDestination: (...args) => terrain.destination(...args), objectIds: () => terrain?.selectedIds(),
-    onObjectDrop: async (...args) => {try {await terrain.drop(...args);}catch(error){notify(error.message,true);}}, onHint: message => { const hint = $('drag-hint'); if (hint) { hint.textContent = message; hint.hidden = !message; } } }); board.setVisible(platform?.page === 'battle'); }
+    onObjectDrop: async (...args) => {try {await terrain.drop(...args);}catch(error){notify(error.message,true);}}, onHint: message => { const hint = $('drag-hint'); if (hint) { hint.textContent = message; hint.hidden = !message; } } }); }
   catch { $('board-error').textContent = '无法启用3D绘图，请检查浏览器硬件加速。可以继续用表单操作，正式进度保存在本机。'; $('board-error').hidden = false; }
 }
 function choose(id) {
@@ -156,7 +145,6 @@ function render(selectionChanged = false) {
   $('next').disabled = busy || state.combat.phase !== 'active' || !current || !owns(current);
   $('dash').disabled = busy || !isTurn(a) || !owns(a) || a.hp <= 0 || state.combat.action !== 'none';
   $('selected-name').textContent = a?.name || '选择棋子';
-  if ($('dock-selected-name')) $('dock-selected-name').textContent = `${a?.name || '选择棋子'} · 数值与操作`;
   $('selected-kind').textContent = a ? a.kind === 'pc' ? 'PLAYER' : 'NPC' : '';
   $('actor-info').replaceChildren();
   if (a) {
@@ -191,7 +179,7 @@ function render(selectionChanged = false) {
     const row = text('div', '', 'event'); row.append(text('small', `v${event.revision}${event.undoneBy ? ' · 已撤销' : ''}`), text('span', isDm() ? event.dmText : event.text)); if (event.undoneBy) row.classList.add('undone'); return row;
   }));
   if (!events.length) $('events').append(text('p', '尚无已保存的战斗事件。', 'fine'));
-  files?.update(state); dice?.render(state); terrain?.render(state); resources?.update();
+  files?.update(state); dice?.render(state); terrain?.render(state); resources?.update(); manualRecords?.render(); inventory?.render();
   board?.update(state, selectedId); shell?.update(state); sharing?.render(state); setConnection(connected);
 }
 function renderTasks() {
@@ -218,7 +206,7 @@ function applyResult(result) {
   if (state && state.campaignId === result.state.campaignId && state.battleId === result.state.battleId && result.state.revision < state.revision) return;
   const switched = state && (state.campaignId !== result.state.campaignId || state.battleId !== result.state.battleId);
   if (state?.combat.phase !== result.state.combat.phase) dice?.clearAttack();
-  if (switched) { $('exchange-text').value = ''; dirty = false; selectedId = null; editingRevision = null; dice?.clear(); terrain?.clear(); sharing?.clear(); shell?.closeTools(); clearPreview(); board?.clear(); dialogue?.clear(); }
+  if (switched) { $('exchange-text').value = ''; dirty = false; selectedId = null; editingRevision = null; dice?.clear(); terrain?.clear(); sharing?.clear(); shell?.closeTools(); clearPreview(); board?.clear(); }
   const nextCurrent = result.state.viewRole === 'dm' ? result.state.combat.order?.[result.state.combat.index] : result.state.combat.currentActorId;
   if (!dirty && result.state.combat.phase === 'active' && nextCurrent !== currentId()) {
     const nextActor = result.state.actors.find(item => item.id === nextCurrent);
@@ -253,7 +241,6 @@ function setConnection(value) {
     if (!button.disabled) { button.dataset.offlineDisabled = 'true'; button.disabled = true; }
   }
   else if (state) for (const button of document.querySelectorAll('[data-offline-disabled]')) { button.disabled = false; delete button.dataset.offlineDisabled; }
-  updatePlatform();
 }
 function canDragActor(id) {
   const a = state?.actors.find(item => item.id === id);
@@ -269,20 +256,13 @@ async function dropActor(id, position, context) {
   } catch (error) { notify(error.message, true); }
 }
 async function enter(id) {
-  if (pendingWrites || busy) throw new Error('正在处理身份或保存操作，请稍后再试。');
   sessionEpoch++;
   const result = await api('/api/login', { id });
   token = result.token; sessionEpoch++; sessionStorage.setItem('battle-session', token); await loadState();
 }
 $('login-form').addEventListener('submit', guarded(() => enter($('identity').value)));
 $('enter-dm').addEventListener('click', guarded(() => enter('DM')));
-async function logoutSession() {
-  if (!canSwitch()) return;
-  const epoch = sessionEpoch;
-  try { await api('/api/logout', {}); }
-  finally { if (epoch === sessionEpoch) clearSession(); }
-}
-$('logout').addEventListener('click', guarded(logoutSession));
+$('logout').addEventListener('click', guarded(async () => { const epoch = sessionEpoch; try { await api('/api/logout', {}); } finally { if (epoch === sessionEpoch) clearSession(); } }));
 $('shutdown').addEventListener('click', guarded(async () => { await api('/api/shutdown', {}); clearSession(); notify('本地服务已停止。下次双击“启动战斗.cmd”恢复进度。'); }));
 $('refresh').addEventListener('click', guarded(async () => { await loadState(); notify('已读取本机最新进度'); }));
 $('start').addEventListener('click', guarded(async () => {
@@ -365,7 +345,7 @@ setInterval(async () => {
 function openEditor() { $('edit-details').open = true; shell?.openTool('actor'); }
 $('open-editor').addEventListener('click', openEditor);
 $('go-setup').addEventListener('click', () => shell?.openTool('setup'));
-function canSwitch() { if (busy || pendingWrites || dirty || terrain?.dirty) { notify('请先等待保存完成，或保存/放弃当前棋子与地形编辑，再切换。', true); return false; } return true; }
+function canSwitch() { if (busy || dirty || terrain?.dirty) { notify('请先保存或放弃当前棋子/地形的编辑，再切换或摆放。', true); return false; } return true; }
 async function placeActor(position) {
   if (!isDm() || state.combat.phase === 'active' || !actor()) return;
   if (!canSwitch()) return;
@@ -389,25 +369,13 @@ library = workspacePanel({ api, apply: applyResult, notify, getState: () => stat
 terrain = terrainPanel({ action, getState: () => state, notify, canEdit: () => { if (busy || dirty) { notify('请先保存棋子编辑或等待当前操作完成', true); return false; } return true; } });
 dice = dicePanel({ api, action, getState: () => state, getActor: actor, notify });
 resources = resourcePanel({api,action,getState:()=>state,getActor:actor,notify,openTool:name=>shell?.openTool(name),onResource:r=>orbit?.open(r)});
-operations = actionPanel({resources,getState:()=>state,getActor:actor,action,notify,openTool:name=>shell?.openTool(name),openCategory:category=>orbit?.open(resourceView(state,actor()).find(r=>r.id==='action'),category)});
+inventory = inventoryPanel({action,getState:()=>state,getActor:actor,notify,openTool:name=>shell?.openTool(name),recordItem:({item,use,scope})=>manualRecords?.prepare({label:`物品交互：${item.name}`,note:`${scope==='party'?'团队':'个人'}背包；${use.label}；${use.notes||''}。请补充实际交互与裁定依据。本记录不自动扣库存。`})});
+operations = actionPanel({resources,getState:()=>state,getActor:actor,action,notify,openTool:name=>shell?.openTool(name),openCategory:category=>orbit?.open(resourceView(state,actor()).find(r=>r.id==='action'),category),openItem:point=>inventory.openInteraction(point)});
 orbit = resourceOrbit({resources,operations,getState:()=>state,getActor:actor,openTool:name=>shell?.openTool(name)});
+manualRecords = manualRecordPanel({action,getState:()=>state,getActor:actor,notify});
 shell = initShell();
 files = filesPanel({api, apply:applyResult, notify, getState:()=>state, canEdit:canSwitch});
 sharing = sharingPanel({ api, notify, getState: () => state });
-platform = createPlatformShell({ login: $('login'), table: $('table'),
-  canNavigate: page => {
-    if (page === 'battle' && !state) { notify('请先在首页选择DM或Player身份。', true); return false; }
-    return platform?.page === page || canSwitch();
-  },
-  onVisibilityChange: visible => { board?.setVisible(visible); shell?.setVisible(visible); dialogue?.setVisible(platform?.page === 'dialogue'); },
-  onLogout: () => { logoutSession().catch(error => { if (!error.cancelled) notify(error.message, true); }); }
-});
-const dialogueHost = platform.root.querySelector('[data-platform-view="dialogue"]');
-dialogueHost.replaceChildren();
-dialogue = createDialogueWorkspace(dialogueHost);
-dialogue.setVisible(false);
-shell.setVisible(false);
-updatePlatform();
 async function boot() {
   $('enter-dm').disabled = true; $('login-form').querySelector('button').disabled = true;
   try {

@@ -1,4 +1,3 @@
-import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -38,7 +37,7 @@ async function groundClick(x, z) {
   await page.mouse.click(point.x, point.y);
 }
 try {
-  await page.goto(app.url); await page.locator('#enter-dm').click(); await enterBattle(page);await page.locator('canvas[data-ready=true]').waitFor();
+  await page.goto(app.url); await page.locator('#enter-dm').click(); await page.locator('canvas[data-ready=true]').waitFor();
   await page.locator('#campaign-select option').first().waitFor({ state: 'attached' });
   const first = app.workspace.selection; checks.push('免口令DM入口与步骤引导');
   await tool('setup');
@@ -77,10 +76,10 @@ try {
   await page.locator('#place-x').fill('22.5'); await page.locator('#place-z').fill('22.5'); await page.locator('#place-y').fill('0'); await changed(() => page.locator('#place-actor').click());
   checks.push('点击摆放棋子与脚底高度设置');
   const playerPage = await context.newPage(); playerPage.on('pageerror', e => errors.push(e.message));
-  await playerPage.goto(app.url); await playerPage.locator('#identity').fill('player-1'); await playerPage.locator('#login-form button').click(); await enterBattle(playerPage);await playerPage.locator('canvas[data-ready=true]').waitFor();
+  await playerPage.goto(app.url); await playerPage.locator('#identity').fill('player-1'); await playerPage.locator('#login-form button').click(); await playerPage.locator('canvas[data-ready=true]').waitFor();
   assert.equal(await playerPage.locator('canvas').getAttribute('data-object-count'), '5');
   assert(!(await playerPage.content()).includes('HIDDEN_PROP_CANARY')); await playerPage.close();
-  await page.reload(); await enterBattle(page);await page.locator('canvas[data-ready=true]').waitFor();
+  await page.reload(); await page.locator('canvas[data-ready=true]').waitFor();
   assert.equal(app.store.state.board.width, 120); assert.equal(await page.locator('canvas').getAttribute('data-object-count'), '6');
   checks.push('隐藏地形不进玩家页面，重载保留盘面和地形');
   await tool('terrain');

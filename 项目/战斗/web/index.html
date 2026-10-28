@@ -1,14 +1,14 @@
 <!doctype html>
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#f5f6fa"><title>战局 · D&D 2024 跑团平台</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/platform-shell.css"><link rel="stylesheet" href="/dialogue-workspace.css"></head>
+<meta name="theme-color" content="#101c27"><title>战局 · 本地战斗桌</title><link rel="stylesheet" href="/style.css"></head>
 <body>
 <section id="login" class="login-screen">
   <div class="login-card"><div class="eyebrow">D&D 2024 · 本地跑团</div><h1>战局<span>你的冒险，从这里继续</span></h1>
   <p class="muted">一张棋盘，一份本地进度。<br>选择身份，回到你的视角。</p>
-  <button id="enter-dm" class="primary" type="button" disabled>我是DM · 布置与主持 <span>→</span></button>
+  <button id="enter-dm" class="primary" type="button">我是DM · 布置与主持 <span>→</span></button>
   <form id="login-form"><label>玩家名字 / ID<input id="identity" name="identity" autocomplete="username" placeholder="角色名或 player-1" required></label>
-  <button type="submit" disabled>进入玩家视角 <span>→</span></button></form>
+  <button type="submit">进入玩家视角 <span>→</span></button></form>
   <p class="fine" data-local-only>DM无需凭据。这里是同一台电脑上的主持/玩家视角选择。</p>
   <p class="fine">正式进度保存在电脑文件中，玩家视角仍只显示公开信息和自己的状态。</p></div>
   <div class="login-art" aria-hidden="true"><div class="art-grid"></div><div class="art-piece"></div><div class="art-caption">5 FT / 1 FT<br>YOUR NEXT MOVE</div></div>
@@ -143,7 +143,7 @@
 <dialog id="help-dialog" class="tool-dialog " aria-labelledby="help-dialog-title" data-dialog="help">
   <header class="dialog-heading"><div><span class="eyebrow">战局工具</span><h2 id="help-dialog-title">怎样开始与操作</h2></div><button type="button" class="icon-button" data-close-tool aria-label="关闭怎样开始与操作">×</button></header>
   <div class="dialog-body"><section class="flow-guide"><strong id="flow-title"></strong><p id="flow-text"></p><button id="go-setup" type="button" class="quiet" data-tool="setup" data-dm-only>前往战前布置</button></section>
-<h3>资源与操作</h3><p>宽屏在棋盘下方查看刻度条、资源图标和操作格，小屏点“行动与掷骰”。点资源打开玻璃球分类树，拖动或滚轮旋转，点击图标逐层选择，Esc返回。操作格可拖动排序；资源与界面设置可配色、导入透明图标、拖动球内图文，以及登记本角色资源/法术/特性。</p><p class="fine">具体规则以2024为准。特殊效果由主持确认，组合费用与结果由本地程序一起校验并保存；浏览和取消不扣资源。</p><h3>棋盘操作</h3><dl class="control-list"><dt>选择棋子</dt><dd>单击棋子或上方角色卡</dd><dt>摆放 / 移动</dt><dd>拖动棋子；战前由 DM 摆放，战斗中移动会计算距离</dd><dt>旋转</dt><dd>拖动空地；Q / E 或 ← / →</dd><dt>平移</dt><dd>右拖或 Shift + 左拖；W / A / S / D</dd><dt>缩放</dt><dd>滚轮或 + / −</dd><dt>倾角 / 复位</dt><dd>R / F 或 ↑ / ↓；0 复位</dd><dt>取消拖动</dt><dd>Esc，或在松手前切出窗口</dd></dl>
+<h3>资源与操作</h3><p>宽屏右侧有两栏：左栏放生命条与资源，右栏按类别列出操作；各栏顶部箭头可分别收起和展开。小屏点“行动与掷骰”，用顶部按钮定位两栏。法术位、移动及职业资源只显示图标。点资源打开玻璃球分类树，拖动或滚轮旋转，点击图标逐层选择，Esc返回。同类操作格可拖动排序；资源与界面设置可配色、导入透明图标、拖动球内图文，以及登记本角色资源/法术/特性。</p><p class="fine">具体规则以2024为准。特殊效果由主持确认，组合费用与结果由本地程序一起校验并保存；浏览和取消不扣资源。</p><h3>棋盘操作</h3><dl class="control-list"><dt>选择棋子</dt><dd>单击棋子或上方角色卡</dd><dt>摆放 / 移动</dt><dd>拖动棋子；战前由 DM 摆放，战斗中移动会计算距离</dd><dt>旋转</dt><dd>拖动空地；Q / E 或 ← / →</dd><dt>平移</dt><dd>右拖或 Shift + 左拖；W / A / S / D</dd><dt>缩放</dt><dd>滚轮或 + / −</dd><dt>倾角 / 复位</dt><dd>R / F 或 ↑ / ↓；0 复位</dd><dt>取消拖动</dt><dd>Esc，或在松手前切出窗口</dd></dl>
 <div class="legend"><span class="legend-front"></span>金色面是正面 <span class="legend-back"></span>深色面是背面 <span class="legend-space"></span>地面线框是规则占地</div><p class="fine">高差、楼梯通行、掩护、视线、复杂法术和荒野形态仍请 DM 裁定。成功的操作自动保存在主持电脑的文件中；尚未提交的表单不属于已保存进度。</p></div>
 </dialog>
 <dialog id="files-dialog" class="tool-dialog" data-dialog="files" aria-labelledby="files-title"><header class="dialog-heading"><h2 id="files-title">本地JSON文件</h2><button type="button" class="icon-button" data-close-tool aria-label="关闭本地文件">×</button></header><div class="dialog-body" id="files-content"></div></dialog>

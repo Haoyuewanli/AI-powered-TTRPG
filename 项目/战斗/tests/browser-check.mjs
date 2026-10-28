@@ -1,4 +1,3 @@
-import { enterBattle } from './browser-platform.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -30,7 +29,7 @@ const camera = async page => JSON.parse(await page.locator('canvas').getAttribut
 const settle = async page => { await page.waitForTimeout(150); await page.locator('canvas[data-settled="true"]').waitFor({ timeout: 20000 }); };
 async function login(page, id) {
   await page.goto(app.url); await page.locator('#identity').fill(id);
-  await page.locator('#login-form button').click(); await enterBattle(page);await page.locator('canvas[data-ready="true"]').waitFor(); await settle(page);
+  await page.locator('#login-form button').click(); await page.locator('canvas[data-ready="true"]').waitFor(); await settle(page);
 }
 async function tool(page, name) {
   if (await page.locator('dialog[open]').count()) await page.keyboard.press('Escape');
@@ -107,7 +106,7 @@ try {
   assert.equal(saved.combat.attacksUsed, 1); check('玩家攻击由本地结算并写入正式文件');
   await page.locator('.session-menu > summary').click(); await page.locator('#refresh').click(); await page.locator('.session-menu > summary').click();
   if (await page.locator('dialog[open]').count()) await page.keyboard.press('Escape');
-  await page.locator('#reset-camera').click(); await page.locator('#table .session-title').click(); await settle(page);
+  await page.locator('#reset-camera').click(); await page.mouse.click(20, 100); await settle(page);
   await page.screenshot({ path: join(output, '战斗桌-DM.png'), fullPage: true });
   await playerPage.screenshot({ path: join(output, '战斗桌-玩家.png'), fullPage: true });
   await tool(page, 'exchange'); await page.locator('#export-handoff').click();
@@ -125,7 +124,7 @@ try {
   await page.keyboard.press('Escape'); await page.locator('.session-menu > summary').click();
   await page.locator('#logout').click(); await page.locator('#login').waitFor();
   assert(!(await page.content()).includes('DM_ONLY_CANARY')); check('退出DM清理页面中的私密文本');
-  await playerPage.reload(); await enterBattle(playerPage);await playerPage.locator('canvas[data-ready="true"]').waitFor(); check('刷新重载本地已保存进度');
+  await playerPage.reload(); await playerPage.locator('canvas[data-ready="true"]').waitFor(); check('刷新重载本地已保存进度');
   await playerPage.setViewportSize({ width: 780, height: 1000 }); await settle(playerPage);
   assert(await playerPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await playerPage.screenshot({ path: join(output, '战斗桌-窄屏.png'), fullPage: true }); check('窄屏无横向溢出');

@@ -17,14 +17,6 @@ test('HTTP permissions, filtered state, handoff, stale proposals, static allowli
         ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(origin ? { Origin: origin } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}) });
     assert.equal((await request('/api/state')).status, 401);
-    const health = await (await request('/health')).json();
-    assert.equal(health.capabilities.platformShell, 1);
-    assert.equal(health.capabilities.moduleCovers, 1);
-    for (const path of ['/platform-shell.mjs', '/platform-shell.css', '/dialogue-workspace.mjs', '/dialogue-workspace.css']) {
-      const response = await request(path);
-      assert.equal(response.status, 200);
-      assert((await response.text()).length > 0);
-    }
     assert.equal((await request('/api/login', { id: 'unknown-player' })).status, 401);
     const player = await (await request('/api/login', { id: 'player-1' })).json();
     const visible = await (await request('/api/state', null, player.token)).text();

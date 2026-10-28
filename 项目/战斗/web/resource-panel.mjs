@@ -2,9 +2,10 @@ import {resourceView} from '/resources.mjs';
 import {el,resourceIcon,glassContents,DEFAULT_LAYOUT} from '/resource-icons.mjs';
 const $=id=>document.getElementById(id);
 export function resourcePanel({api,action,getState,getActor,notify,openTool,onResource=()=>{}}) {
-  const root=el('section','','resource-section');root.id='resource-section';root.setAttribute('aria-label','资源与操作');
+  const root=el('section','','resource-section');root.id='resource-section';root.setAttribute('aria-label','角色资源');
   const heading=el('div','','resource-heading'),settings=el('button','资源与界面设置');settings.type='button';settings.id='resource-settings';
   heading.append(el('h3','资源'),settings);const row=el('div','','resource-row');row.id='resource-row';root.append(heading,row);$('actor-info').after(root);
+  const testNotes=el('details','','fine');testNotes.id='class-test-notes';root.append(testNotes);
   const dialog=el('dialog','','tool-dialog');dialog.id='resource-settings-dialog';dialog.dataset.dialog='resource-settings';dialog.setAttribute('aria-label','资源与界面设置');
   dialog.innerHTML=`<header class="dialog-heading"><h2>资源与界面设置</h2><button type="button" class="icon-button" data-close-tool aria-label="关闭资源设置">×</button></header><div class="dialog-body">
   <p class="fine">外观和操作格顺序保存到主持电脑的界面设置文件，按团与身份分开。资源数值属于本场角色资料。</p>
@@ -20,8 +21,14 @@ export function resourcePanel({api,action,getState,getActor,notify,openTool,onRe
   const safe=fn=>async e=>{e?.preventDefault();try{await fn(e);}catch(err){notify(err.message,true);}};
   function resource() {return resourceView(getState(),getActor()).find(r=>r.id===$('style-resource').value);}
   function render() {
-    const state=getState(),actor=getActor();root.hidden=!state||!actor||!('hp' in actor);if(root.hidden)return;
-    for(const bar of document.querySelectorAll('.value-row[data-resource-id]')) {const color=prefs.value.resources?.[bar.dataset.resourceId]?.color;if(color)bar.style.setProperty('--bar-color',color);}
+    const state=getState(),actor=getActor();root.hidden=!state||!actor||!('hp' in actor);
+    if(root.hidden){row.replaceChildren();testNotes.replaceChildren();testNotes.hidden=true;for(const fn of renderExtras)fn();return;}
+    const profile=actor.classTestProfile;testNotes.hidden=!profile;testNotes.replaceChildren();
+    if(profile){
+      testNotes.append(el('summary',`${profile.className}／${profile.subclassName} · 20级资源测试说明`),el('p','HP、AC和训练攻击为合成占位；须核对后开战。资源图标及扣费不代表全部职业效果已自动实现。'));
+      for(const note of profile.resourceNotes||[])testNotes.append(el('p',note));
+      testNotes.append(el('p','每回合限制、条件恢复、专注、形态及下列标记仍须主持记录；初始标记可通过本地JSON预览刷新修改。'),el('pre',JSON.stringify(profile.manualState||{},null,2)),el('p',`待补齐：${(profile.incomplete||[]).join('、')}`));
+    }
     row.replaceChildren(...resourceView(state,actor).map(r=>{
       const b=el('button','','resource-button');b.type='button';b.dataset.resourceId=r.id;b.setAttribute('aria-label',`${r.name} ${r.current}/${r.max}，打开操作分类`);b.title=`${r.name} ${r.current}/${r.max}${r.source ? ` · ${r.source}`:''}`;
       b.append(resourceIcon(r,prefs.value),el('span',r.name),el('small',`${r.current}/${r.max}`));b.addEventListener('click',()=>onResource(r));return b;
@@ -97,5 +104,5 @@ export function resourcePanel({api,action,getState,getActor,notify,openTool,onRe
   $('pool-remove').addEventListener('click',safe(async()=>{const a=getActor(),id=$('pool-choice').value;if(!id)return;await action('edit-actor',{actorId:a.id,patch:{resourcePools:(a.resourcePools||[]).filter(r=>r.id!==id)},reason:'主持移出资源资料'},dataRevision);fillPools();}));
   $('pools-apply').addEventListener('click',safe(async()=>{await action('edit-actor',{actorId:getActor().id,patch:{resourcePools:JSON.parse($('pools-json').value)},reason:'主持导入已核对资源'},dataRevision);fillPools();}));
   $('record-rest').addEventListener('click',safe(()=>action('rest',{actorId:getActor().id,kind:$('rest-kind').value,reason:$('rest-reason').value})));
-  return {update,ready:()=>loadPromise,clear(){scope='';prefs={revision:0,value:{}};draft={};row.replaceChildren();for(const id of ['pool-choice','style-resource'])$(id).replaceChildren();dialog.close();root.hidden=true;},get preferences(){return prefs.value;},save,get root(){return root;},onRender(fn){renderExtras.push(fn);}};
+  return {update,ready:()=>loadPromise,clear(){scope='';prefs={revision:0,value:{}};draft={};row.replaceChildren();testNotes.replaceChildren();testNotes.hidden=true;for(const id of ['pool-choice','style-resource'])$(id).replaceChildren();dialog.close();root.hidden=true;},get preferences(){return prefs.value;},save,get root(){return root;},onRender(fn){renderExtras.push(fn);}};
 }

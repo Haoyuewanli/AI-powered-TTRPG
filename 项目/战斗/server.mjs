@@ -8,7 +8,6 @@ import { initializeCampaign, findCampaign } from './src/campaign.mjs';
 import { projectState, handoff, RuleError, planAttack, parseDice } from './src/rules.mjs';
 import { createSharing } from './src/sharing.mjs';
 import { openPreferences } from './src/preferences.mjs';
-import { createModuleLibrary, ModuleLibraryError } from '../平台/src/module-library.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const hash = value => createHash('sha256').update(value).digest();
@@ -28,27 +27,17 @@ async function readBody(request) {
   return body;
 }
 
-export async function startApp({ campaignDir, workspaceDir, modulesDir, port = 4182, initial, persist, sharingOptions = {} } = {}) {
+export async function startApp({ campaignDir, workspaceDir, port = 4182, initial, persist, sharingOptions = {} } = {}) {
   const directory = resolve(campaignDir || await findCampaign(resolve(ROOT, '../存档')));
   const workspaceDirectory = resolve(workspaceDir || (campaignDir ? resolve(directory, '.工作区') : resolve(ROOT, '../存档')));
   const workspace = await openWorkspace({ seedDirectory: directory, workspaceDirectory,
     initial: initial || (() => initializeCampaign(directory)), persist });
   const sessions = new Map();
   const preferences = await openPreferences(join(workspaceDirectory,'界面设置.json')).catch(async e=>{await workspace.close();throw e;});
-  const moduleLibrary = createModuleLibrary({ root: resolve(modulesDir || process.env.RPG_MODULES_ROOT || resolve(ROOT, '../模组')) });
-  const modulePages = new Map([
-    ['/module-covers', [resolve(ROOT, '../平台/web/module-covers.html'), 'text/html; charset=utf-8']],
-    ['/module-covers.css', [resolve(ROOT, '../平台/web/module-covers.css'), 'text/css; charset=utf-8']],
-    ['/module-covers.mjs', [resolve(ROOT, '../平台/web/module-covers.mjs'), 'text/javascript; charset=utf-8']]
-  ]);
   const staticFiles = new Map([
-    ...modulePages,
-    ['/platform-shell.mjs', [resolve(ROOT, '../平台/web/platform-shell.mjs'), 'text/javascript; charset=utf-8']],
-    ['/platform-shell.css', [resolve(ROOT, '../平台/web/platform-shell.css'), 'text/css; charset=utf-8']],
-    ['/dialogue-workspace.mjs', [resolve(ROOT, '../平台/web/dialogue-workspace.mjs'), 'text/javascript; charset=utf-8']],
-    ['/dialogue-workspace.css', [resolve(ROOT, '../平台/web/dialogue-workspace.css'), 'text/css; charset=utf-8']],
-    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars', 'resource-panel', 'resource-icons', 'action-panel','action-icons','resource-orbit'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
-    ...['resources','rule-errors','action-catalog'].map(name => [`/${name}.mjs`, [join(ROOT,`src/${name}.mjs`),'text/javascript; charset=utf-8']]),
+    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars', 'resource-panel', 'resource-icons', 'action-panel','action-icons','resource-orbit','manual-record-panel','inventory-panel'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
+    ...['resources','rule-errors','action-catalog','inventory'].map(name => [`/${name}.mjs`, [join(ROOT,`src/${name}.mjs`),'text/javascript; charset=utf-8']]),
+    ['/data/items-2024.mjs', [join(ROOT,'data/items-2024.mjs'),'text/javascript; charset=utf-8']],
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
     ['/app.mjs', [join(ROOT, 'web/app.mjs'), 'text/javascript; charset=utf-8']],
@@ -79,7 +68,7 @@ export async function startApp({ campaignDir, workspaceDir, modulesDir, port = 4
       if (request.method === 'GET' && path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
       if (request.method === 'GET' && path === '/api/client-info') return send(200, { audience });
       if (audience === 'local' && request.method === 'GET' && path === '/health') return send(200, {
-        app: 'local-battle-v1', coreVersion: 'battle-resources-v5', capabilities: { moduleCovers: 1, platformShell: 1 }, campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
+        app: 'local-battle-v1', coreVersion: 'class-resource-tests-v8', campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
       if (audience === 'player' && request.method === 'POST' && path === '/api/join') {
         const body = await readBody(request);
         return send(200, sharing.join(body.invite));
@@ -110,22 +99,6 @@ export async function startApp({ campaignDir, workspaceDir, modulesDir, port = 4
         const principal = audience === 'player' ? sharing.principal(token) : sessions.get(token);
         if (!principal || principal.expires < Date.now()) throw new RuleError('请重新登录', 401);
         workspace.context(principal);
-        if (path === '/api/module-covers' || path === '/api/module-covers/image') {
-          if (audience !== 'local' || principal.role !== 'dm') throw new RuleError('模组封面管理仅供本机DM使用', 403);
-          try {
-            if (request.method === 'GET' && path === '/api/module-covers') return send(200, await moduleLibrary.catalog());
-            if (request.method === 'POST' && path === '/api/module-covers') return send(200, await moduleLibrary.saveCrop(await readBody(request)));
-            if (request.method === 'GET' && path === '/api/module-covers/image') {
-              const image = await moduleLibrary.readCover(new URL(request.url, origin).searchParams.get('moduleId'));
-              response.writeHead(200, { 'Content-Type': image.mime, 'Content-Length': image.bytes.length });
-              response.end(image.bytes); return;
-            }
-            throw new RuleError('模组封面接口不支持此请求', 405);
-          } catch (error) {
-            if (error instanceof ModuleLibraryError) throw new RuleError(error.message, error.status);
-            throw error;
-          }
-        }
         if (path === '/api/preferences') {
           if (request.method === 'GET') return send(200,preferences.get(principal,workspace.selection.campaignId));
           if (request.method === 'POST') return send(200,await preferences.save(principal,workspace.selection.campaignId,await readBody(request)));
@@ -172,7 +145,6 @@ export async function startApp({ campaignDir, workspaceDir, modulesDir, port = 4
         }
         throw new RuleError('接口不存在', 404);
       }
-      if (audience === 'player' && modulePages.has(path)) throw new RuleError('页面不存在', 404);
       const entry = staticFiles.get(path);
       if (request.method !== 'GET' || !entry) throw new RuleError('页面不存在', 404);
       const content = await readFile(entry[0]);

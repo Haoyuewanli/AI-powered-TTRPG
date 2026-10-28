@@ -17,7 +17,6 @@ export function filesPanel({api,apply,notify,getState,canEdit}) {
  button('打开本团文件夹',()=>call('reveal',{key:'folder'}));
  button('定位战斗JSON',()=>call('reveal',{key:'battle'}));
  button('刷新文件列表',refresh);
- button('管理模组封面',()=>{if(canEdit())window.location.assign('/module-covers');});
  button('预览并刷新本场JSON',async()=>{
   if(!canEdit())return;const result=await call('preview-battle');
   preview={operation:'reload-battle',fingerprint:result.preview.fingerprint,expectedRevision:result.preview.revision};

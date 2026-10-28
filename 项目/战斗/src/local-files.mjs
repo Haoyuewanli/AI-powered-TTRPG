@@ -33,7 +33,7 @@ export async function dataFiles(directory, store, payload={operation:'list'}, {r
   const source=await readLibrary(payload.key);
   requireRule(Array.isArray(payload.ids)&&payload.ids.length>0&&payload.ids.length<=40&&new Set(payload.ids).size===payload.ids.length,'请从资料列表选择要应用的角色');
   const actors=payload.ids.map(id=>{const a=source.value.actors.find(a=>a.id===id);requireRule(a,'资料中找不到角色');const existing=store.state.actors.find(x=>x.id===id);requireRule(existing&&existing.kind===a.kind&&existing.ownerId===a.ownerId,'角色须已在本场且归属相同；新增角色请用战前布置');return a;});
-  const fields=['name','ac','maxHp','hp','tempHp','tempHpBase','speed','initiativeBonus','attackLimit','body','space','immunities','resistances','vulnerabilities','notes','resources','resourcePools','operations','hidden','confirmed','attacks','tiePriority','appearance'];
+  const fields=['name','ac','maxHp','hp','tempHp','tempHpBase','speed','initiativeBonus','attackLimit','body','space','immunities','resistances','vulnerabilities','notes','resources','resourcePools','operations','inventory','hidden','confirmed','attacks','tiePriority','appearance'];
   const changes=actors.map(a=>{const before=store.state.actors.find(x=>x.id===a.id);return {actorId:a.id,name:a.name,fields:fields.filter(k=>Object.hasOwn(a,k)&&JSON.stringify(a[k])!==JSON.stringify(before[k])).map(k=>({field:k,before:before[k],after:a[k]}))};});
   if(op==='preview-library')return {preview:{fingerprint:source.fingerprint,revision:store.state.revision,changes}};
   requireRule(source.fingerprint===payload.fingerprint,'资料在预览后已修改，请重新刷新',409);

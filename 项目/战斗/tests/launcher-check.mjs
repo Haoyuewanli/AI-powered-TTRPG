@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:net';
-import { createServer as createHttpServer } from 'node:http';
-import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, access, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,16 +60,6 @@ try {
   const restored = await (await fetch(url + '/api/state', { headers: { Authorization: `Bearer ${token}` } })).json();
   assert.equal(restored.state.revision, 1); assert.equal(restored.state.actors[0].hp, 25);
   await stop(); token = null;
-  const hash = value => createHash('sha256').update(value.toLowerCase()).digest('hex');
-  let capabilities;
-  const oldCore = createHttpServer((request, response) => { response.setHeader('Content-Type','application/json');response.end(JSON.stringify({app:'local-battle-v1',coreVersion:'battle-resources-v5',capabilities,campaignKey:hash(directory),workspaceKey:hash(join(directory,'.工作区'))})); });
-  await new Promise(accept => oldCore.listen(port,'127.0.0.1',accept));
-  try {
-    await assert.rejects(execute(process.execPath,[launcher,...args],{windowsHide:true,timeout:5000}),/缺少模组封面管理/);assert(oldCore.listening);
-    capabilities={moduleCovers:1};
-    await assert.rejects(execute(process.execPath,[launcher,...args],{windowsHide:true,timeout:5000}),/缺少平台首页/);assert(oldCore.listening);
-  }
-  finally { await new Promise(accept => oldCore.close(accept)); }
   console.log(JSON.stringify({ windowsCmdEntryTested: process.platform === 'win32', repeatedLaunchReusesProcess: true, differentCampaignRejected: true,
-    dmShutdownReleasesLock: true, waitsForClosingLease: true, restartRestoresSavedState: true, oldCoreWithoutModuleToolsRejected: true, oldCoreWithoutPlatformRejected: true, externalRequests: 0 }));
+    dmShutdownReleasesLock: true, waitsForClosingLease: true, restartRestoresSavedState: true, externalRequests: 0 }));
 } finally { if (token) await stop().catch(() => {}); }
