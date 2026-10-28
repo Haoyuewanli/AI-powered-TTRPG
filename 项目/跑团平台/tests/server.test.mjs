@@ -23,13 +23,14 @@ test('standalone health and static files work without a battle, dependency runti
     const response = await fetch(app.url + '/health');
     const health = await response.json();
     assert.equal(health.app, 'standalone-ttrpg-platform');
-    assert.equal(health.version, 'platform-p1-v1');
-    assert.deepEqual(health.capabilities, { standalone: 1, dialogueDemo: 1 });
+    assert.equal(health.version, 'platform-design-v2');
+    assert.deepEqual(health.capabilities, { standalone: 1, dialogueDemo: 1, design: 1, appearance: 1 });
     assert.match(health.rootKey, /^[a-f0-9]{64}$/);
     assert.equal(health.pid, process.pid);
     const paths = [['/', 'text/html'], ['/app.mjs', 'text/javascript'], ['/base.css', 'text/css'],
       ['/platform-shell.mjs', 'text/javascript'], ['/platform-shell.css', 'text/css'],
-      ['/dialogue-workspace.mjs', 'text/javascript'], ['/dialogue-workspace.css', 'text/css']];
+      ['/dialogue-workspace.mjs', 'text/javascript'], ['/dialogue-workspace.css', 'text/css'],
+      ['/design-workspace.mjs', 'text/javascript'], ['/design-workspace.css', 'text/css']];
     for (const [path, mime] of paths) {
       const file = await fetch(app.url + path);
       assert.equal(file.status, 200, path);

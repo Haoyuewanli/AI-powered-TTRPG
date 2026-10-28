@@ -91,8 +91,8 @@ try {
   }
   await nav('dialogue');
   assert((await view('dialogue').locator('.platform-demo-boundary').textContent()).includes('不代表已发放资料'));
-  assert.equal(requests.filter(request => new URL(request.url).pathname.startsWith('/api/')).length, 0);
-  check('地图/对话/战斗始终保留未选模组空态，对话仅公共演示，没有旧目录或私有API请求');
+  assert(requests.filter(request => new URL(request.url).pathname.startsWith('/api/')).every(request => new URL(request.url).pathname === '/api/appearance'));
+  check('地图/对话/战斗正式上下文保留未选模组，设计内容为公共示例；除外观设置外没有业务API请求');
 
   assert.equal(await page.locator('.dialogue-message').count(), 5);
   const allTabs = ['chat', 'resource-characters', 'resource-creatures', 'map-overland', 'map-building'];
@@ -148,7 +148,7 @@ try {
   for (const size of [{ width: 1920, height: 1080 }, { width: 1366, height: 768 }, { width: 1024, height: 600 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
     await page.setViewportSize(size); await nav('home');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-    assert(await page.locator('.platform-nav').isVisible());
+    assert(await page.locator('[aria-label="平台导航"]').isVisible());
     await nav('dialogue'); await layout('grid');
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     if (size.width < 760) {
