@@ -36,6 +36,7 @@ export function newBattleState(campaignId, battleId, title, template) {
     formatVersion: 2, rulesVersion: 'dnd2024-basic-v1', campaignId, battleId, revision: 0, title,
     board: template ? structuredClone(template.board) : { width: 100, depth: 80, major: 5, minor: 1, terrain: 'open-flat', extended: true, baseEnabled: true },
     actors: template ? structuredClone(template.actors) : [blankActor()],
+    ...(template?.partyInventory === undefined ? {} : { partyInventory: structuredClone(template.partyInventory) }),
     objects: structuredClone(template?.objects || []), diceMode: template?.diceMode || 'program',
     combat: freshCombat(), events: [], appliedIds: [], undoStack: []
   };

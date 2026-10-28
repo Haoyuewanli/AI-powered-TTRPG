@@ -17,6 +17,7 @@ export function resourceOrbit({resources,operations,getState,getActor,openTool})
   function matches(o,r) {
     if(o.mode==='navigate')return false;
     if(r.id==='movement')return o.category==='movement';
+    if(o.mode==='item')return (o.itemResourceIds||[]).some(id=>id===r.id||r.id==='action'&&id==='attack');
     if(['slots','pact'].includes(r.kind))return o.category==='spells' && needsSlot(o,getActor()) && eligibleSlots(getActor(),o).some(s=>s.id===r.id) || o.costs.some(c=>c.resourceId===r.id);
     if(r.id==='action')return o.costs.some(c=>['action','attack'].includes(c.resourceId));
     return o.costs.some(c=>c.resourceId===r.id);

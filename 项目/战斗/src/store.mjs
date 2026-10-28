@@ -94,7 +94,7 @@ export async function openStore(directory, initial, { persist = atomicJson, migr
       try{candidate=JSON.parse(current.raw.replace(/^\uFEFF/,''));}catch{throw new RuleError('战斗状态.json不是有效JSON；原文件已保留，请修正格式后刷新。');}
       const checked=executeAction(state,{campaignId:state.campaignId,battleId:state.battleId,actionId:randomUUID(),expectedRevision:state.revision,type:'reload-file',payload:{state:candidate}},{role:'dm',id:'DM'});
       return {fingerprint:current.fingerprint,revision:state.revision,changed:current.fingerprint!==savedFingerprint,
-        changes:['title','actors','board','combat','objects','diceMode','initiativeCollection'].filter(k=>JSON.stringify(state[k])!==JSON.stringify(checked[k])).map(key=>({field:key,before:state[key],after:checked[key]}))};
+        changes:['title','actors','board','combat','objects','diceMode','initiativeCollection','partyInventory'].filter(k=>JSON.stringify(state[k])!==JSON.stringify(checked[k])).map(key=>({field:key,before:state[key],after:checked[key]}))};
     },
     reloadFile({fingerprint,expectedRevision}) {return transact(async()=>{
       if(expectedRevision!==state.revision) throw new RuleError('局面已更新，请重新预览文件差异',409);

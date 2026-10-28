@@ -54,5 +54,5 @@ export function manualRecordPanel({action,getState,getActor,notify}) {
     if(s.diceMode==='physical'&&$('general-roll-source').value==='program'){$('general-roll-source').value='physical-dice';rollSource();}
     if(previewed&&previewed.revision!==s.revision)invalidate('局面已更新，请重新预览记录。');
   }
-  return {render,clear(){context='';previewed=null;root.open=false;$('record-target').replaceChildren();$('record-rolls').replaceChildren();$('record-preview-json').value='';$('record-preview-json').hidden=true;$('general-roll-result').textContent='';}};
+  return {render,prepare({label,note}){render();root.open=true;$('record-mode').value='record-only';$('record-label').value=label.slice(0,80);$('record-note').value=note.slice(0,2000);mode();invalidate();root.scrollIntoView({block:'center'});},clear(){context='';previewed=null;root.open=false;$('record-target').replaceChildren();$('record-rolls').replaceChildren();$('record-preview-json').value='';$('record-preview-json').hidden=true;$('general-roll-result').textContent='';}};
 }

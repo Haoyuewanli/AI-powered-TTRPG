@@ -19,7 +19,7 @@ test('2024 shove spends one attack, leaves extra attack; jump never spends bonus
   const n=executeAction(s,command(s,'use-operation',{actorId:'pc-001',operationId:'common:shove',targetId:'npc-001',reason:'力量豁免成功，无位移'}),dm);assert.equal(n.combat.attacksUsed,1);assert.equal(n.actors[0].economy.bonusUsed,false);
   assert.equal(executeAction(n,command(n,'attack',{actorId:'pc-001',targetId:'npc-001',attackId:'sword'}),dm,{draw:()=>1}).combat.attacksUsed,2);
   const j=executeAction(s,command(s,'use-operation',{actorId:'pc-001',operationId:'common:jump',movementCost:10,reason:'核对助跑与跳远距离'}),dm);assert.equal(j.combat.moved,10);assert.equal(j.combat.action,'none');assert.equal(j.actors[0].economy.bonusUsed,false);
-  assert.throws(()=>executeAction(s,command(s,'use-operation',{actorId:'pc-001',operationId:'common:dip',reason:'蘸火'}),dm),/登记资料/);
+  assert.throws(()=>executeAction(s,command(s,'use-operation',{actorId:'pc-001',operationId:'common:dip',reason:'蘸火'}),dm),/物品|用途/);
 });
 test('catalog, validation and handoff share stable operation definitions without enemy leakage',()=>{
   const s=initial(),o=actionCatalog(s.actors[0]).find(o=>o.id==='custom:heal');assert.equal(operationProblem(s,s.actors[0],o),'');s.actors[0].resourcePools[0].current=0;assert.match(operationProblem(s,s.actors[0],o),/不足/);const packet=handoff(s,player);assert.equal(packet.operationCatalog.length,1);assert.equal(packet.operationCatalog[0].operations.some(o=>o.id==='common:study'),true);s.actors[0].operations[0].costs.push({resourceId:'unknown',amount:1});assert.throws(()=>validateState(s),/不存在/);

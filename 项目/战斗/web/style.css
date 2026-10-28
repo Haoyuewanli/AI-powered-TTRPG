@@ -403,3 +403,10 @@ legend { color: var(--gold); padding: 0 5px; font-size: 12px; }
   #operations-panel { margin-top:12px; }
   #operations-panel .category-grid { grid-template-columns:repeat(auto-fill,minmax(82px,1fr)); }
 }
+.inventory-list { max-height:42vh; overflow:auto; margin:12px 0; border:1px solid var(--line); border-radius:10px; }
+.inventory-item { padding:10px 12px; border-bottom:1px solid var(--line); }
+.inventory-item:last-child { border-bottom:0; }
+.inventory-item summary { cursor:pointer; font-weight:600; }
+.inventory-item p { overflow-wrap:anywhere; }
+#inventory-editor { border-top:1px solid var(--line); padding-top:12px; }
+#inventory-json,#item-result-json,#item-manual-costs,#item-proposal { font-family:ui-monospace,Consolas,monospace; }

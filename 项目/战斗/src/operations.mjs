@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { distanceBetween, overlaps, objectBounds, pathMeetsObject } from './geometry.mjs';
 import { validateResources, beginTurn, recoverResources, spendResources, costProblem } from './resources.mjs';
 import { validateOperations, actionCatalog, operationCosts } from './action-catalog.mjs';
+import { validateInventory, getItem, getItemUse, inventoryChoices, consumeInventory } from './inventory.mjs';
 
 import { RuleError, requireRule, integer } from './rule-errors.mjs';
 export { RuleError, requireRule, integer } from './rule-errors.mjs';
@@ -89,6 +90,7 @@ export function validateActor(actor, board) {
   requireRule(actor && typeof actor === 'object' && actor.body && actor.space && actor.position, '角色缺少body、space或position对象');
   validateResources(actor);
   validateOperations(actor);
+  validateInventory(actor.inventory, '角色个人背包');
   validateAppearance(actor.appearance);
   requireRule(typeof actor.id === 'string' && /^[a-zA-Z0-9_-]{1,60}$/.test(actor.id), '棋子ID无效');
   requireRule(['pc', 'npc'].includes(actor.kind), '角色类型无效');
@@ -178,6 +180,7 @@ export function validateState(state) {
     requireRule(Array.isArray(state.objects) && state.objects.length <= 2000, '地形列表无效（最多2000件）');
   }
   requireRule(Array.isArray(state.actors) && state.actors.length > 0 && state.actors.length <= 40, '参与者数量无效');
+  validateInventory(state.partyInventory, '团队背包');
   requireRule((state.board.extended === undefined || typeof state.board.extended === 'boolean') && (state.board.baseEnabled === undefined || typeof state.board.baseEnabled === 'boolean'), '盘面开关无效');
   integer(state.board.width, 20, 300, '棋盘宽'); integer(state.board.depth, 20, 300, '棋盘深');
   requireRule(state.board.major === 5 && state.board.minor === 1 && ['open-flat', 'geometry'].includes(state.board.terrain), '仅支持5尺大格、1尺小格的本地几何棋盘');
@@ -210,7 +213,7 @@ export function validateState(state) {
 
 const editable = ['name', 'ac', 'maxHp', 'hp', 'tempHp', 'speed', 'initiativeBonus', 'attackLimit',
   'body', 'space', 'position', 'facing', 'immunities', 'resistances', 'vulnerabilities',
-  'notes', 'resources', 'hidden', 'confirmed', 'attacks', 'tiePriority', 'appearance', 'resourcePools', 'tempHpBase', 'operations'];
+  'notes', 'resources', 'hidden', 'confirmed', 'attacks', 'tiePriority', 'appearance', 'resourcePools', 'tempHpBase', 'operations', 'inventory'];
 const getActor = (state, id) => {
   const actor = state.actors.find(a => a.id === id);
   requireRule(actor, '棋子不存在或不可见', 404);
@@ -244,7 +247,7 @@ export function planAttack(state, payload, principal) {
   return { actor, target, attack, mode };
 }
 
-const domainKeys = ['title', 'actors', 'board', 'combat', 'objects', 'diceMode', 'initiativeCollection'];
+const domainKeys = ['title', 'actors', 'board', 'combat', 'objects', 'diceMode', 'initiativeCollection', 'partyInventory'];
 function snapshot(state) { return Object.fromEntries(domainKeys.filter(key => state[key] !== undefined).map(key => [key, structuredClone(state[key])])); }
 const initiativeInputs = state => JSON.stringify({ diceMode: state.diceMode || 'program', actors: state.actors.map(actor =>
   [actor.id, actor.initiativeBonus, actor.confirmed, actor.hp > 0]).sort((a, b) => a[0].localeCompare(b[0])) });
@@ -297,7 +300,7 @@ function applyManualRecord(state, actor, target, application) {
   requireRule(Object.keys(application).length > 0, '应用模式须填写明确的数值结果或费用');
   requireRule(!Object.hasOwn(application, 'finalHp') || !Object.hasOwn(application, 'damage') && !Object.hasOwn(application, 'heal'), '最终HP不能与伤害或治疗同时填写，避免重复结算');
   const costs = application.costs ?? [];
-  requireRule(Array.isArray(costs) && costs.length <= 20 && costs.every(cost => record(cost) && typeof cost.resourceId === 'string' && /^[\w-]{1,60}$/.test(cost.resourceId) && Number.isInteger(cost.amount) && cost.amount > 0 && cost.amount <= 1000), '人工应用的费用格式无效');
+  requireRule(Array.isArray(costs) && costs.length <= 20 && costs.every(cost => record(cost) && Object.keys(cost).every(key => ['resourceId', 'amount'].includes(key)) && typeof cost.resourceId === 'string' && /^[\w-]{1,60}$/.test(cost.resourceId) && Number.isInteger(cost.amount) && cost.amount > 0 && cost.amount <= 1000), '人工应用的费用格式无效');
   requireRule(!costs.length || actor, '扣除费用须指定行动者actorId，不能从目标扣除');
   const hasTargetEffect = ['heal', 'damage', 'finalHp', 'temporaryHp', 'finalTempHp'].some(key => Object.hasOwn(application, key));
   requireRule(!hasTargetEffect || target, '应用数值结果须指定行动者或目标');
@@ -305,7 +308,7 @@ function applyManualRecord(state, actor, target, application) {
   if (application.replaceTemporaryHp !== undefined) {
     requireRule(typeof application.replaceTemporaryHp === 'boolean' && Object.hasOwn(application, 'temporaryHp'), '替换临时生命须同时填写临时生命数值');
   }
-  if (application.damage !== undefined) requireRule(Array.isArray(application.damage) && application.damage.length <= 20 && application.damage.every(item => record(item) && DAMAGE_TYPES.includes(item.type) && Number.isInteger(item.amount) && item.amount >= 0 && item.amount <= 100000), '伤害须为减免前的分类数值数组');
+  if (application.damage !== undefined) requireRule(Array.isArray(application.damage) && application.damage.length <= 20 && application.damage.every(item => record(item) && Object.keys(item).every(key => ['type', 'amount'].includes(key)) && DAMAGE_TYPES.includes(item.type) && Number.isInteger(item.amount) && item.amount >= 0 && item.amount <= 100000), '伤害须为减免前的分类数值数组');
   if (application.heal !== undefined) integer(application.heal, 0, 10000, '治疗');
   if (application.finalHp !== undefined) integer(application.finalHp, 0, target.maxHp, '最终HP');
   if (application.temporaryHp !== undefined) integer(application.temporaryHp, 0, 10000, '临时生命');
@@ -336,6 +339,91 @@ export function executeAction(original, command, principal, { draw = die, id = r
   const payload = command.payload || {};
   let publicText = '', dmText = '', rolls = [], eventExtra = {};
   switch (command.type) {
+    case 'edit-inventory': {
+      dmOnly(principal);
+      recordFields(payload, ['scope', 'actorId', 'inventory', 'reason'], '背包编辑');
+      requireRule(['personal', 'party'].includes(payload.scope), '请选择个人或团队背包');
+      const reason = recordText(payload.reason, '背包调整依据', 2);
+      requireRule(Array.isArray(payload.inventory), '新背包须为库存数组');
+      validateInventory(payload.inventory, payload.scope === 'personal' ? '个人背包' : '团队背包');
+      const actor = payload.actorId === undefined ? null : getActor(state, payload.actorId);
+      requireRule(payload.scope !== 'personal' || actor, '编辑个人背包须指定角色');
+      const before = structuredClone(payload.scope === 'party' ? state.partyInventory ?? [] : actor.inventory ?? []);
+      const next = structuredClone(payload.inventory);
+      if (payload.scope === 'party') state.partyInventory = next; else actor.inventory = next;
+      eventExtra = { inventoryEdit: { scope: payload.scope, actorId: actor?.id ?? null, reason, before, after: structuredClone(next) } };
+      dmText = `DM调整${payload.scope === 'party' ? '团队' : actor.name + '的个人'}背包；${reason}`;
+      break;
+    }
+    case 'use-item': {
+      recordFields(payload, ['actorId', 'targetId', 'scope', 'stackId', 'useId', 'partyAccessible', 'reason', 'result', 'manualRolls', 'rollOrigin', 'manualCosts', 'publicNote'], '物品使用');
+      const actor = getActor(state, payload.actorId); owned(actor, principal);
+      const target = payload.targetId === undefined ? actor : getActor(state, payload.targetId);
+      requireRule(principal.role === 'dm' || !target.hidden || target.ownerId === principal.id, '目标不存在或不可见', 404);
+      requireRule(['personal', 'party'].includes(payload.scope), '物品须来自个人或团队背包');
+      requireRule(typeof payload.stackId === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(payload.stackId) && typeof payload.useId === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(payload.useId), '库存条目或用途ID无效');
+      if (payload.partyAccessible !== undefined) requireRule(typeof payload.partyAccessible === 'boolean', '团队物品可触及确认须为布尔值');
+      if (payload.scope === 'party') {
+        dmOnly(principal); requireRule(payload.partyAccessible === true, '请DM确认团队物品在本场可取用并且可触及');
+      }
+      const inventory = payload.scope === 'party' ? state.partyInventory : actor.inventory;
+      validateInventory(inventory, payload.scope === 'party' ? '团队背包' : '个人背包');
+      const stack = inventory?.find(entry => entry.id === payload.stackId); requireRule(stack, '物品不在所选背包中');
+      const item = getItem(stack.itemId), use = getItemUse(item, payload.useId); requireRule(use, '所选物品没有这个用途');
+      requireRule(use.mode !== 'reference', '此用途仅供查看来源，须先由主持登记具体规则或手工记录');
+      const choice = inventoryChoices(state, actor, 'all', {includeUnavailable: false}).find(entry => entry.scope === payload.scope && entry.stackId === stack.id && entry.useId === use.id);
+      requireRule(choice?.canConsume, choice?.reason || '物品库存不足或用途不可用');
+      const reason = recordText(payload.reason, '物品使用依据'), inCombat = state.combat.phase === 'active';
+      publicText = recordText(payload.publicNote, '公开说明');
+      const manualTiming = use.timing === 'manual';
+      let requestedCosts;
+      if (manualTiming) {
+        dmOnly(principal); requireRule(Array.isArray(payload.manualCosts), '此用途须由DM明确填写manualCosts数组，可填空数组表示已核对无需本次扣费');
+        requestedCosts = structuredClone(payload.manualCosts);
+      } else {
+        requireRule(['action', 'bonus', 'attack'].includes(use.timing), '物品用途费用未受支持，请由主持记录');
+        requireRule(payload.manualCosts === undefined || Array.isArray(payload.manualCosts) && payload.manualCosts.length === 0, '此用途费用由目录决定，不能另叠入口或手工费用');
+        requestedCosts = [{resourceId: use.timing, amount: 1}];
+      }
+      requireRule(requestedCosts.length <= 20 && requestedCosts.every(cost => record(cost) && Object.keys(cost).every(key => ['resourceId', 'amount'].includes(key)) && typeof cost.resourceId === 'string' && /^[\w-]{1,60}$/.test(cost.resourceId) && Number.isInteger(cost.amount) && cost.amount > 0 && cost.amount <= 1000), '物品手工费用格式无效');
+      if (manualTiming || use.mode === 'adjudicate' || !inCombat) {
+        dmOnly(principal); requireRule(reason.length >= 2, '请DM填写已核对使用条件、时长或结果的依据');
+      }
+      if (!inCombat && manualTiming) requireRule(requestedCosts.length === 0, '非战斗中的手工用途仅接受空费用；特定资源变化请另行记录');
+      const result = payload.result ?? {};
+      recordFields(result, ['heal', 'damage', 'finalHp', 'temporaryHp', 'finalTempHp', 'replaceTemporaryHp'], '物品裁定结果');
+      if (use.mode === 'automatic-heal') {
+        requireRule(Object.keys(result).length === 0, '治疗药水的治疗量由目录和骰点决定，不能另填结果');
+        requireRule(target.id !== actor.id || use.allowSelf === true, '此物品用途不能对自己使用');
+        if (target.id !== actor.id) requireRule((actor.position.y || 0) === (target.position.y || 0) && distanceBetween(actor, target) <= use.rangeFeet, '喂药目标须在同高5尺内；高差或特殊触及请主持另行裁定');
+        requireRule(state.diceMode !== 'physical' || payload.manualRolls !== undefined, '本场线下骰模式请录入治疗药水原始骰点，不会代掷');
+      } else {
+        requireRule(use.mode === 'adjudicate', '物品用途执行方式无效');
+        requireRule(payload.manualRolls === undefined && payload.rollOrigin === undefined, '此用途的外部骰点请通过主持手工记录渠道登记');
+      }
+      const chargedCosts = inCombat ? requestedCosts : [];
+      const before = { ...applicationSnapshot(state, actor, target, chargedCosts), inventory: {scope: payload.scope, stack: structuredClone(stack)} };
+      if (inCombat) spendResources(state, actor, chargedCosts);
+      let effect = null;
+      if (use.mode === 'automatic-heal') {
+        const roll = rollDice(use.formula, { values: payload.manualRolls, origin: payload.manualRolls === undefined ? payload.rollOrigin : payload.rollOrigin ?? 'physical-dice', draw });
+        requireRule(roll.total >= 0, '治疗公式不能产生负治疗量');
+        rolls = [roll]; const previousHp = target.hp; target.hp = Math.min(target.maxHp, target.hp + roll.total);
+        effect = {healing: roll.total, restored: target.hp - previousHp};
+      } else if (Object.keys(result).length) effect = applyManualRecord(state, actor, target, result);
+      const consumption = Object.keys(use.consume).length ? consumeInventory(state, actor, {scope: payload.scope, stackId: stack.id, ...use.consume}) : null;
+      const after = { ...applicationSnapshot(state, actor, target, chargedCosts), inventory: {scope: payload.scope, stack: structuredClone(stack)} };
+      eventExtra = { itemUse: { actorId: actor.id, targetId: target.id, scope: payload.scope, stackId: stack.id, itemId: item.id, itemName: item.name,
+        useId: use.id, useName: use.label, timing: use.timing, mode: use.mode, reason, partyAccessible: payload.scope === 'party',
+        inCombat, requestedCosts, chargedCosts, consume: structuredClone(use.consume), consumption,
+        ...(use.durationMinutes === undefined ? {} : {durationMinutes: use.durationMinutes}),
+        source: {ruleset: item.ruleset, version: item.version, path: item.sourcePath, section: item.sourceSection},
+        result: structuredClone(result), effect, before, after } };
+      dmText = `${actor.name} 使用 ${item.name}／${use.label} → ${target.name}；来源：${item.sourcePath}／${item.sourceSection}；${inCombat ? `费用 ${JSON.stringify(chargedCosts)}` : '非战斗，由DM确认取用，不扣回合动作'}；库存 ${JSON.stringify(before.inventory.stack)} → ${JSON.stringify(after.inventory.stack)}。${reason}`;
+      if (rolls.length) dmText += ` 治疗骰 ${rolls[0].formula} [${rolls[0].values.join(',')}] = ${rolls[0].total}，实际恢复${effect.restored}HP。`;
+      if (Object.keys(result).length) dmText += ` 主持裁定结果：${JSON.stringify(result)}`;
+      break;
+    }
     case 'roll-dice': {
       dmOnly(principal);
       recordFields(payload, ['actorId', 'label', 'formula', 'mode', 'values', 'origin', 'note', 'publicNote'], '掷骰操作');
@@ -392,7 +480,7 @@ export function executeAction(original, command, principal, { draw = die, id = r
       validateState(source);
       const identity=s=>JSON.stringify(s.actors.map(a=>[a.id,a.kind,a.ownerId]).sort((a,b)=>a[0].localeCompare(b[0])));
       requireRule(identity(source)===identity(state), '不能通过文件重载改变角色ID、类型或归属，请使用战前布置');
-      for(const key of domainKeys) { if(source[key]!==undefined) state[key]=structuredClone(source[key]); else if(key==='initiativeCollection')delete state[key]; }
+      for(const key of domainKeys) { if(source[key]!==undefined) state[key]=structuredClone(source[key]); else if(['initiativeCollection','partyInventory'].includes(key))delete state[key]; }
       publicText='DM重新载入本场文件，旧操作已失效，请查看最新局面。';dmText='本机DM核对差异后重新载入战斗JSON；历史记录和操作ID由程序保留。';break;
     }
     case 'edit-actor': {
@@ -627,7 +715,7 @@ export function executeAction(original, command, principal, { draw = die, id = r
       const previous = state.undoStack.pop();
       for (const key of domainKeys) {
         if (previous.before[key] !== undefined) state[key] = structuredClone(previous.before[key]);
-        else if (key === 'initiativeCollection') delete state[key];
+        else if (['initiativeCollection', 'partyInventory'].includes(key)) delete state[key];
       }
       const event = state.events.find(e => e.actionId === previous.actionId); if (event) event.undoneBy = command.actionId;
       publicText = 'DM撤销了上一项操作，状态已恢复；原骰点记录保留。';
@@ -658,6 +746,7 @@ export function executeAction(original, command, principal, { draw = die, id = r
     case 'use-operation': {
       const actor=getActor(state,payload.actorId);owned(actor,principal);
       const operation=actionCatalog(actor).find(o=>o.id===payload.operationId);
+      requireRule(operation?.mode !== 'item', '物品入口须先选择背包条目与用途，并通过use-item提交');
       requireRule(operation && !['reference','navigate'].includes(operation.mode),'该操作须先选择具体能力或登记资料');
       if(operation.mode==='attack')return executeAction(original,{...command,type:'attack',payload:{...payload,attackId:operation.attackId}},principal,{draw,id,now});
       if(operation.mode==='dash')return executeAction(original,{...command,type:'dash',payload:{actorId:actor.id}},principal,{draw,id,now});
@@ -743,13 +832,14 @@ export function projectState(state, principal) {
     if (actor.appearance) data.appearance = structuredClone(actor.appearance);
     if (actor.ownerId === principal.id) {
       for (const key of ['ownerId', 'ac', 'maxHp', 'hp', 'tempHp', 'speed', 'confirmed', 'attacks', 'attackLimit',
-        'initiativeBonus', 'immunities', 'resistances', 'vulnerabilities', 'resources', 'tempHpBase','resourcePools','economy','operations']) if (actor[key] !== undefined) data[key] = structuredClone(actor[key]);
+        'initiativeBonus', 'immunities', 'resistances', 'vulnerabilities', 'resources', 'tempHpBase','resourcePools','economy','operations','inventory']) if (actor[key] !== undefined) data[key] = structuredClone(actor[key]);
     }
     return data;
   });
   const current = state.combat.order?.[state.combat.index];
   return { formatVersion: state.formatVersion, rulesVersion: state.rulesVersion, revision: state.revision,
     campaignId: state.campaignId, battleId: state.battleId, diceMode: state.diceMode || 'program', title: state.title,
+    partyInventory: structuredClone(state.partyInventory || []),
     board: { width: state.board.width, depth: state.board.depth, major: 5, minor: 1, extended: !!state.board.extended, baseEnabled: state.board.baseEnabled !== false }, viewRole: 'player', viewerId: principal.id,
     objects: (state.objects || []).filter(o => !o.hidden).map(o => ({ id: o.id, name: o.name, type: o.type, position: structuredClone(o.position), size: structuredClone(o.size), rotation: o.rotation, shape: o.shape || 'box' })),
     initiativeCollection: state.initiativeCollection ? {
@@ -781,6 +871,8 @@ export function handoff(state, principal) {
     actions: { move: '{actorId,position:{x,z}}：5尺格规则移动', attack: '{actorId,targetId,attackId,mode:normal|advantage|disadvantage}：普通攻击',
       'roll-dice': '仅DM：{actorId?,label,formula,mode?:normal|advantage|disadvantage,values?:[原始骰点],origin?:physical-dice|external-tool|dm-recorded,note?,publicNote?}；提供values时必须注明人工来源，不提供则本地掷骰；只记录不自动应用效果，线下骰场次必须提供原始骰点',
       'manual-record': '仅DM：{mode?:record-only|apply,actorId?,targetId?,operationId?,label,note,finalResult?,publicNote?,rolls?:[{formula,values,origin,mode?}],application?:{heal?,damage?:[{type,amount}],finalHp?,temporaryHp?,finalTempHp?,replaceTemporaryHp?,costs?:[{resourceId,amount}]}}；默认仅记录，不能带非空application；apply显式扣行动者资源、应用到目标。damage为减免前伤害，finalHp为直接核定最终HP且不能与damage/heal混填；不自动重掷、推断费用或恢复资源',
+      'edit-inventory': '仅DM：{scope:personal|party,actorId?,inventory:[{id,itemId,quantity,charges?}],reason}；替换单个个人或团队背包，个人须指定actorId，可撤销',
+      'use-item': '{actorId,targetId?,scope:personal|party,stackId,useId,partyAccessible?,reason?,result?,manualRolls?,rollOrigin?,manualCosts?,publicNote?}；用途、费用及消耗数量来自物品目录。玩家仅战斗内使用个人背包自动治疗；团队须DM明确确认可取用，复杂效果须DM依据。非战斗仅DM确认且不扣回合动作，手工费用须为空；治疗量按目录掷骰并封顶。result不含costs，伤害为减免前分类数值，finalHp为最终HP',
       next: '{}：结束当前回合', dash: '{actorId}：疾走', adjudicate: '仅DM：{actorId,reason,publicNote,heal?,damage?:[{type,amount}],resources?,consumeAction?}',
       'spend-resources': '仅DM：{actorId,reason,costs:[{resourceId,amount}]}；组合费用原子校验；优先使用use-operation',
       'use-operation': '{actorId,operationId,targetId?,slotId?,movementCost?,reason?,result?:{heal?,temporaryHp?,damage?:[{type,amount}],position?},publicNote?}；本地武器/疾走直接结算；其他仅DM确认后原子扣费并应用结果。目录见actor.operations及operationCatalog',

@@ -16,17 +16,17 @@ export const COMMON_OPERATIONS=[
   common('release-ready','响应预备行动','clock','features','reaction','这是“预备”的第二阶段：核对先前已预备的内容及触发已完成，且尚未到下次自己回合，才花反应执行；不是额外赠送的动作。释放已预备法术不再次扣先前付过的法术位，仍须主持核对专注与效果。'),
   common('search','搜索','eye','common','action','花动作，用感知（洞悉、医药、察觉或求生）寻找隐蔽事实，如察看踪迹、发现藏匿者或识别意图。主持根据目的确定技能、DC及可获得的信息。'),
   common('study','研究','book','common','action','花动作，用智力（奥秘、历史、调查、自然或宗教）回忆知识、分析线索或理解事物。主持确定具体技能、DC和信息；与主要靠感知寻找迹象的搜索不同。'),
-  common('utilize','操作','hand','items','action','操作非魔法物件；具体物品可改变动作需求。'),
+  common('utilize','操作','hand','items',null,'选择个人或团队持有物品，费用按具体2024用途核对。',{mode:'item',itemEntryPoint:'utilize',itemResourceIds:['action','bonus','attack']}),
   common('unarmed','徒手打击','fist','unarmed','attack','核对徒手攻击加值与伤害；可选择伤害、擒抱或推撞。',{target:true}),
   common('shove','推撞（推击）','push','unarmed','attack','2024徒手打击分支：目标力量或敏捷豁免；核对体型、触及，成功推开5尺或倒地。',{target:true,reach:5}),
   common('grapple','擒抱','hand','unarmed','attack','2024徒手打击分支：力量或敏捷豁免；核对空手、体型及触及。',{target:true,reach:5}),
-  common('throw','投掷','throw','unarmed','attack','选择投掷武器或临时武器，核对重量、射程、加值、弹药/库存及伤害。',{target:true}),
+  common('throw','投掷','throw','unarmed',null,'选择可投掷物品或武器，按具体用途核对费用、库存、射程及效果。',{mode:'item',itemEntryPoint:'throw',itemResourceIds:['attack']}),
   common('opportunity','借机攻击','sword','weapons','reaction','核对离开触及、反应可用、可见性及阻止触发的条件。一次近战攻击结果由主持核对。',{target:true}),
   common('jump','跳跃','jump','movement',null,'2024普通跳跃使用移动预算，不统一消耗附赠动作。核对力量、助跑、距离及落点；填写实际移动成本。',{movement:true}),
   common('climb','攀爬 / 游泳','climb','movement',null,'按速度、额外移动成本、地形和检定裁定；填写实际移动成本。',{movement:true}),
   common('stand','从倒地站起','stand','movement',null,'通常花费一半速度；核对倒地、速度及其他限制，填写实际成本。',{movement:true}),
-  common('dip','蘸取 / 涂层','drop','items',null,'需先登记具体2024物品或已启用扩展的操作及消耗。不自动采用BG3蘸火伤害。',{mode:'reference'}),
-  common('potion','饮用 / 喂治疗药水','bottle','items','bonus','2024治疗药水使用附赠动作；需先登记持有药水、库存及具体效果。',{mode:'reference'}),
+  common('dip','蘸取 / 涂层','drop','items',null,'选择持有的2024基础毒药等涂层，按用途核对目标装备和效果。不会自动添加BG3蘸火伤害。',{mode:'item',itemEntryPoint:'dip',itemResourceIds:['bonus']}),
+  common('potion','饮用 / 喂治疗药水','bottle','items',null,'选择持有的2024治疗药水，自饮或喂5尺内生物，使用附赠动作；按选定背包扣一瓶。',{mode:'item',itemEntryPoint:'potion',itemResourceIds:['bonus']}),
   common('offhand','轻型武器额外攻击','sword','weapons','bonus','须登记轻型武器条件与一次限制。Nick可改变费用，不能一概视为附赠动作。',{mode:'reference'})
 ];
 export function validateOperations(actor) {
@@ -57,6 +57,7 @@ export function operationCosts(actor,operation,slotId) {
   return costs;
 }
 export function operationProblem(state,actor,operation,slotId) {
+  if(operation.mode==='item')return '';
   if(operation.mode==='reference')return '请先在角色操作资料中登记具体装备、能力与规则费用';
   if(operation.mode==='navigate')return '';
   try {
