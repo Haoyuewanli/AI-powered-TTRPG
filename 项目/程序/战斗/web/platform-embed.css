@@ -1,0 +1,9 @@
+/* Module ownership changes belong to the platform module window. */
+body[data-platform-embedded="true"] [data-tool="workspace"],
+body[data-platform-embedded="true"] #workspace-dialog {
+  display: none !important;
+}
+html:has(body[data-platform-embedded="true"]),
+body[data-platform-embedded="true"] {
+  min-width: 0;
+}
