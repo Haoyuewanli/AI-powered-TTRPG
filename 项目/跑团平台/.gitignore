@@ -1,0 +1,11 @@
+# Local process logs and the isolated browser profile.
+/.runtime/
+/node_modules/
+
+# User module files, reusable resources and game progress are private data.
+/模组/
+/资源/
+/进度/
+.env
+.env.*
+!.env.example

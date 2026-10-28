@@ -1,0 +1,14 @@
+:root { color-scheme: light; font: 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; color: #34374d; background: #f5f6fa; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; min-width: 280px; min-height: 100%; }
+h1, h2, h3, p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button, summary, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #68749e; outline-offset: 3px; }
+button, input, select, textarea { border-radius: 2px; }
+label { color: #34374d; }
+svg, canvas { max-width: 100%; }
+#platform-loading, noscript { margin: 32px; }
