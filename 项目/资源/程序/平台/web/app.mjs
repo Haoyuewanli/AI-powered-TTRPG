@@ -5,12 +5,14 @@ import { createProjectPanel } from '/project-panel.mjs';
 let dialogue, project;
 let appearanceTag = null, appearanceRevision = 0, appearanceLoaded = false;
 let pendingAppearance = null, committedAppearance = '', appearanceTimer = 0, appearanceSaving = false, appearanceBlocked = false;
+const nativeWindow = new URLSearchParams(location.hash.slice(1)).get('platform-window') === '1';
 const platform = createPlatformShell({
+  nativeWindow,
   onPageChange: page => { dialogue?.setVisible(page === 'dialogue'); project?.setPage(page); },
   onIdentityChange: role => { dialogue?.clear(); project?.setRole(role).catch(() => {}); },
   onAppearanceChange: value => {
     if (!appearanceLoaded) return;
-    if (JSON.stringify(value) === committedAppearance) return;
+    if (JSON.stringify(value) === committedAppearance && !appearanceSaving && !pendingAppearance) return;
     pendingAppearance = value;
     if (appearanceBlocked) return;
     platform.setAppearanceStatus('外观更改待保存');
@@ -54,12 +56,12 @@ async function saveAppearance() {
   if (appearanceSaving || appearanceBlocked || !appearanceTag || !pendingAppearance) return;
   const draft = pendingAppearance;
   const signature = JSON.stringify(draft);
-  if (signature === committedAppearance) { pendingAppearance = null; return; }
+  if (signature === committedAppearance) { pendingAppearance = null; platform.setAppearanceStatus('外观与本地文件一致'); return; }
   appearanceSaving = true;
   platform.setAppearanceStatus('正在保存外观');
   try {
     const response = await fetch('/api/appearance', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': appearanceTag },
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match': appearanceTag, ...(nativeWindow ? { 'X-Platform-Window': 'application' } : {}) },
       body: JSON.stringify({ schemaVersion: 1, revision: appearanceRevision, ...draft })
     });
     const value = await response.json();
@@ -74,7 +76,11 @@ async function saveAppearance() {
     appearanceRevision = value.revision;
     committedAppearance = signature;
     if (JSON.stringify(pendingAppearance) === signature) pendingAppearance = null;
-    platform.setAppearanceStatus('外观已保存到本地文件');
+    const windowState = response.headers.get('X-Platform-Window-State'), windowSize = response.headers.get('X-Platform-Window-Size');
+    const suffix = windowState === 'resized' && windowSize ? '；窗口已调整为' + windowSize.replace('x', '×') + (response.headers.get('X-Platform-Window-Scaled') === '1' ? '（按可用屏幕缩放）' : '')
+      : windowState === 'browser' ? '；普通浏览器仅预览，请从“打开平台.cmd”调整独立窗口'
+      : windowState ? '；独立窗口未调整，请仅保留一个平台窗口并从“打开平台.cmd”重开' : '';
+    platform.setAppearanceStatus('外观已保存到本地文件' + suffix);
   } catch {
     appearanceBlocked = true;
     platform.setAppearanceStatus('连接中断；外观草稿保留。重新读取会放弃本页草稿。', { canRetry: true });

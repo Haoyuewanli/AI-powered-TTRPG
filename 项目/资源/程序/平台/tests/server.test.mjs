@@ -32,8 +32,8 @@ test('standalone health and static files work without a battle, dependency runti
     const response = await fetch(app.url + '/health');
     const health = await response.json();
     assert.equal(health.app, 'standalone-ttrpg-platform');
-    assert.equal(health.version, 'platform-modules-v4');
-    assert.deepEqual(health.capabilities, { standalone: 1, dialogueDemo: 1, design: 1, appearance: 1, projectFiles: 1, battleHost: 1, modulePreprocess: 1, mapWorkspace: 1, ruleLibrary: 1 });
+    assert.equal(health.version, 'platform-window-v5');
+    assert.deepEqual(health.capabilities, { standalone: 1, dialogueDemo: 1, design: 1, appearance: 1, projectFiles: 1, battleHost: 1, modulePreprocess: 1, mapWorkspace: 1, ruleLibrary: 1, nativeWindow: 1 });
     assert.match(health.rootKey, /^[a-f0-9]{64}$/);
     assert.match(health.projectRootKey, /^[a-f0-9]{64}$/);
     assert.equal(health.pid, process.pid);

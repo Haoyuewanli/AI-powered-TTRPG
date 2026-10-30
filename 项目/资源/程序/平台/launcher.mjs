@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createConnection } from 'node:net';
+import { createAppearanceStore, defaultAppearance } from './appearance-store.mjs';
+import { createNativeWindow, platformAppUrl, platformWindowProfile } from './native-window.mjs';
 import { PLATFORM_APP, PLATFORM_VERSION, platformRootKey, parsePort, projectKey, defaultProjectRoot } from './server.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -19,7 +21,7 @@ function assertCompatible(status) {
   if (status.app !== PLATFORM_APP) throw new Error('此端口运行的是其他服务，请用--port指定其他端口。');
   if (status.rootKey !== platformRootKey) throw new Error('此端口属于另一个平台文件夹，请用--port指定其他端口。');
   if (status.projectRootKey !== projectKey(defaultProjectRoot())) throw new Error('此端口属于另一个项目资料根目录，请用--port指定其他端口。');
-  if (status.version !== PLATFORM_VERSION || status.capabilities?.standalone !== 1 || status.capabilities?.dialogueDemo !== 1) throw new Error('此端口的平台版本不同。请先停止对应的旧平台服务后重开，或用--port指定其他端口。');
+  if (status.version !== PLATFORM_VERSION || status.capabilities?.standalone !== 1 || status.capabilities?.dialogueDemo !== 1 || status.capabilities?.nativeWindow !== 1) throw new Error('此端口的平台版本不同。请先停止对应的旧平台服务后重开，或用--port指定其他端口。');
 }
 
 async function occupied(port) {
@@ -75,17 +77,27 @@ async function startChild(port) {
 }
 
 async function openBrowser(url) {
-  if (process.platform !== 'win32') return;
+  if (process.platform !== 'win32') return { status: 'unsupported' };
   const candidates = [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, process.env.LOCALAPPDATA]
     .filter(Boolean).map(base => join(base, 'Microsoft/Edge/Application/msedge.exe'));
   for (const executable of candidates) {
     try { await access(executable); } catch { continue; }
-    const child = spawn(executable, [`--app=${localUrl(url)}`, `--user-data-dir=${join(ROOT, '.runtime/browser')}`, '--no-first-run', '--disable-sync', '--disable-background-networking', '--no-default-browser-check'],
+    const projectRoot = defaultProjectRoot(), profile = platformWindowProfile(ROOT, projectRoot, url);
+    const controller = createNativeWindow({ codeRoot: ROOT, projectRoot, getUrl: () => url, browser: async () => executable });
+    let preset = defaultAppearance().displayPreset;
+    try { preset = (await createAppearanceStore(join(ROOT, '.runtime/外观.json')).read()).value.displayPreset; } catch { /* The page reports the preserved damaged appearance file. */ }
+    const current = await controller.inspect();
+    if (current.status === 'ambiguous') return current;
+    if (current.status === 'found') return { ...await controller.resize(preset, { activate: true }), reusedWindow: true };
+    if (current.status !== 'unmanaged') return current;
+    await mkdir(profile, { recursive: true });
+    const child = spawn(executable, [`--app=${platformAppUrl(url)}`, `--user-data-dir=${profile}`, '--no-first-run', '--disable-sync', '--disable-background-networking', '--no-default-browser-check'],
       { detached: true, windowsHide: true, stdio: 'ignore' });
-    try { await new Promise((accept, reject) => { child.once('spawn', accept); child.once('error', reject); }); child.unref(); return; }
+    try { await new Promise((accept, reject) => { child.once('spawn', accept); child.once('error', reject); }); child.unref(); return { ...await controller.resize(preset, { waitMs: 5000, activate: true }), reusedWindow: false }; }
     catch { /* Try the system browser when Edge cannot start. */ }
   }
   await new Promise((accept, reject) => execFile('rundll32.exe', ['url.dll,FileProtocolHandler', localUrl(url)], { windowsHide: true }, error => error ? reject(error) : accept()));
+  return { status: 'browser' };
 }
 
 async function launchAt(port, autoPort) {
@@ -147,7 +159,10 @@ export async function launchPlatform({ port, noBrowser = false, autoPort = port 
     catch { result.warning = '平台已启动，但重开地址未能保存。请保留当前地址，核对程序目录的写入权限。'; }
   }
   const { url } = result;
-  if (!noBrowser) await openBrowser(url);
+  if (!noBrowser) {
+    result.window = await openBrowser(url);
+    if (result.window?.status !== 'resized') result.warning = [result.warning, '平台已就绪，但未能调整独立窗口尺寸；请仅保留一个平台窗口后重开。'].filter(Boolean).join(' ');
+  }
   return result;
 }
 

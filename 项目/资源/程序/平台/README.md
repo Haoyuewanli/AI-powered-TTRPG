@@ -6,6 +6,7 @@
 
 - `web/design-workspace.mjs/css`：从最新归档稿恢复完整设计和公共占位示例。
 - `appearance-store.mjs`：四尺寸独立本地外观、ETag/版本和前态备份。
+- `native-window.mjs/ps1`：Windows独立应用窗外框尺寸，限定已安装Edge、当前资料根/profile/origin及唯一顶层窗口；不接受客户端任意PID、句柄或尺寸。
 - `project-files.mjs`、`platform-api.mjs`：资源归档/引用/发放、当前/战斗/对话文件与本机DM能力票据。
 - `battle-host.mjs`、`battle-process.mjs`、`battle-projection.mjs`：独立战斗进程、生命周期接线和外置文件投影，不实现机械规则。
 - `migrate-storage.mjs`：默认只读预检，明确apply才备份并复制旧存档。
@@ -18,3 +19,5 @@
 现行目录迁移工具在工作区 `开发记录/工具/重整项目目录.mjs`，默认只生成预检清单。旧 `migrate-storage.mjs` 仅保留历史恢复用途，新目录已有版本标记时拒绝回迁。程序与原始资料位于 `资源/程序`、`资源/资料`；各团的故事、对话、战斗均位于 `模组/团名`。
 
 `npm test` 运行Node检查。浏览器检查使用开发机已有Playwright/Edge，可通过 `RPG_PLATFORM_PLAYWRIGHT_MODULE`、`RPG_PLATFORM_BROWSER` 指定，不是产品运行依赖。测试必须使用隔离合成项目根，不能扫描真实资料。详细结果及交接见工作区现有产品大纲和整理记录。
+
+`node tests/native-window-desktop-check.mjs`会短暂打开两个空白测试窗，测量四预设的真实外框、重开恢复及其他资料根保护，完成后自动关闭。此检查只使用隔离目录，运行期间不要手动关闭测试窗；普通浏览器与独立应用模式的接线另由design-browser-check覆盖。

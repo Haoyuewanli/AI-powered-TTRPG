@@ -6,10 +6,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createAppearanceStore } from './appearance-store.mjs';
 import { createProjectApi } from './platform-api.mjs';
 import { createBattleHost } from './battle-host.mjs';
+import { createNativeWindow } from './native-window.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 export const PLATFORM_APP = 'standalone-ttrpg-platform';
-export const PLATFORM_VERSION = 'platform-modules-v4';
+export const PLATFORM_VERSION = 'platform-window-v5';
 export const platformRootKey = createHash('sha256').update(process.platform === 'win32' ? ROOT.toLowerCase() : ROOT).digest('hex');
 export const projectKey = path => createHash('sha256').update(process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)).digest('hex');
 export const defaultProjectRoot = () => process.env.RPG_PROJECT_ROOT || resolve(ROOT, '../../..');
@@ -41,12 +42,13 @@ export function parsePort(value, fallback = 4198) {
   return port;
 }
 
-export async function startPlatform({ port = 0, host, projectRoot = defaultProjectRoot(), appearanceFile = join(ROOT, '.runtime', '外观.json') } = {}) {
+export async function startPlatform({ port = 0, host, projectRoot = defaultProjectRoot(), appearanceFile = join(ROOT, '.runtime', '外观.json'), nativeWindow } = {}) {
   if (host !== undefined && host !== '127.0.0.1') throw new Error('平台首版仅监听127.0.0.1');
   port = parsePort(port);
   const appearance = createAppearanceStore(appearanceFile);
   const battle = createBattleHost({ projectRoot, getOrigin: () => `http://127.0.0.1:${server.address().port}` });
   const projectApi = await createProjectApi({ root: projectRoot, battle });
+  let desktop;
   const server = createServer(async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -73,13 +75,24 @@ export async function startPlatform({ port = 0, host, projectRoot = defaultProje
           const chunks = []; let size = 0;
           for await (const chunk of request) { size += chunk.length; if (size > 16384) return send(413, { error: '外观请求过大' }); chunks.push(chunk); }
           let value; try { value = JSON.parse(Buffer.concat(chunks)); } catch { return send(400, { error: 'JSON无效' }); }
+          const before = await appearance.read();
           result = await appearance.save(value, request.headers['if-match']);
+          if (before.value.displayPreset !== result.value.displayPreset) {
+            const changed = request.headers['x-platform-window'] === 'application'
+              ? await desktop.resize(result.value.displayPreset).catch(() => ({ status: 'failed' }))
+              : { status: 'browser' };
+            response.setHeader('X-Platform-Window-State', ['resized', 'unmanaged', 'ambiguous', 'unsupported', 'failed', 'browser'].includes(changed.status) ? changed.status : 'failed');
+            if (changed.status === 'resized' && Number.isInteger(changed.width) && Number.isInteger(changed.height)) {
+              response.setHeader('X-Platform-Window-Size', changed.width + 'x' + changed.height);
+              response.setHeader('X-Platform-Window-Scaled', changed.scaled ? '1' : '0');
+            }
+          }
         }
         response.setHeader('ETag', result.etag); return send(200, result.value);
       }
       if (request.method !== 'GET') { response.setHeader('Allow', 'GET'); return send(405, { error: '此入口不提供业务写入' }); }
       if (path === '/health') return send(200, { app: PLATFORM_APP, version: PLATFORM_VERSION,
-        capabilities: { standalone: 1, dialogueDemo: 1, design: 1, appearance: 1, projectFiles: 1, battleHost: 1, modulePreprocess: 1, mapWorkspace: 1, ruleLibrary: 1 }, rootKey: platformRootKey, projectRootKey: projectKey(projectRoot), pid: process.pid });
+        capabilities: { standalone: 1, dialogueDemo: 1, design: 1, appearance: 1, projectFiles: 1, battleHost: 1, modulePreprocess: 1, mapWorkspace: 1, ruleLibrary: 1, nativeWindow: 1 }, rootKey: platformRootKey, projectRootKey: projectKey(projectRoot), pid: process.pid });
       if (path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
       const entry = staticFiles.get(path);
       if (!entry) return send(404, { error: '页面不存在' });
@@ -90,6 +103,7 @@ export async function startPlatform({ port = 0, host, projectRoot = defaultProje
       else response.end();
     }
   });
+  desktop = nativeWindow || createNativeWindow({ codeRoot: ROOT, projectRoot, getUrl: () => `http://127.0.0.1:${server.address().port}` });
   await new Promise((accept, reject) => {
     server.once('error', reject); server.listen(port, '127.0.0.1', () => { server.removeListener('error', reject); accept(); });
   });

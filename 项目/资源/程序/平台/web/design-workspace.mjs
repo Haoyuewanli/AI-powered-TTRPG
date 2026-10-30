@@ -58,7 +58,7 @@ const markup = String.raw`<div id="platform-covers" aria-label="平台首页、�
 </div>`;
 const pageKeys = {"首页":"home","模组":"modules","资源":"resources","地图":"maps","对话":"dialogue","战斗":"battle"};
 const RULES_FAMILY = 'dnd-2024';
-export function createDesignWorkspace({ onPageChange = () => {}, onIdentityChange = () => {}, onAppearanceChange = () => {}, onAppearanceRetry = () => {} } = {}) {
+export function createDesignWorkspace({ onPageChange = () => {}, onIdentityChange = () => {}, onAppearanceChange = () => {}, onAppearanceRetry = () => {}, nativeWindow = false } = {}) {
   const wrapper=document.createElement("div");wrapper.id="platform-root";wrapper.innerHTML=markup;document.body.prepend(wrapper);
   const root=wrapper.querySelector('#platform-covers'),app=root.querySelector('[data-app]');
   const $=selector=>root.querySelector(selector),all=selector=>[...root.querySelectorAll(selector)];
@@ -101,8 +101,9 @@ export function createDesignWorkspace({ onPageChange = () => {}, onIdentityChang
   function loadAppearance(){const profile=appearanceProfiles[displayPreset];for(const key of Object.keys(theme))theme[key]=profile[key];Object.assign(gradient,profile.gradient);}
   function layoutFrame(){
     const available=root.clientWidth,preset=displayPresets[displayPreset],compact=available<1024;
-    const width=compact?available:preset.width*Math.min(1,available/2560);
-    app.classList.toggle('is-compact',compact);root.style.setProperty('--frame-width',width+'px');root.style.setProperty('--frame-height',(width*preset.height/preset.width)+'px');
+    const width=nativeWindow||compact?available:preset.width*Math.min(1,available/2560);
+    app.classList.toggle('is-compact',compact);root.style.setProperty('--frame-width',width+'px');root.style.setProperty('--frame-height',(nativeWindow?window.innerHeight:width*preset.height/preset.width)+'px');
+    root.dataset.windowMode=nativeWindow?'application':'browser';
     app.dataset.displayPreset=displayPreset;
     const workspace=$('.p-workspace').clientHeight||440;root.style.setProperty('--resource-card-height',clamp(workspace-114,200,292)+'px');
     all('select[data-display-preset]').forEach(select=>{select.value=displayPreset;});
@@ -283,7 +284,8 @@ export function createDesignWorkspace({ onPageChange = () => {}, onIdentityChang
   $('[data-crop-dialog]').addEventListener('close',()=>{if(!$('[data-crop-dialog]').open){cropDraft=null;cropSource=null;}});
   $('.p-crop-json').addEventListener('toggle',()=>{if($('[data-crop-dialog]').open)requestAnimationFrame(renderCropPreview);});
   const cropObserver=new ResizeObserver(()=>{if($('[data-crop-dialog]').open)renderCropPreview();});cropObserver.observe($('[data-crop-stage]'));
-  const observer=new ResizeObserver(()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{if(app.clientWidth!==lastWidth&&resourcePhase==='moving')cancelResource(false);layoutFrame();layoutCrop();});});observer.observe(root);
+  const scheduleLayout=()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{if(app.clientWidth!==lastWidth&&resourcePhase==='moving')cancelResource(false);layoutFrame();layoutCrop();});};
+  const observer=new ResizeObserver(scheduleLayout);observer.observe(root);window.addEventListener('resize',scheduleLayout);
   document.addEventListener('visibilitychange',()=>{if(document.hidden){stopRing(true);ringPointer=null;cancelResource(state.drawerOpen);}drawRing();updateModuleUI();});
   matchMedia('(prefers-reduced-motion:reduce)').addEventListener('change',()=>{if(reduced()){stopRing(true);drawRing();updateModuleUI();if(resourcePhase==='moving')openDrawer(state.resourceIndex);}});
   return {root:wrapper,show:goPage,clear,setAppearance,getAppearance,

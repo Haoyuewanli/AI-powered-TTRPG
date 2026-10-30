@@ -92,6 +92,7 @@ try {
   }
   await chooseDisplay('1920x1440'); await settings(false);
   await until(appearance, value => value.displayPreset === '1920x1440', 'last selected preset');
+  await until(() => ui('[data-appearance-status]').textContent(), text => text.includes('外观已保存到本地文件') || text.includes('外观与本地文件一致'), 'appearance save acknowledged before restart');
   const saved = await appearance();
   await app.close(); app = await startIsolated(isolated);
   await page.goto(app.url); await page.locator('#enter-dm').click(); await settings();
@@ -234,6 +235,30 @@ try {
   await page.locator('#platform-switch-identity').click(); await page.locator('#enter-player').click(); await nav('dialogue');
   assert.equal(await page.locator('#dialogue-message').inputValue(), ''); assert.equal(await page.locator('.dialogue-message').count(), 5);
   check('四预设尺寸和常见窄屏下六窗无整页横向溢出，减少动态仍可操作，对话及身份清理保留');
+
+  const nativePage = await context.newPage(); await nativePage.goto(app.url + '/#platform-window=1');
+  await until(() => nativePage.locator('[data-appearance-status]').textContent(), text => text.includes('从本地文件读取'), 'application mode loaded');
+  const nativeFrame = await nativePage.locator('[data-app]').boundingBox(), viewport = await nativePage.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  assert(Math.abs(nativeFrame.width - viewport.width) <= 1 && Math.abs(nativeFrame.height - viewport.height) <= 1);
+  assert.equal(await nativePage.locator('#platform-covers').getAttribute('data-window-mode'), 'application');
+  const selector = nativePage.locator('select[data-display-preset]:visible').first();
+  const preset = await selector.inputValue() === '2048x1536' ? '1920x1440' : '2048x1536';
+  const nativeSaved = nativePage.waitForResponse(response => new URL(response.url()).pathname === '/api/appearance' && response.request().method() === 'POST');
+  await selector.selectOption(preset); const nativeResponse = await nativeSaved;
+  assert.equal(nativeResponse.status(), 200); assert.equal(nativeResponse.request().headers()['x-platform-window'], 'application');
+  assert.equal(nativeResponse.headers()['x-platform-window-state'], 'unmanaged');
+  await until(() => nativePage.locator('[data-appearance-status]').textContent(), text => text.includes('独立窗口未调整'), 'unmanaged fixture reported honestly');
+  let releasePreset, presetCaptured; const presetGate = new Promise(resolve => { releasePreset = resolve; }), capturedPreset = new Promise(resolve => { presetCaptured = resolve; });
+  let delayedPreset = false;
+  await nativePage.route('**/api/appearance', async route => { if (route.request().method() === 'POST' && !delayedPreset) { delayedPreset = true; presetCaptured(); await presetGate; } await route.continue(); });
+  const originalPreset = await selector.inputValue(), temporaryPreset = originalPreset === '1920x1440' ? '2048x1536' : '1920x1440';
+  const temporarySaved = nativePage.waitForResponse(response => new URL(response.url()).pathname === '/api/appearance' && response.request().method() === 'POST' && response.request().postDataJSON().displayPreset === temporaryPreset);
+  const restoredSaved = nativePage.waitForResponse(response => new URL(response.url()).pathname === '/api/appearance' && response.request().method() === 'POST' && response.request().postDataJSON().displayPreset === originalPreset);
+  await selector.selectOption(temporaryPreset); await capturedPreset; await selector.selectOption(originalPreset); releasePreset();
+  assert.equal((await temporarySaved).status(), 200); assert.equal((await restoredSaved).status(), 200);
+  assert.equal((await appearance()).displayPreset, originalPreset);
+  await nativePage.close();
+  check('独立入口标记接到原生请求且页面填满客户区；无绑定窗明确提示未调整，保存中切回原预设仍保留最后选择');
 
   const apiRequests = requests.filter(item => new URL(item.url).pathname.startsWith('/api/'));
   const readOnlyApis = new Set(['/api/project/status', '/api/project/modules', '/api/project/resources', '/api/battle/status']);
