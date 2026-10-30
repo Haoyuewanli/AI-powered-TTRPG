@@ -15,7 +15,7 @@ from zipfile import ZipFile
 
 sys.stdout.reconfigure(encoding='utf-8')
 ROOT = Path(__file__).resolve().parents[2]
-LIBRARY = ROOT / '项目' / '资料' / '5E不全书'
+LIBRARY = ROOT / '项目' / '资源' / '资料' / '5E不全书'
 
 
 def sha256(path):

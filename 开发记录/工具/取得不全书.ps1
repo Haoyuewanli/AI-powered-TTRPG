@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $workspaceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$libraryRoot = Join-Path $workspaceRoot '项目\资料\5E不全书'
+$libraryRoot = Join-Path $workspaceRoot '项目\资源\资料\5E不全书'
 $source = Get-Content -LiteralPath (Join-Path $libraryRoot '来源.json') -Raw -Encoding utf8 | ConvertFrom-Json
 $originals = Join-Path $libraryRoot '原始发布'
 New-Item -ItemType Directory -Force -Path $originals | Out-Null
