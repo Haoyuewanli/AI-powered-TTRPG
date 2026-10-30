@@ -32,7 +32,9 @@ try{
   });
   const originalPNG=Buffer.from(generated.png,'base64'),replacementPNG=Buffer.from(generated.replacement,'base64'),originalJPG=Buffer.from(generated.jpg,'base64');
   const pngPath=join(pngDirectory,'模组封面.png'),jpgPath=join(jpgDirectory,'模组封面.jpg');await writeFile(pngPath,originalPNG);await writeFile(jpgPath,originalJPG);
-  app=await startPlatform({projectRoot,port:0,appearanceFile:join(root,'外观.json')});
+  const previousModulesRoot=process.env.RPG_MODULES_ROOT;process.env.RPG_MODULES_ROOT=modulesDir;
+  try{app=await startPlatform({projectRoot,port:0,appearanceFile:join(root,'外观.json')});}
+  finally{if(previousModulesRoot===undefined)delete process.env.RPG_MODULES_ROOT;else process.env.RPG_MODULES_ROOT=previousModulesRoot;}
   await context.route('**/*',route=>{
     const url=route.request().url();if(!url.startsWith(app.url+'/')&&!url.startsWith('data:')&&!url.startsWith('about:')){outside.push(url);return route.abort();}return route.continue();
   });

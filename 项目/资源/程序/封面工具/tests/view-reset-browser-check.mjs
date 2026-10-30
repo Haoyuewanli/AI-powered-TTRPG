@@ -7,7 +7,7 @@ import { startPlatform } from '../../平台/server.mjs';
 const { chromium } = await import(pathToFileURL(process.env.RPG_PLATFORM_PLAYWRIGHT_MODULE || join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')));
 const output = fileURLToPath(new URL('../../../../../开发记录/临时/封面视角缓存检查/', import.meta.url));
 await mkdir(output, { recursive: true }); const directory = await mkdtemp(join(output, 'case-')), projectRoot = join(directory, '项目');
-const imagePath = join(projectRoot, '模组/多人短团/私有合成模组/模组封面.png'); await mkdir(join(imagePath, '..'), { recursive: true });
+const imagePath = join(projectRoot, '模组/预处理/故事/私有合成模组/模组封面.png'); await mkdir(join(imagePath, '..'), { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.RPG_PLATFORM_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
 const context = await browser.newContext({ viewport: { width: 1366, height: 1000 } });
 const checks = [], errors = [], outside = [];

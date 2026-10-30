@@ -232,7 +232,8 @@ try {
   assert(shown.actors.find(actor => actor.kind === 'pc').name.includes('待填写')); assert.equal(shown.events.length, 0);
   assert(shown.board.schematic); assert(template.encounterTemplates[0].sourceWarnings.some(value => value.includes('没有序幕航船俯视地图')));
   await shot('05-船上梅洛准备战斗.png');
-  await page.setViewportSize({ width: 320, height: 720 }); const canvas = await activeFrame.locator('canvas').boundingBox();
+  await page.setViewportSize({ width: 320, height: 720 });
+  const canvas = await until(() => activeFrame.locator('canvas').boundingBox(), box => box && box.width > 100 && box.height >= 150, 'compact battle canvas resized');
   assert(canvas && canvas.width > 100 && canvas.height >= 150); await shot('06-船上准备战斗-320.png');
   await page.setViewportSize({ width: 1600, height: 1100 });
   const savedState = JSON.parse(await readFile(statePath, 'utf8')); assert.equal(savedState.revision, 0); assert.equal(savedState.combat.phase, 'preparing'); assert.equal(savedState.actors.find(actor => actor.kind === 'npc').hp, 45);
