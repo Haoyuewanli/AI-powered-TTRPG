@@ -23,21 +23,63 @@ export function createModuleRuntime({ root }) {
     }
     return target;
   }
-  async function templates() {
-    const directory = await safe('模组/预处理/故事'), result = [], issues = [];
-    let entries; try { entries = await readdir(directory, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return { templates: [], issues }; throw error; }
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-      try {
-        const path = await safe('模组/预处理/故事/' + entry.name + '/预处理.json'), stat = await lstat(path);
-        if (!stat.isFile() || stat.nlink > 1 || stat.size > 16 * 1024 * 1024) throw fail('预处理文件不安全或过大');
-        const value = await json(path);
-        if (value.schemaVersion !== 1 || typeof value.moduleId !== 'string' || !value.moduleId || typeof value.title !== 'string' || !Array.isArray(value.storyNodes) || !Array.isArray(value.maps)) throw fail('预处理格式无效');
-        result.push({ id: value.moduleId, name: value.title, folder: entry.name, reviewStatus: value.reviewStatus || 'candidate', value });
-      } catch (error) { if (error.code !== 'ENOENT') issues.push({ folder: entry.name, error: error.message }); }
+  async function verifySource(template, packageDirectory) {
+    const source = template.source;
+    if (!source || !['pdf', 'image', 'markdown', 'synthetic'].includes(source.kind)) throw fail('原始资料类型不受支持，未绕过来源核对');
+    if (source.kind === 'synthetic') {
+      if (template.preprocessContract) throw fail('正式资料包不能使用合成来源');
+      return;
     }
-    const counts = new Map(); for (const entry of result) counts.set(entry.id, (counts.get(entry.id) || 0) + 1);
-    return { templates: result.filter(entry => counts.get(entry.id) === 1), issues: [...issues, ...[...counts].filter(([, count]) => count > 1).map(([id]) => ({ id, error: '预处理ID重复' }))] };
+    const local = source.relativePath || source.path;
+    if (typeof local !== 'string' || !local || /[\\:\x00-\x1f]/.test(local) || local.split('/').some(part => !part || part === '.' || part === '..') || !/^[a-f\d]{64}$/.test(source.sha256 || '') || (source.referenceBase !== undefined && source.referenceBase !== 'project' && source.referenceBase !== 'package')) throw fail('原始资料引用或摘要无效，请重新核对预处理来源');
+    const sourcePath = source.referenceBase === 'project' ? local : packageDirectory + '/' + local;
+    const requiredBase = source.kind === 'markdown' ? '模组/预处理/' : packageDirectory + (source.kind === 'pdf' ? '/原PDF/' : '/原图/');
+    if (!sourcePath.startsWith(requiredBase) || (source.kind === 'markdown' && extname(sourcePath).toLowerCase() !== '.md')) throw fail('原始资料路径不符合来源范围');
+    const absolute = await safe(sourcePath);
+    let info; try { info = await lstat(absolute); } catch (error) { if (error.code === 'ENOENT') throw fail('原始资料缺失，未创建新团'); throw error; }
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink > 1 || info.size > 512 * 1024 * 1024) throw fail('原始资料文件不安全或过大');
+    if (createHash('sha256').update(await readFile(absolute)).digest('hex') !== source.sha256) throw fail('原始资料已改变，未沿用旧的核对结论或创建新团');
+  }
+  async function templates() {
+    const base = '模组/预处理', result = [], issues = [], counts = new Map();
+    let categories;
+    try { categories = await readdir(await safe(base), { withFileTypes: true }); }
+    catch (error) { if (error.code === 'ENOENT') return { templates: [], issues }; throw error; }
+    for (const category of categories) {
+      if (!category.isDirectory() || category.name.startsWith('.') || ['对话', '战斗'].includes(category.name)) {
+        if (category.isSymbolicLink()) issues.push({ folder: category.name, error: '模组目录不能是链接' });
+        continue;
+      }
+      const categoryPath = base + '/' + category.name;
+      let entries;
+      try { entries = await readdir(await safe(categoryPath), { withFileTypes: true }); }
+      catch (error) { issues.push({ folder: category.name, error: error.message }); continue; }
+      // Raw input folders are sources, not categories containing prepared packages.
+      if (entries.some(entry => entry.isFile() && /\.(md|pdf)$/i.test(entry.name)) &&
+        !entries.some(entry => entry.isDirectory() && !['images', '图片', '原图', '原PDF'].includes(entry.name))) continue;
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
+        const relativePath = categoryPath + '/' + entry.name;
+        let id;
+        try {
+          const path = await safe(relativePath + '/预处理.json'), stat = await lstat(path);
+          if (!stat.isFile() || stat.nlink > 1 || stat.size > 16 * 1024 * 1024) throw fail('预处理文件不安全或过大');
+          const bytes = await readFile(path), value = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, ''));
+          id = value.moduleId;
+          if (typeof id === 'string' && id) counts.set(id, (counts.get(id) || 0) + 1);
+          if (value.schemaVersion !== 1 || typeof id !== 'string' || !/^[\w-]{1,160}$/.test(id) || typeof value.title !== 'string' || !value.title.trim() || !Array.isArray(value.storyNodes) || !Array.isArray(value.maps) || (value.encounterTemplates !== undefined && !Array.isArray(value.encounterTemplates)) || (value.batchId !== undefined && (typeof value.batchId !== 'string' || !/^[\w.-]{1,100}$/.test(value.batchId)))) throw fail('预处理格式无效');
+          for (const items of [value.storyNodes, value.maps, value.encounterTemplates || []]) {
+            const ids = items.map(item => item?.id);
+            if (ids.some(itemId => typeof itemId !== 'string' || !itemId || itemId.length > 160) || new Set(ids).size !== ids.length) throw fail('预处理条目ID无效或重复');
+          }
+          await verifySource(value, relativePath);
+          result.push({ id, name: value.title, folder: entry.name, category: category.name === '故事' ? null : category.name, batchId: value.batchId || null,
+            packageSha256: createHash('sha256').update(bytes).digest('hex'), relativePath, reviewStatus: value.reviewStatus || 'candidate', value });
+        } catch (error) { issues.push({ ...(typeof id === 'string' ? { id } : {}), folder: relativePath, error: error.code === 'ENOENT' ? '模组包缺少预处理.json' : error.message }); }
+      }
+    }
+    for (const [id, count] of counts) if (count > 1) issues.push({ id, error: '预处理ID重复' });
+    return { templates: result.filter(entry => counts.get(entry.id) === 1), issues };
   }
   async function sources() {
     const result = [];
@@ -118,57 +160,69 @@ export function createModuleRuntime({ root }) {
     }
     return { modules: result, issues };
   }
-  async function createRun({ templateId, name, monsterResource } = {}) {
+  async function createRun({ templateId, name, monsterResource, training = false, expectedPackageSha256 } = {}) {
     const [{ acquireLock, atomicJson }, { newBattleState }, { validateState }] = await Promise.all([
       import('../战斗/src/store.mjs'), import('../战斗/src/workspace.mjs'), import('../战斗/src/rules.mjs')
     ]);
-    const prepared = (await templates()).templates.find(entry => entry.id === templateId), template = prepared?.value;
-    if (!template) throw fail('找不到唯一的预处理模组');
-    if (['pdf', 'image'].includes(template.source?.kind)) {
-      const local = String(template.source.relativePath || template.source.path || ''), base = `模组/预处理/故事/${prepared.folder}/`;
-      const sourcePath = template.source.referenceBase === 'project' ? local : base + local;
-      if (!sourcePath.startsWith(base + (template.source.kind === 'pdf' ? '原PDF/' : '原图/')) || /[\\:\x00-\x1f]/.test(sourcePath) || sourcePath.split('/').some(part => !part || part === '.' || part === '..') || !/^[a-f\d]{64}$/.test(template.source.sha256 || '')) throw fail('原始资料引用或摘要无效，请重新核对预处理来源');
-      const absolute = await safe(sourcePath), info = await lstat(absolute);
-      if (!info.isFile() || info.nlink > 1 || info.size > 512 * 1024 * 1024 || createHash('sha256').update(await readFile(absolute)).digest('hex') !== template.source.sha256) throw fail('原始资料已改变，未沿用旧的核对结论或创建新团');
-    }
-    const encounter = template.encounterTemplates?.find(entry => entry.id.endsWith('voyage-merrow')) || template.encounterTemplates?.[0];
+    const catalog = await templates(), prepared = catalog.templates.find(entry => entry.id === templateId), template = prepared?.value;
+    if (!template) throw fail(catalog.issues.find(entry => entry.id === templateId)?.error || '找不到唯一的预处理模组');
+    if (typeof training !== 'boolean') throw fail('训练模式须为明确的开关');
+    if (expectedPackageSha256 !== undefined && expectedPackageSha256 !== prepared.packageSha256) throw fail('模组包已变化，请重新读取后再创建');
+    const encounter = template.encounterTemplates?.find(entry => typeof entry?.id === 'string' && entry.id.endsWith('voyage-merrow')) || template.encounterTemplates?.[0];
     const voyage = encounter?.id?.endsWith('voyage-merrow');
     if (typeof name !== 'string' || !name.trim() || name.length > 80) throw fail('团名称须为1～80字');
     if (monsterResource && monsterResource.edition?.rulesFamily !== 'dnd-2024') throw fail('测试遭遇需要已核对的2024规则家族资源');
     if (monsterResource && !voyage) throw fail('该模组尚无已核对的梅洛遭遇适配，未擅自加入敌人');
+    if (training && (!voyage || !monsterResource)) throw fail('序幕训练须选择已支持的登船遭遇和2024梅洛资源');
     await mkdir(await safe('模组'), { recursive: true });
     const release = await acquireLock(join(modules, '.workspace.lock'));
     try {
+      const current = (await templates()).templates.find(entry => entry.id === templateId);
+      if (!current || current.packageSha256 !== prepared.packageSha256 || current.relativePath !== prepared.relativePath) throw fail('模组包或来源在创建前发生变化，请重新读取');
       const previous = await registry(), campaignId = randomUUID(), battleId = randomUUID(), id = 'campaign:' + campaignId;
       const folder = (folderName(name) || '新团') + '--' + campaignId.slice(0, 8), base = await safe('模组/' + folder);
-      await mkdir(base);
-      for (const area of ['故事', '对话', '战斗/存档']) await mkdir(join(base, area), { recursive: true });
       const state = newBattleState(campaignId, battleId, encounter?.name || '模组战斗准备');
       state.actors[0].notes += ' 此角色仅供完整流程接线测试，不代表真实玩家角色。';
       if (encounter?.board) state.board = { ...state.board, ...encounter.board };
       if (monsterResource) state.actors.push(merrowActor(monsterResource));
       if (voyage) {
         const width = Math.min(60, state.board.width - 10), depth = Math.min(30, state.board.depth - 10);
-        state.objects = [{ id: 'voyage-schematic-deck', name: '甲板示意（非原书比例，可编辑）', type: 'floor', shape: 'box',
+        state.objects = [{ id: 'voyage-schematic-deck', name: '甲板示意（非原书比例，可编辑）', type: training ? 'tile' : 'floor', shape: 'box',
           position: { x: state.board.width / 2, y: 0, z: state.board.depth / 2 }, size: { width, depth, height: .5 }, rotation: 0, hidden: false, blocksMovement: false }];
         state.actors[0].position = { x: Math.round((state.board.width / 2 - width / 4) * 2) / 2, y: .5, z: state.board.depth / 2 };
         if (state.actors[1]) state.actors[1].position = { x: Math.round((state.board.width / 2 + width / 4) * 2) / 2, y: .5, z: state.board.depth / 2 };
       }
+      if (training) {
+        state.actors[0].position = { x: state.board.width / 2 - 12.5, y: 0, z: state.board.depth / 2 - 2.5 };
+        const { applyVoyageTraining } = await import('./voyage-training.mjs');
+        applyVoyageTraining(state);
+        for (const actor of state.actors) actor.position.y = 0;
+        state.actors[1].position = { x: state.board.width / 2, y: 0, z: state.board.depth / 2 };
+      }
       validateState(state);
+      const templateIdentity = { moduleId: templateId, batchId: prepared.batchId, packageSha256: prepared.packageSha256, path: prepared.relativePath + '/预处理.json' };
+      const sceneNodes = training ? template.storyNodes.filter(node => typeof node?.id === 'string' &&
+        (/(?:^|[-_])voyage(?:[-_]|$)/i.test(node.id) || /驶向风骸岛/.test(node.source?.heading || '') ||
+          (node.source?.mdPath === encounter.source?.mdPath && Array.isArray(node.source?.lines) && Array.isArray(encounter.source?.lines) && node.source.lines[0] >= encounter.source.lines[0] && node.source.lines[1] <= encounter.source.lines[1]))) : [];
+      if (training && !sceneNodes.length) throw fail('序幕训练缺少可追溯故事节点，未建立空白试玩团');
+      const trainingDetails = training ? { kind: 'voyage-training-v1', encounterId: encounter.id, rulesFamily: 'dnd-2024', monsterResourceId: monsterResource.id, sceneNodes } : undefined;
       const manifest = { formatVersion: 1, kind: 'module-run', id, name: name.trim(), campaignId, templateId,
+        templateIdentity, ...(training ? { training: trainingDetails } : {}),
         source: template.source, maps: template.maps, storyNodes: template.storyNodes,
         resourceIds: [...new Set([...(template.resourceIds || []), ...(monsterResource ? [monsterResource.id] : [])])],
         encounterTemplates: template.encounterTemplates || [], reviewStatus: template.reviewStatus,
-        warnings: ['占位角色须由DM替换或核对；载入不会自动开战。',
+        warnings: [training ? '训练角色为明确标注的合成样本，须由DM核对后开始；不是完整职业角色卡或难度承诺。' : '占位角色须由DM替换或核对；载入不会自动开战。',
           ...(template.reviewStatus !== 'verified' ? ['这是自动提取候选，故事条件、图像用途和资源匹配仍需核对。'] : []),
           ...(voyage ? ['序幕登船遭遇可交涉或战斗，由DM决定是否采用。', '船只棋盘和甲板尺寸为可编辑示意，原书没有该船的俯视网格图；没有自动判定水域和落水。', '原书序幕教学回合法不覆盖已启用的2024机械规则。'] : [])] };
+      await mkdir(base);
+      for (const area of ['故事', '对话', '战斗/存档']) await mkdir(join(base, area), { recursive: true });
       await atomicJson(join(base, '故事/模组调用.json'), manifest);
       await atomicJson(join(base, '战斗/存档/战斗状态.json'), state);
       await atomicJson(join(base, '战斗/存档/团资料.json'), { formatVersion: 1, id: campaignId, name: name.trim(), battles: [{ id: battleId, name: state.title, path: '.' }] });
       const next = { ...previous, campaigns: [...previous.campaigns, { id: campaignId, path: folder + '/战斗/存档' }], activeCampaignId: campaignId, activeBattleId: battleId };
       if (previous.campaigns.length) await atomicJson(join(modules, '工作区.previous.json'), previous);
       await atomicJson(join(modules, '工作区.json'), next);
-      return { moduleId: id, moduleName: name.trim(), campaignId, battleId, folder, warnings: manifest.warnings };
+      return { moduleId: id, moduleName: name.trim(), campaignId, battleId, folder, templateIdentity, ...(training ? { training: trainingDetails } : {}), warnings: manifest.warnings };
     } finally { await release(); }
   }
   return { templates, readRun, createRun, listRuns, sources, preprocessSource, settled: () => preprocessQueue.catch(() => {}) };

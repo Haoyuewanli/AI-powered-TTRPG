@@ -128,6 +128,13 @@ try {
   await until(() => oldInput.evaluate(node => !node.isConnected), value => value, 'chat rebuilt after expanding file section');
   assert.equal(await page.locator('[data-project-chat-input]').inputValue(), draft);
   check('同模组收起再展开文件区保留正式聊天草稿，重新构建消息显示不会丢输入');
+  await openPanel('modules');
+  await page.locator('[data-project-select-module="module-2"]').click();
+  await until(() => notice.textContent(), value => value.includes('未发送草稿'), 'unsent draft blocks a module change');
+  await openPanel('dialogue');
+  assert.equal(await page.locator('[data-project-chat-input]').inputValue(), draft);
+  await page.locator('[data-project-chat-input]').fill('');
+  check('未发送草稿阻止切团并保持原文，明确清空后才允许切换');
 
   await openPanel('resources'); await resource('npc-1').waitFor();
   let continueOldModuleRead, moduleReadStarted, moduleReadFinished, moduleReadFailed;
@@ -149,7 +156,7 @@ try {
   await openPanel('dialogue'); await page.locator('[data-project-chat-input]').waitFor();
   assert.equal(await page.locator('[data-project-chat-input]').inputValue(), '');
   assert(!(await page.locator('[data-project-chat-log]').textContent()).includes(message));
-  check('切换真实模组清空草稿及旧聊天闭包，迟到资源响应不能回填新模组或把导航拉回旧标签');
+  check('明确清空草稿后切换真实模组，旧聊天闭包和迟到资源响应不能回填新模组或拉回旧标签');
   await selectModule();
 
   await openPanel('resources'); await resource('npc-1').waitFor();

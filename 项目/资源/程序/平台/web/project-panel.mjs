@@ -1,4 +1,5 @@
 import { createMapWorkspace } from './map-workspace.mjs';
+import { createVoyageWorkspace } from './voyage-workspace.mjs';
 
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
 const button = (text, action) => { const node = el('button', text, 'project-button'); node.type = 'button'; node.addEventListener('click', action); return node; };
@@ -29,6 +30,19 @@ export function createProjectPanel({ platform, dialogue }) {
   const frameStatus = el('p', '', 'project-notice'); frameArea.append(frameStatus); root.querySelector('[data-platform-view="battle"]').append(frameArea);
   const frameContext = el('p', '', 'project-notice'); frameContext.hidden = true; frameContext.dataset.projectBattleContext = ''; frameArea.append(frameContext);
   const mapView = createMapWorkspace({ platform, api, mutate, run, openResource: preview });
+  const voyage = createVoyageWorkspace({
+    host: frameArea.parentElement, api, mutate, run, report: text => { notice.textContent = text; },
+    enterBattle: async () => { if (!await canLeave()) return false; platform.show('battle'); frame?.focus(); return true; }
+  });
+  const trainingEntry = button('开始或继续甲板试玩', () => run(async () => {
+    if (!await canLeave()) return;
+    platform.show('modules'); blocks.get('modules').details.open = true; await loadModules();
+  }));
+  trainingEntry.dataset.projectTrainingEntry = ''; trainingEntry.hidden = true;
+  root.querySelector('.p-home-copy').append(trainingEntry);
+  window.addEventListener('beforeunload', event => {
+    if (voyage.hasDraft() || chatDraft.trim() || !mapView.canLeave()) { event.preventDefault(); event.returnValue = ''; }
+  });
   async function loadMaps() {
     const body = blocks.get('maps').body; body.replaceChildren();
     if (!selected) { body.append(el('p', '请先在模组窗口选择所属团；原公共地图示例继续保留。')); return; }
@@ -39,7 +53,7 @@ export function createProjectPanel({ platform, dialogue }) {
     const generation = epoch;
     const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { ...(token ? { 'X-Platform-Session': token } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const result = await response.json(); if (generation !== epoch) throw new Error('视角已切换');
-    if (!response.ok) throw new Error(result.error || '本地操作失败'); return result;
+    if (!response.ok) throw Object.assign(new Error(result.error || '本地操作失败'), { status: response.status }); return result;
   }
   async function run(operation) { const generation = epoch; try { return await operation(); } catch (error) { if (generation === epoch) notice.textContent = error.message; } }
   async function mutate(route, body) { const expectedModuleId = selected?.moduleId; const status = await api('/api/project/status'); return api('/api/project/' + route, { expectedRevision: status.revision, ...body, ...(expectedModuleId ? { expectedModuleId } : {}) }); }
@@ -68,7 +82,7 @@ export function createProjectPanel({ platform, dialogue }) {
         await removeFrame();
         const value = await api('/api/project/select-module', { moduleId: item.id, ...(battle.value ? { battleId: battle.value } : {}) });
         epoch++;
-        selected = value.selected; referenceIds = []; chatDraft = ''; tabIds.clear(); dialogue.clear(); mapView.clear(); context();
+        selected = value.selected; referenceIds = []; chatDraft = ''; tabIds.clear(); dialogue.clear(); mapView.clear(); voyage.clear(); context();
         for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
         if (item.campaignId) { connection = await api('/api/battle/status'); await mountBattle(); } else await removeFrame();
         notice.textContent = '当前所属模组已切换；地图、对话、战斗共用此选择。';
@@ -81,7 +95,7 @@ export function createProjectPanel({ platform, dialogue }) {
     const prepared = await api('/api/project/templates');
     const pending = await api('/api/project/preprocess-sources');
     if (request !== moduleLoad) return;
-    body.append(el('p', '新模组：把PDF与封面放进“模组/预处理/故事”的独立文件夹，刷新后提取文字和图像候选。候选须核对，不会自动编排剧情。'));
+    body.append(el('p', '已整理资料包从“模组/预处理/分类/模组”读取；旧PDF提取入口继续兼容。候选须核对，不会自动编排剧情。'));
     for (const source of pending.sources) {
       const row = el('div', undefined, 'project-row'), process = button('提取预处理候选', () => run(async () => {
         process.disabled = true; notice.textContent = '正在本机提取PDF/图片，原文件保留；请等待完成。';
@@ -93,11 +107,14 @@ export function createProjectPanel({ platform, dialogue }) {
     for (const template of prepared.templates) {
       const row = el('section', undefined, 'project-row');
       row.append(el('strong', template.name), el('span', `${template.maps}张地图 · ${template.nodes}个故事节点 · ${template.reviewStatus === 'verified' ? '已核对' : '待核对候选'}`));
+      if (template.batchId) row.append(el('small', '批次：' + template.batchId + ' · ' + (template.category || '未分类')));
       const name = el('input'); name.value = template.name + ' · 新团'; name.setAttribute('aria-label', '新团名称'); name.maxLength = 80;
-      const create = button('新建团并选择', () => run(async () => {
-        if (changingModule || !await canLeave()) return;
+      const createTemplate = training => run(async () => {
+        if (changingModule) return;
         changingModule = true; create.disabled = true;
+        if (train) train.disabled = true;
         try {
+          if (!await canLeave()) return;
           await removeFrame(); await api('/api/battle/stop', {});
           let monsterResourceId;
           if (template.id === 'stormwreck-isle-v1436') {
@@ -105,16 +122,21 @@ export function createProjectPanel({ platform, dialogue }) {
             monsterResourceId = found.resources.find(entry => entry.sourceBook.includes('2025'))?.id;
             if (!monsterResourceId) throw new Error('尚未找到已核对的2024梅洛资源，请先完成本地规则资料导入。');
           }
-          const value = await api('/api/project/create-run', { templateId: template.id, name: name.value.trim(), ...(monsterResourceId ? { monsterResourceId } : {}) });
+          const value = await api('/api/project/create-run', { templateId: template.id, name: name.value.trim() + (training ? ' · 甲板试玩' : ''), training, expectedPackageSha256: template.packageSha256, ...(monsterResourceId ? { monsterResourceId } : {}) });
           const chosen = await api('/api/project/select-module', { moduleId: value.moduleId, battleId: value.battleId });
-          epoch++; selected = chosen.selected; referenceIds = []; chatDraft = ''; tabIds.clear(); dialogue.clear(); mapView.clear(); context();
+          epoch++; selected = chosen.selected; referenceIds = []; chatDraft = ''; tabIds.clear(); dialogue.clear(); mapView.clear(); voyage.clear(); context();
           for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
           connection = await api('/api/battle/status'); await mountBattle();
-          notice.textContent = '新团已建立，故事、对话和战斗分别保存；首战停在准备阶段，请核对角色。';
+          notice.textContent = training ? '独立甲板试玩团已建立；先读场景与教学，再核对角色、提交先攻。整本资料仍为候选。' : '新团已建立，故事、对话和战斗分别保存；首战停在准备阶段，请核对角色。';
           await loadModules();
-        } finally { changingModule = false; create.disabled = false; }
-      })); create.dataset.projectCreateRun = template.id; row.append(name, create); body.append(row);
+        } finally { changingModule = false; create.disabled = false; if (train) train.disabled = false; }
+      });
+      const create = button('新建团并选择', () => createTemplate(false));
+      const train = template.canTrain ? button('新建甲板试玩团', () => createTemplate(true)) : null;
+      if (train) train.dataset.projectCreateTraining = template.id;
+      create.dataset.projectCreateRun = template.id; row.append(name, create); if (train) row.append(train); body.append(row);
     }
+    if (prepared.issues?.length) body.append(el('p', prepared.issues.map(item => item.error).join('；')));
   }
   async function preview(resource) {
     const value = await api('/api/project/read?resourceId=' + encodeURIComponent(resource.id));
@@ -212,7 +234,15 @@ export function createProjectPanel({ platform, dialogue }) {
     const pending = waits.get(event.data.id); if (!pending || event.data.type !== 'reply') return;
     clearTimeout(pending.timer); waits.delete(event.data.id); pending.accept(event.data);
   });
-  async function canLeave() { if (mapView.canLeave && !mapView.canLeave()) { notice.textContent = '地图或故事记录仍有草稿，请先保存或明确重新读取后再切换所属团或身份。'; return false; } if (!frame) return true; const result = await bridge('canLeave'); if (!result.allowed) notice.textContent = '战斗正在保存或有未提交编辑，请先保存或放弃后再离开。'; return !!result.allowed; }
+  async function canLeave() {
+    if (!voyage.canLeave()) { notice.textContent = '试玩记录有未保存草稿或正在保存，请先保存或明确放弃草稿。'; return false; }
+    if (chatDraft.trim()) { notice.textContent = '群聊仍有未发送草稿，请先保存或清空后再切换。'; return false; }
+    if (mapView.canLeave && !mapView.canLeave()) { notice.textContent = '地图或故事记录仍有草稿，请先保存或明确重新读取后再切换所属团或身份。'; return false; }
+    if (!frame) return true;
+    const result = await bridge('canLeave');
+    if (!result.allowed) notice.textContent = '战斗正在保存或有未提交编辑，请先保存或放弃后再离开。';
+    return !!result.allowed;
+  }
   async function removeFrame() { if (frame?.dataset.ready) await bridge('logout'); frame?.remove(); frame = null; frameContext.textContent = ''; frameContext.hidden = true; frameArea.hidden = true; frameArea.parentElement.classList.remove('has-live-battle'); }
   async function mountBattle() {
     if (frame) return;
@@ -222,17 +252,22 @@ export function createProjectPanel({ platform, dialogue }) {
     frameStatus.textContent = '战斗已连接；请在战斗区域选择身份。';
     const content = await api('/api/project/module-content');
     frameContext.textContent = (content.warnings || []).filter(text => /示意|候选/.test(text)).join(' '); frameContext.hidden = !frameContext.textContent;
+    await voyage.load(content);
+    if (content.training?.kind === 'voyage-training-v1') platform.show('battle');
   }
   root.addEventListener('click', event => {
-    if (replay || !frame) return;
-    const target = event.target.closest('[data-platform-page],[data-page],[data-home-identity],[data-change-role]');
-    if (!target || target.dataset.platformPage === 'battle' || (platform.page !== 'battle' && !target.hasAttribute('data-change-role'))) return;
+    if (replay) return;
+    const target = event.target.closest('button[data-platform-page],button[data-page],button[data-home-identity],button[data-change-role],button[data-role]');
+    const identityChange = target?.hasAttribute('data-change-role') || target?.hasAttribute('data-role');
+    if (!target || target.dataset.platformPage === 'battle' || (platform.page !== 'battle' && !identityChange)) return;
+    if (!frame && !voyage.hasDraft() && !chatDraft.trim() && mapView.canLeave()) return;
     event.preventDefault(); event.stopImmediatePropagation();
     run(async () => { if (!await canLeave()) return; await bridge('setVisible', { visible: false }); if (target.hasAttribute('data-change-role')) await bridge('logout'); replay = true; target.click(); replay = false; });
   }, true);
   async function setRole(value) {
     resetCoverViews();
     mapView.clear();
+    voyage.clear(); trainingEntry.hidden = true;
     role = value; const generation = ++epoch; selected = null; referenceIds = []; chatDraft = ''; resources = []; tabIds.clear();
     sessionStorage.removeItem('platform-session');
     frame?.remove(); frame = null; frameContext.textContent = ''; frameContext.hidden = true; frameArea.hidden = true; frameArea.parentElement.classList.remove('has-live-battle');
@@ -242,6 +277,7 @@ export function createProjectPanel({ platform, dialogue }) {
       const result = await response.json(); token = result.token;
       if (generation !== epoch) return;
       if (value === 'dm' && token) sessionStorage.setItem('platform-session', token); else sessionStorage.removeItem('platform-session');
+      trainingEntry.hidden = value !== 'dm' || !token;
       notice.textContent = value === 'dm' ? '本机DM可在各窗口展开本地文件区；示例设计保持可用。' : 'Player当前为公共预览，真实文件不会加载。';
     });
     return sessionQueue;

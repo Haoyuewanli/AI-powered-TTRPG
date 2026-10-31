@@ -75,7 +75,10 @@ export async function createProjectApi({ root, battle }) {
     if (path === '/api/project/modules' && request.method === 'GET') return send(200, await modules());
     if (path === '/api/project/templates' && request.method === 'GET') {
       const result = await runtime.templates();
-      return send(200, { templates: result.templates.map(({ id, name, reviewStatus, value }) => ({ id, name, reviewStatus, maps: value.maps.length, nodes: value.storyNodes.length })), issues: result.issues });
+      return send(200, { templates: result.templates.map(({ id, name, reviewStatus, value, category, batchId, packageSha256, relativePath }) => ({
+        id, name, reviewStatus, category, batchId, packageSha256, relativePath, maps: value.maps.length, nodes: value.storyNodes.length,
+        canTrain: value.encounterTemplates?.some(entry => typeof entry.id === 'string' && entry.id.endsWith('voyage-merrow')) || false
+      })), issues: result.issues });
     }
     if (path === '/api/project/preprocess-sources' && request.method === 'GET') return send(200, { sources: await runtime.sources() });
     if (path === '/api/project/preprocess' && request.method === 'POST') return send(200, await runtime.preprocessSource(body.sourceId));
@@ -83,7 +86,8 @@ export async function createProjectApi({ root, battle }) {
       if (battle.status().running) throw problem(409, '请先在模组窗口安全关闭当前战斗连接，再建立新团');
       let monsterResource;
       if (body.monsterResourceId) monsterResource = JSON.parse((await files.readResource(body.monsterResourceId)).bytes.toString('utf8'));
-      return send(200, await runtime.createRun({ templateId: body.templateId, name: body.name, monsterResource }));
+      if (body.training !== undefined && typeof body.training !== 'boolean') throw problem(400, '训练标记须为布尔值');
+      return send(200, await runtime.createRun({ templateId: body.templateId, name: body.name, monsterResource, training: body.training === true, expectedPackageSha256: body.expectedPackageSha256 }));
     }
     if (path === '/api/project/module-content' && request.method === 'GET') {
       if (!session.selected) throw problem(409, '请先选择所属模组');
