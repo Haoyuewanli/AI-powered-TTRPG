@@ -14,7 +14,7 @@ export function createProjectPanel({ platform, dialogue }) {
   window.addEventListener('pagehide', resetCoverViews);
   let token = sessionStorage.getItem('platform-session') || null, role = null, epoch = 0, sessionQueue = Promise.resolve(), selected = null, resources = [], referenceIds = [], connection = null, frame = null, serial = 0, replay = false, changingModule = false;
   const waits = new Map(), tabIds = new Map();
-  let chatDraft = '', resourceQuery = '', resourceKind = '', resourceOffset = 0, resourceLoad = 0, moduleLoad = 0;
+  let chatDraft = '', resourceQuery = '', resourceKind = '', resourceOffset = 0, resourceLoad = 0, moduleLoad = 0, roleReady = false;
   const root = platform.root;
   const notice = el('p', '真实资料只在本机DM显式打开后读取。', 'project-notice'); notice.setAttribute('role', 'status');
   const blocks = new Map();
@@ -22,9 +22,16 @@ export function createProjectPanel({ platform, dialogue }) {
     const details = el('details', undefined, 'project-tools'); details.dataset.projectPanel = page;
     details.append(el('summary', ({ modules: '本地模组与战斗接入', resources: '本地资源文件', dialogue: '当前模组群聊文件', maps: '当前模组地图与故事' })[page]));
     const body = el('div', undefined, 'project-tools-body'); details.append(body); root.querySelector(`[data-platform-view="${page}"]`).append(details);
-    details.addEventListener('toggle', () => { if (details.open && role === 'dm') run(() => page === 'modules' ? loadModules() : page === 'resources' ? loadResources() : page === 'maps' ? loadMaps() : openChat()); });
+    details.addEventListener('toggle', () => { if (details.open && role === 'dm' && roleReady) run(() => page === 'modules' ? loadModules() : page === 'resources' ? loadResources() : page === 'maps' ? loadMaps() : openChat()); });
     blocks.set(page, { details, body });
   }
+  const modulesView = root.querySelector('[data-platform-view="modules"]');
+  const moduleExamples = button('查看界面示例', () => {
+    const showing = modulesView.classList.toggle('show-module-examples');
+    moduleExamples.textContent = showing ? '返回本地模组' : '查看界面示例';
+  });
+  moduleExamples.dataset.projectModuleExamples = ''; moduleExamples.hidden = true;
+  modulesView.prepend(moduleExamples, blocks.get('modules').details);
   root.querySelector('.p-appearance-status').append(notice);
   const frameArea = el('section', undefined, 'project-battle-host'); frameArea.hidden = true;
   const frameStatus = el('p', '', 'project-notice'); frameArea.append(frameStatus); root.querySelector('[data-platform-view="battle"]').append(frameArea);
@@ -34,12 +41,13 @@ export function createProjectPanel({ platform, dialogue }) {
     host: frameArea.parentElement, api, mutate, run, report: text => { notice.textContent = text; },
     enterBattle: async () => { if (!await canLeave()) return false; platform.show('battle'); frame?.focus(); return true; }
   });
-  const trainingEntry = button('开始或继续甲板试玩', () => run(async () => {
+  const trainingEntry = button('风骸岛之龙 · 甲板试玩', () => run(async () => {
     if (!await canLeave()) return;
     platform.show('modules'); blocks.get('modules').details.open = true; await loadModules();
   }));
   trainingEntry.dataset.projectTrainingEntry = ''; trainingEntry.hidden = true;
-  root.querySelector('.p-home-copy').append(trainingEntry);
+  trainingEntry.className = 'p-primary p-button cursor-interaction';
+  root.querySelector('.p-home-actions').prepend(trainingEntry);
   window.addEventListener('beforeunload', event => {
     if (voyage.hasDraft() || chatDraft.trim() || !mapView.canLeave()) { event.preventDefault(); event.returnValue = ''; }
   });
@@ -60,6 +68,11 @@ export function createProjectPanel({ platform, dialogue }) {
   function context() {
     for (const node of root.querySelectorAll('[data-module-context]')) node.textContent = selected ? `当前模组：${selected.moduleName}` : '未选择模组';
     for (const block of blocks.values()) block.details.hidden = role !== 'dm';
+    modulesView.classList.toggle('has-local-modules', role === 'dm');
+    moduleExamples.hidden = role !== 'dm';
+    const homeStatus = root.querySelector('#platform-current-session');
+    homeStatus.textContent = selected ? '当前团：' + selected.moduleName : role === 'dm'
+      ? '从本地模组清单选择资料或继续游玩团。' : '本地资料在选择DM后读取；Player目前为公共演示。';
   }
   async function loadModules() {
     const request = ++moduleLoad;
@@ -67,31 +80,9 @@ export function createProjectPanel({ platform, dialogue }) {
     const start = button('载入已有战斗团', () => run(async () => { connection = await api('/api/battle/start', {}); await loadModules(); notice.textContent = '已载入独立战斗模块，请在此确认所属团。'; })); start.dataset.projectStartBattle = '';
     const refresh = button('刷新模组清单', () => run(loadModules)); refresh.dataset.projectRefreshModules = '';
     const covers = el('a', '管理真实模组封面', 'project-button'); covers.id = 'platform-manage-covers'; covers.href = '/module-covers'; covers.target = 'platform-module-covers';
-    body.append(el('p', '设计封面环继续演示；这里选择真实模组或已迁入的兼容战斗团。'), start, refresh, covers);
+    body.append(el('h3', '本地模组与游玩团'), el('p', '从实际文件读取；浏览清单不会切换当前团。'), refresh, start, covers);
     const data = await api('/api/project/modules');
     if (request !== moduleLoad) return;
-    for (const item of data.modules) {
-      const row = el('div', undefined, 'project-row'), label = el('span', item.name + (item.campaignId ? ' · 游玩模组' : ''));
-      const battle = el('select'); battle.setAttribute('aria-label', '该团战斗');
-      for (const entry of item.battles || []) { const option = el('option', entry.name); option.value = entry.id; battle.append(option); }
-      const choose = button('确认所属模组', () => run(async () => {
-        if (changingModule) return;
-        changingModule = true;
-        try {
-        if (!await canLeave()) return;
-        await removeFrame();
-        const value = await api('/api/project/select-module', { moduleId: item.id, ...(battle.value ? { battleId: battle.value } : {}) });
-        epoch++;
-        selected = value.selected; referenceIds = []; chatDraft = ''; tabIds.clear(); dialogue.clear(); mapView.clear(); voyage.clear(); context();
-        for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
-        if (item.campaignId) { connection = await api('/api/battle/status'); await mountBattle(); } else await removeFrame();
-        notice.textContent = '当前所属模组已切换；地图、对话、战斗共用此选择。';
-        } finally { changingModule = false; }
-      })); choose.dataset.projectSelectModule = item.id;
-      row.append(label); if (item.battles?.length) row.append(battle); row.append(choose); body.append(row);
-    }
-    if (!data.modules.length) body.append(el('p', '暂无已创建的游玩模组；可从下方已预处理模板新建团。'));
-    if (data.issues.length) body.append(el('p', data.issues.join('；')));
     const prepared = await api('/api/project/templates');
     const pending = await api('/api/project/preprocess-sources');
     if (request !== moduleLoad) return;
@@ -104,6 +95,7 @@ export function createProjectPanel({ platform, dialogue }) {
       }));
       row.append(el('span', source.name), process); body.append(row);
     }
+    body.append(el('h3', '可用模组'));
     for (const template of prepared.templates) {
       const row = el('section', undefined, 'project-row');
       row.append(el('strong', template.name), el('span', `${template.maps}张地图 · ${template.nodes}个故事节点 · ${template.reviewStatus === 'verified' ? '已核对' : '待核对候选'}`));
@@ -137,6 +129,29 @@ export function createProjectPanel({ platform, dialogue }) {
       create.dataset.projectCreateRun = template.id; row.append(name, create); if (train) row.append(train); body.append(row);
     }
     if (prepared.issues?.length) body.append(el('p', prepared.issues.map(item => item.error).join('；')));
+    body.append(el('h3', '已有游玩团'));
+    for (const item of data.modules) {
+      const row = el('div', undefined, 'project-row'), label = el('span', item.name + (item.campaignId ? ' · 游玩模组' : ''));
+      const battle = el('select'); battle.setAttribute('aria-label', '该团战斗');
+      for (const entry of item.battles || []) { const option = el('option', entry.name); option.value = entry.id; battle.append(option); }
+      const choose = button('确认所属模组', () => run(async () => {
+        if (changingModule) return;
+        changingModule = true;
+        try {
+        if (!await canLeave()) return;
+        await removeFrame();
+        const value = await api('/api/project/select-module', { moduleId: item.id, ...(battle.value ? { battleId: battle.value } : {}) });
+        epoch++;
+        selected = value.selected; referenceIds = []; chatDraft = ''; tabIds.clear(); dialogue.clear(); mapView.clear(); voyage.clear(); context();
+        for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
+        if (item.campaignId) { connection = await api('/api/battle/status'); await mountBattle(); } else await removeFrame();
+        notice.textContent = '当前所属模组已切换；地图、对话、战斗共用此选择。';
+        } finally { changingModule = false; }
+      })); choose.dataset.projectSelectModule = item.id;
+      row.append(label); if (item.battles?.length) row.append(battle); row.append(choose); body.append(row);
+    }
+    if (!data.modules.length) body.append(el('p', '暂无已创建的游玩模组；可从下方已预处理模板新建团。'));
+    if (data.issues.length) body.append(el('p', data.issues.join('；')));
   }
   async function preview(resource) {
     const value = await api('/api/project/read?resourceId=' + encodeURIComponent(resource.id));
@@ -267,7 +282,7 @@ export function createProjectPanel({ platform, dialogue }) {
   async function setRole(value) {
     resetCoverViews();
     mapView.clear();
-    voyage.clear(); trainingEntry.hidden = true;
+    voyage.clear(); trainingEntry.hidden = true; roleReady = false;
     role = value; const generation = ++epoch; selected = null; referenceIds = []; chatDraft = ''; resources = []; tabIds.clear();
     sessionStorage.removeItem('platform-session');
     frame?.remove(); frame = null; frameContext.textContent = ''; frameContext.hidden = true; frameArea.hidden = true; frameArea.parentElement.classList.remove('has-live-battle');
@@ -276,13 +291,22 @@ export function createProjectPanel({ platform, dialogue }) {
       const response = await fetch('/api/local-view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: value, previous: token }) });
       const result = await response.json(); token = result.token;
       if (generation !== epoch) return;
+      roleReady = true;
       if (value === 'dm' && token) sessionStorage.setItem('platform-session', token); else sessionStorage.removeItem('platform-session');
       trainingEntry.hidden = value !== 'dm' || !token;
-      notice.textContent = value === 'dm' ? '本机DM可在各窗口展开本地文件区；示例设计保持可用。' : 'Player当前为公共预览，真实文件不会加载。';
+      notice.textContent = value === 'dm' ? '点击模组即可浏览本地资料与游玩团；界面示例保留在单独入口。' : 'Player当前为公共预览，真实文件不会加载。';
+      setPage(platform.page);
     });
     return sessionQueue;
   }
-  function setPage(page) { if (frame?.dataset.ready) run(() => bridge('setVisible', { visible: page === 'battle' })); }
+  function setPage(page) {
+    if (frame?.dataset.ready) run(() => bridge('setVisible', { visible: page === 'battle' }));
+    if (page === 'modules' && role === 'dm' && roleReady && token) {
+      modulesView.classList.remove('show-module-examples'); moduleExamples.textContent = '查看界面示例';
+      const details = blocks.get('modules').details;
+      if (!details.open) details.open = true; else run(loadModules);
+    }
+  }
   setInterval(async () => {
     if (!frame || role !== 'dm' || platform.page !== 'battle') return;
     try { const status = await api('/api/battle/status'); frameStatus.textContent = status.projection?.state === 'error' ? '文件同步待处理：' + status.projection.error : status.projection?.state === 'saved' ? '当前资源与战斗进度已同步' : '正在同步资源与进度'; } catch { /* Navigation may revoke this view while a read is pending. */ }

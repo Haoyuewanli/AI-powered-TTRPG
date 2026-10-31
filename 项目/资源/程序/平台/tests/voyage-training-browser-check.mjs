@@ -55,7 +55,7 @@ async function localApi(path) {
 }
 async function chooseDm() {
   await page.locator('#enter-dm').click();
-  await until(() => notice.textContent(), value => value.includes('本机DM可'), 'platform DM view');
+  await until(() => page.evaluate(() => Boolean(sessionStorage.getItem('platform-session'))), Boolean, 'platform DM session ready');
 }
 const statePath = () => join(projectRoot, '模组', created.folder, '战斗/存档/战斗状态.json');
 const state = async () => JSON.parse(await readFile(statePath(), 'utf8'));
@@ -95,7 +95,16 @@ async function attackPlayer(pc, npc) {
 }
 async function openModules() {
   await nav('modules'); const details = page.locator('[data-project-panel=modules]');
-  if (!await details.evaluate(node => node.open)) await details.locator(':scope > summary').click();
+  await until(() => details.evaluate(node => node.open), Boolean, 'real modules opened by ordinary navigation');
+}
+async function assertFirstScreen(locator, label) {
+  assert(await locator.isVisible(), label + ' should be visible');
+  const box = await locator.boundingBox(), viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  assert(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1, label + ' should fit the first screen');
+  assert(await locator.evaluate(node => {
+    const box = node.getBoundingClientRect(), hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return hit === node || node.contains(hit);
+  }), label + ' should not be clipped or covered');
 }
 async function saveTrainingRecord(label) {
   const saved = page.waitForResponse(value => new URL(value.url()).pathname === '/api/project/module-state' && value.request().method() === 'POST' && value.status() === 200);
@@ -104,9 +113,22 @@ async function saveTrainingRecord(label) {
 }
 
 try {
-  await page.goto(app.url); await chooseDm(); await page.locator('[data-project-training-entry]').click();
+  await page.goto(app.url); await chooseDm();
+  const browse = page.getByRole('button', { name: '浏览本地模组', exact: true });
+  await assertFirstScreen(browse, 'Home primary local-module button');
+  await assertFirstScreen(page.getByRole('button', { name: '风骸岛之龙 · 甲板试玩', exact: true }), 'Named voyage training entry');
+  assert.doesNotMatch(await page.locator('#platform-current-session').textContent(), /正式资料尚未接入/);
+  await shot('00-首页真实试玩入口.png'); await browse.click();
   const create = page.locator('[data-project-create-training="' + template.moduleId + '"]'); await create.waitFor();
   const row = create.locator('..');
+  assert.equal(await page.locator('[data-project-panel=modules]').evaluate(node => node.open), true);
+  await assertFirstScreen(row.locator('strong'), 'Actual voyage template title');
+  await assertFirstScreen(create, 'Actual voyage training create button');
+  await shot('00-模组真实清单首屏.png');
+  await nav('home'); await openModules(); await create.waitFor();
+  await assertFirstScreen(row.locator('strong'), 'Voyage title reached through sidebar');
+  await assertFirstScreen(create, 'Training create button reached through sidebar');
+  assert.equal(requests.filter(entry => ['/api/project/create-run', '/api/project/select-module', '/api/battle/start'].includes(new URL(entry.url).pathname) && entry.method === 'POST').length, 0);
   assert((await row.textContent()).includes(template.batchId));
   assert((await row.textContent()).includes('候选'));
   await row.getByLabel('新团名称').fill('风骸岛序幕 · 隔离训练验收');
@@ -135,7 +157,7 @@ try {
   assert.deepEqual(await readFile(statePath()), initialBytes);
   assert.equal(requests.filter(entry => new URL(entry.url).pathname === '/api/project/map-image').length, 0);
   await shot('01-真实候选序幕与训练入口.png');
-  check('首页入口读取实际候选包及批次摘要，连续两次创建点击只建一个独立合成训练团；阅读来源序幕不自动开图、确认角色或开战');
+  check('首页主按钮和侧栏直接显示首屏真实风骸岛候选包；连续两次创建点击只建一个训练团，阅读序幕不自动开图、确认角色或开战');
 
   let note = '隔离序幕记录：先交涉再决定战斗。<script>window.voyageInjected=true</script>';
   await page.locator('[data-training-notes]').fill(note);
@@ -256,6 +278,7 @@ try {
 
   const completed = await readFile(statePath());
   await page.goto('about:blank'); await app.close();
+  console.log('CHECKPOINT: first platform and battle services closed before restart');
   app = await startPlatform({ projectRoot, port: 0, appearanceFile: join(directory, '外观.json') }); allowedOrigins.add(app.url);
   await page.goto(app.url); await chooseDm(); await openModules();
   const select = page.locator('[data-project-select-module="' + created.moduleId + '"]'); await select.waitFor(); await select.click();
@@ -271,7 +294,11 @@ try {
   await shot('04-同团重开恢复.png');
   check('真正停止平台与战斗服务后重开、显式选择同一团，故事记录、生命、位置、回合和结束状态从文件恢复，不另建团或自动开图');
 
-  await page.goto('about:blank'); await app.close();
+  console.log('CLEANUP: leaving the final training page');
+  await page.goto('about:blank');
+  console.log('CLEANUP: closing the owned browser before the final platform shutdown');
+  await browser.close(); await app.close();
+  console.log('CLEANUP: final browser and platform shutdown completed');
   await fixture.verifyUntouched(); assert.deepEqual(errors, []); assert.deepEqual(outside, []);
   check('原始candidate资料包和MD/2024怪物摘要不变，隔离已有合成团文件不变，浏览器无脚本错误或外网请求');
   await writeFile(join(directory, 'result.json'), JSON.stringify({ checks, screenshots, sourceFilesVerified: fixture.sourceFileCount,

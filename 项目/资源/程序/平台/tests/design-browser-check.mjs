@@ -40,6 +40,15 @@ const appearance = async () => (await page.request.get(app.url + '/api/appearanc
 const idleRing = () => ui('[data-ring][data-motion=idle]').waitFor();
 const chooseDisplay = value => ui('select[data-display-preset]:visible').first().selectOption(value);
 const css = name => page.locator('#platform-covers').evaluate((node, key) => getComputedStyle(node).getPropertyValue(key).trim(), name);
+async function showModuleExamples() {
+  if (!await ui('[data-group=a]').isVisible()) await ui('[data-project-module-examples]').click();
+  await ui('[data-group=a]').waitFor();
+}
+async function formalSelection() {
+  const token = await page.evaluate(() => sessionStorage.getItem('platform-session'));
+  const response = await page.request.get(app.url + '/api/project/status', { headers: { 'X-Platform-Session': token } });
+  assert.equal(response.status(), 200); return (await response.json()).selected;
+}
 
 try {
   await page.goto(app.url); await page.locator('#enter-dm').waitFor(); await page.locator('#enter-dm').click();
@@ -126,7 +135,9 @@ try {
   await ui('[data-preset]').selectOption('violet'); await settings(false);
   check('0%地面完全隐藏，20%地面与透视联动；四套配色可切换');
 
-  await nav('modules'); await ui('[data-group=a]').click(); await idleRing();
+  await nav('modules');
+  await until(() => ui('[data-project-panel=modules]').evaluate(node => node.open), Boolean, 'DM module list opened by navigation');
+  assert(await ui('[data-group=a]').isHidden());
   for (const name of ['modules', 'resources']) {
     await nav(name);
     const summary = ui(`[data-project-panel="${name}"] > summary`);
@@ -135,7 +146,9 @@ try {
     await until(() => summary.evaluate(node => getComputedStyle(node).transform), value => value !== 'none', 'local tools lift');
   }
   await nav('modules');
-  check('模组及资源右上本地入口保留常态体积阴影与悬停提起');
+  check('DM模组页默认展开本地清单，模组及资源资料入口保留常态阴影与悬停提起');
+  const selectedBeforeExamples = await formalSelection();
+  await showModuleExamples(); await ui('[data-group=a]').click(); await idleRing();
   assert.equal(await ui('[data-module-index]').count(), 5);
   assert.equal(await ui('[data-module-name]').textContent(), '封面 A');
   const firstAngle = Number(await ui('[data-ring]').getAttribute('data-angle'));
@@ -151,6 +164,14 @@ try {
   await ui('[data-confirm-module]').click(); assert((await ui('[data-module-confirmation]').textContent()).includes('封面 B'));
   await shot('设计恢复-模组环.png');
   check('分类滑块及1/3/5封面环保留，连续跨首尾旋转和方向键浏览、明确确认可用');
+  await ui('[data-project-module-examples]').click();
+  assert(await ui('[data-group=a]').isHidden());
+  assert.equal(await ui('[data-project-panel=modules]').evaluate(node => node.open), true);
+  assert.deepEqual(await formalSelection(), selectedBeforeExamples);
+  await showModuleExamples();
+  assert.equal(await ui('[data-module-name]').textContent(), '封面 B');
+  assert.deepEqual(await formalSelection(), selectedBeforeExamples);
+  check('本地清单与界面示例可显式往返；示例浏览和确认保留设计选择，不切换正式所属团');
 
   for (let index = 0; index < 2; index++) { await ui('[data-module-step="1"]').click(); await idleRing(); }
   assert((await ui('[data-module-ratio]').textContent()).includes('横版'));
@@ -227,7 +248,7 @@ try {
     }
     if (size.width <= 390) { await nav('maps'); await shot('设计恢复-地图-' + size.width + '.png'); await nav('dialogue'); await shot('设计恢复-对话-' + size.width + '.png'); }
   }
-  await page.emulateMedia({ reducedMotion: 'reduce' }); await nav('modules'); await ui('[data-group=a]').click(); await ui('[data-module-step="1"]').click(); await idleRing();
+  await page.emulateMedia({ reducedMotion: 'reduce' }); await nav('modules'); await showModuleExamples(); await ui('[data-group=a]').click(); await ui('[data-module-step="1"]').click(); await idleRing();
   await nav('resources'); await ui('[data-resource="NPC"]').click(); await ui('[data-resource-layout][data-phase=open]').waitFor();
   assert.equal(await ui('.p-resource-flight').count(), 0);
   assert.equal(await ui('[data-drawer-title]').textContent(), 'NPC');
@@ -261,7 +282,7 @@ try {
   check('独立入口标记接到原生请求且页面填满客户区；无绑定窗明确提示未调整，保存中切回原预设仍保留最后选择');
 
   const apiRequests = requests.filter(item => new URL(item.url).pathname.startsWith('/api/'));
-  const readOnlyApis = new Set(['/api/project/status', '/api/project/modules', '/api/project/resources', '/api/battle/status']);
+  const readOnlyApis = new Set(['/api/project/status', '/api/project/modules', '/api/project/templates', '/api/project/preprocess-sources', '/api/project/resources', '/api/battle/status']);
   assert(apiRequests.every(item => ['/api/appearance', '/api/local-view'].includes(new URL(item.url).pathname) || item.method === 'GET' && readOnlyApis.has(new URL(item.url).pathname)));
   assert.deepEqual(errors, []); assert.deepEqual(outside, []);
   const file = JSON.parse(await readFile(join(isolated, '.runtime', '外观.json'), 'utf8')); assert.equal(file.schemaVersion, 1);
