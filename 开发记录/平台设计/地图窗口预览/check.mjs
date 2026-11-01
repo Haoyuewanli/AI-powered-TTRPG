@@ -54,6 +54,7 @@ try {
   let hotspotCount = 0;
   for (const node of data.nodes.filter(n => n.kind === 'image')) for (const [index, hotspot] of (node.hotspots || []).entries()) {
     assert(data.nodes.some(n => n.id === hotspot.targetId));
+    assert(hotspot.x >= 0 && hotspot.x <= 1 && hotspot.y >= 0 && hotspot.y <= 1);
     await focus(node.id);
     const marker = page.locator(`[data-node-id="${node.id}"] [data-hotspot-index="${index}"]`);
     await marker.click();
@@ -85,6 +86,8 @@ try {
   await page.locator('#selection-name').fill('Aster'); await page.locator('#selection-name').press('Tab');
   const markers = (await state()).objects.filter(n => n.type === 'player');
   assert.equal(markers.length, 2); assert.equal(markers[0].name, markers[1].name); assert.notEqual(markers[0].id, markers[1].id);
+  await page.locator(`[data-object-id="${markers[1].id}"]`).dblclick();
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'selection-name');
   const markerBox = await page.locator(`[data-object-id="${markers[1].id}"]`).boundingBox();
   const labelBox = await page.locator(`[data-object-id="${markers[1].id}"] .player-name`).boundingBox();
   assert(labelBox.y + labelBox.height < markerBox.y);
@@ -143,6 +146,15 @@ try {
   const playerOrigin = new URL(playerUrl).origin;
   for (const path of ['/api/module', '/api/source?node=' + caves.id, '/app.mjs', '/data.mjs']) assert.equal((await fetch(playerOrigin + path)).status, 404);
   note('基础描述可定位原文，移步换景独立展示；获准玩家在独立入口只收到一张图片，DM资料接口无法访问');
+  const oldImageUrl = new URL(await playerPage.locator('img').getAttribute('src'), playerOrigin).href;
+  const revokeResponse = page.waitForResponse(response => response.url() === app.url + '/api/shares' && response.request().method() === 'POST');
+  await caveCard.locator(`.share-panel input[value="${playerId}"]`).uncheck(); await revokeResponse;
+  await playerPage.waitForFunction(() => document.images.length === 0);
+  assert.equal((await fetch(oldImageUrl)).status, 404);
+  const restoreShareResponse = page.waitForResponse(response => response.url() === app.url + '/api/shares' && response.request().method() === 'POST');
+  await caveCard.locator(`.share-panel input[value="${playerId}"]`).check(); await restoreShareResponse;
+  await playerPage.waitForFunction(() => document.images.length === 1 && document.images[0].complete);
+  note('撤回共享后旧图片链接失效，已打开玩家页面自动移除图片；重新授权可恢复');
 
   const downloadPromise = page.waitForEvent('download'); await page.locator('#save').click(); const download = await downloadPromise;
   const savePath = join(output, 'saved-canvas.json'); await download.saveAs(savePath);
@@ -165,6 +177,11 @@ try {
       return { client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth, vw: viewport.width, vh: viewport.height, dr: directory.right };
     });
     assert.equal(layout.client, layout.scroll); assert(layout.vw > 150 && layout.vh > 170); assert(layout.dr <= width + 1);
+    if (width === 1024) {
+      await restored.locator('#read-map').click();
+      assert.equal(await restored.locator('#map-reader').evaluate(node => Number.parseFloat(getComputedStyle(node.querySelector('.reader-content p')).fontSize)), 15);
+      await restored.locator('#map-reader button').click();
+    }
     await restored.screenshot({ path: join(output, `viewport-${width}.png`) });
   }
   await restored.setViewportSize({ width: 1600, height: 1000 }); await restored.locator('#fit-all').click();

@@ -26,7 +26,7 @@ test('初始四向布局保留图像比例，附属框预留区域互不覆盖',
   assert.equal(doc.nodes.length, moduleData.nodes.length);
   assert.equal((doc.nodes[0].h - 32) / doc.nodes[0].w, 0.7);
   assert.deepEqual(validateDocument(doc, moduleData), doc);
-  const boxes = doc.nodes.map(node => ({ ...node, w: node.w + 320, h: Math.max(node.h, 700) }));
+  const boxes = doc.nodes.map(node => ({ ...node, w: node.w + 320, h: Math.max(node.h, 220) }));
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
     const a = boxes[i], b = boxes[j];
     assert(!(a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y), a.id + ' overlaps ' + b.id);
@@ -94,7 +94,9 @@ test('存档拒绝身份错配、重复ID、非法数值和悬空连接', () => 
 test('视野边界包含附属信息框、绘制对象与箭头', () => {
   const doc = documentWithObjects();
   const node = doc.nodes[0], bounds = fitBounds(doc, ['island']);
-  assert.deepEqual(bounds, { x: node.x, y: node.y, w: node.w + 320, h: Math.max(node.h, 700) });
+  assert.deepEqual(bounds, { x: node.x, y: node.y, w: node.w + 320, h: Math.max(node.h, 220) });
+  const leaf = doc.nodes.find(item => item.id === 'a0');
+  assert.deepEqual(fitBounds(doc, ['a0']), { x: leaf.x, y: leaf.y, w: leaf.w + 320, h: 220 });
   assert.deepEqual(fitBounds(doc, ['note']), { x: 10, y: 20, w: 100, h: 100 });
   assert.deepEqual(fitBounds(doc, ['missing']), { x: 0, y: 0, w: 1, h: 1 });
   doc.objects.push({ id: 'outer-arrow', type: 'arrow', a: { x: -50000, y: -20000 }, b: { x: 60000, y: 50000 }, color: '#445566' });

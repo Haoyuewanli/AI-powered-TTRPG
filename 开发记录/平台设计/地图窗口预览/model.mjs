@@ -1,5 +1,5 @@
 const PANEL_WIDTH = 320;
-const PANEL_HEIGHT = 700;
+const PANEL_HEIGHT = 220;
 const GAP = 140;
 const MAX_POSITION = 100000;
 const ANCHORS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];

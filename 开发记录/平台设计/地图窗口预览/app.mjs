@@ -18,7 +18,9 @@ const button = (text, action, className) => {
   node.addEventListener('click', action); return node;
 };
 const viewport = $('#viewport'), world = $('#world');
+const overview = element('div', 'overview-labels'); viewport.append(overview);
 let moduleData, doc, selection = null, tool = 'select', gesture = null, arrowStart = null, space = false;
+let lastTap = null;
 let undoStack = [], redoStack = [], dirty = false, shareGeneration = 0, shareQueue = Promise.resolve();
 let palette = { color: '#467e91', fill: '#dcecf0', borderWidth: 3 };
 const MAX_HISTORY = 60;
@@ -46,13 +48,21 @@ function camera() {
   world.style.transform = `translate(${x}px,${y}px) scale(${zoom})`;
   $('#zoom-label').textContent = Math.round(zoom * 100) + '%';
   viewport.style.backgroundColor = doc.settings.background;
-  const size = doc.settings.gridSize * zoom;
+  let size = doc.settings.gridSize * zoom;
+  while (size < 16) size *= 2;
   const color = doc.settings.gridColor;
   viewport.style.backgroundSize = `${size}px ${size}px`;
   viewport.style.backgroundPosition = `${x}px ${y}px`;
   viewport.style.backgroundImage = doc.settings.grid === 'dots'
     ? `radial-gradient(circle, ${color} 1px, transparent 1.4px)`
     : doc.settings.grid === 'grid' ? `linear-gradient(to right, ${color} 1px, transparent 1px), linear-gradient(to bottom, ${color} 1px, transparent 1px)` : 'none';
+  const isOverview = zoom < .27; viewport.classList.toggle('overview-mode', isOverview); overview.hidden = !isOverview;
+  overview.replaceChildren();
+  if (isOverview) for (const node of doc.nodes) {
+    const data = sourceNode(node.id), label = button(/^[A-D]\d+$/.test(data.id) ? data.id : data.name, () => focusNode(node.id), 'overview-label');
+    label.title = data.name; label.setAttribute('aria-label', '定位' + data.name); label.dataset.overviewNode = node.id;
+    label.style.left = x + (node.x + node.w / 2) * zoom + 'px'; label.style.top = y + node.y * zoom - 5 + 'px'; overview.append(label);
+  }
 }
 function zoomAt(next, screenX = viewport.clientWidth / 2, screenY = viewport.clientHeight / 2) {
   const old = doc.camera.zoom; next = Math.max(.06, Math.min(3.5, next));
@@ -61,7 +71,7 @@ function zoomAt(next, screenX = viewport.clientWidth / 2, screenY = viewport.cli
 }
 function focusNode(id) {
   const node = doc.nodes.find(n => n.id === id); if (!node) return;
-  const width = node.w + 310, height = Math.max(node.h, 360);
+  const width = node.w + 310, height = Math.max(node.h, 680);
   const zoom = Math.min(1.2, (viewport.clientWidth - 90) / width, (viewport.clientHeight - 90) / height);
   doc.camera = { x: viewport.clientWidth / 2 - (node.x + width / 2) * zoom, y: viewport.clientHeight / 2 - (node.y + height / 2) * zoom, zoom: Math.max(.06, zoom) };
   selection = id; renderSelection(); camera();
@@ -79,7 +89,7 @@ function fitAll() {
   camera(); status('已显示模组全部地图。点右侧目录可进入局部。');
 }
 function setTool(value) {
-  tool = value; arrowStart = null; $('#draft').replaceChildren();
+  tool = value; arrowStart = null; lastTap = null; $('#draft').replaceChildren();
   document.querySelectorAll('[data-tool]').forEach(node => { node.classList.toggle('active', node.dataset.tool === value); node.setAttribute('aria-pressed', String(node.dataset.tool === value)); });
   viewport.dataset.tool = value;
   const help = { select: '选择：拖动地图或对象；双击文本或标记可改名。', pan: '拖动画布，或随时按住空格拖动。', rect: '在画布上拖出矩形，可勾选“仅边框”。', ellipse: '在画布上拖出椭圆，可勾选“仅边框”。', text: '点击空白处添加文本框。', player: '点击画布放置玩家标记，然后修改名字与颜色。', arrow: '依次点击起点与终点；靠近地图或文本框的八个锚点时自动吸附。Esc取消。' };
@@ -154,6 +164,7 @@ function sharePanel(data) {
   }
   picker.addEventListener('change', update);
   body.append(element('p', 'panel-hint', '接收端仅获得所选原图，画布与提词不发送。'));
+  if (!variants.some(variant => variant.id === 'player')) body.append(element('p', 'panel-hint', '此地点仅有主持图，请确认图片本身可公开后勾选。'));
   return details;
 }
 function renderNodes() {
@@ -244,6 +255,7 @@ function renderSelection() {
   document.querySelectorAll('.map-node,.canvas-object').forEach(node => {
     const id = node.dataset.nodeId || node.dataset.objectId;
     node.classList.toggle('selected', id === selection);
+    if (node.classList.contains('map-node')) node.style.zIndex = id === selection ? 5 : 0;
     node.querySelectorAll('.anchor-point,.resize-handle').forEach(n => n.remove());
     if (id !== selection) return;
     const entity = findEntity(id);
@@ -259,6 +271,7 @@ function updateInspector() {
   const entity = findEntity(selection), data = sourceNode(selection);
   const isArrow = entity?.type === 'arrow';
   $('#inspector').dataset.selectionType = data ? 'map' : entity?.type || 'none';
+  $('#read-map').disabled = !data;
   $('#selection-name').value = data?.name || entity?.name || (entity?.type === 'text' ? '文本框' : entity?.type === 'arrow' ? '箭头' : entity ? '几何形状' : '未选择对象');
   $('#selection-name').disabled = !entity || !!data || entity.type !== 'player';
   $('#object-color').value = entity?.borderColor || entity?.color || palette.color;
@@ -308,7 +321,7 @@ function addObject(type, point) {
 }
 function pointerDown(event) {
   if (event.button !== 0 && event.button !== 1 || editable(event.target) || event.target.closest('.node-panels')) return;
-  if (event.target.closest('.hotspot')) return;
+  if (event.target.closest('.hotspot,.overview-label')) return;
   const point = pointAt(event);
   const isPan = tool === 'pan' || space || event.button === 1;
   if (isPan) {
@@ -336,6 +349,10 @@ function pointerDown(event) {
     selection = id || null; renderSelection();
     if (id) {
       const entity = findEntity(id);
+      if (['player', 'text'].includes(entity.type) && lastTap?.id === id && performance.now() - lastTap.time < 450 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 6) {
+        lastTap = null; const field = entity.type === 'player' ? $('#selection-name') : $('#object-text');
+        event.preventDefault(); field.focus(); field.select(); return;
+      }
       if (arrowHandle) gesture = { type: 'endpoint', entity, endpoint: arrowHandle.dataset.endpoint, start: point, before: snapshot(), pointerId: event.pointerId };
       else if (resize) gesture = { type: 'resize', entity, start: point, w: entity.w, h: entity.h, before: snapshot(), pointerId: event.pointerId };
       else if (entity.type !== 'arrow') gesture = { type: 'move', entity, start: point, x: entity.x, y: entity.y, before: snapshot(), pointerId: event.pointerId };
@@ -384,8 +401,11 @@ function pointerUp(event) {
     const object = { id: uid(previous.shape), type: previous.shape, x: Math.min(start.x, end.x), y: Math.min(start.y, end.y), w: Math.min(4000, Math.abs(end.x - start.x)), h: Math.min(4000, Math.abs(end.y - start.y)), color: palette.color, fill: $('#outline-only').checked ? 'transparent' : palette.fill, borderWidth: palette.borderWidth };
     doc.objects.push(object); selection = object.id;
   }
-  if (JSON.stringify(previous.before.nodes) !== JSON.stringify(doc.nodes) || JSON.stringify(previous.before.objects) !== JSON.stringify(doc.objects)) remember(previous.before);
-  renderObjects(); renderSelection(); status('编辑已保留在当前草稿，保存画布可写入本地文件。');
+  const changed = JSON.stringify(previous.before.nodes) !== JSON.stringify(doc.nodes) || JSON.stringify(previous.before.objects) !== JSON.stringify(doc.objects);
+  lastTap = !changed && previous.type === 'move' && ['player', 'text'].includes(previous.entity.type) ? { id: previous.entity.id, time: performance.now(), x: event.clientX, y: event.clientY } : null;
+  if (changed) { remember(previous.before); renderObjects(); }
+  renderSelection();
+  if (changed) status('编辑已保留在当前草稿，保存画布可写入本地文件。');
 }
 function changeProperty(field, value) {
   const entity = findEntity(selection); if (!entity) return;
@@ -456,6 +476,7 @@ function bind() {
   $('#zoom-in').onclick = () => { zoomAt(doc.camera.zoom * 1.2); renderArrows(); };
   $('#zoom-out').onclick = () => { zoomAt(doc.camera.zoom / 1.2); renderArrows(); };
   $('#fit-all').onclick = fitAll;
+  $('#read-map').onclick = () => { const data = sourceNode(selection); if (data) openReader(data); };
   $('#undo').onclick = () => history('undo'); $('#redo').onclick = () => history('redo');
   $('#delete').onclick = removeSelection; $('#save').onclick = () => { try { saveFile(); } catch (error) { status('保存失败：' + error.message); } };
   $('#load').onclick = () => $('#import-file').click(); $('#import-file').onchange = event => loadFile(event.target.files[0]);
