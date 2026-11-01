@@ -1,6 +1,18 @@
 import { createDocument, anchors, nearestAnchor, resolveEndpoint, validateDocument, fitBounds } from './model.mjs';
 
 const $ = selector => document.querySelector(selector);
+const offlineData = window.__MAP_OFFLINE__ || null;
+async function request(path, options) {
+  if (!offlineData) return fetch(path, options);
+  let data;
+  if (path === '/api/module') data = offlineData.moduleData;
+  else if (path.startsWith('/api/source?')) {
+    const id = new URLSearchParams(path.split('?')[1]).get('node');
+    if (!Object.hasOwn(offlineData.sources, id)) return { ok: false, json: async () => ({}) };
+    data = { text: offlineData.sources[id] };
+  } else throw Error('本地文件不支持这项联网操作');
+  return { ok: true, json: async () => structuredClone(data) };
+}
 const svgNS = 'http://www.w3.org/2000/svg';
 const element = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -132,7 +144,7 @@ function descriptionPanel(data) {
     const read = button('查看对应原文', async () => {
       read.disabled = true;
       try {
-        const response = await fetch('/api/source?node=' + encodeURIComponent(data.id));
+        const response = await request('/api/source?node=' + encodeURIComponent(data.id));
         if (!response.ok) throw Error('原文读取失败');
         const value = await response.json();
         let pre = body.querySelector('pre'); if (!pre) { pre = element('pre', 'source-excerpt'); body.append(pre); }
@@ -144,6 +156,11 @@ function descriptionPanel(data) {
 }
 function sharePanel(data) {
   const body = element('div', 'panel-body');
+  if (moduleData.capabilities?.sharing === false) {
+    const placeholder = button('玩家共享（暂未启用）', () => {}); placeholder.disabled = true;
+    body.append(placeholder, element('p', 'panel-hint', '本地完整版只提供地图编辑，玩家共享暂作占位。'));
+    return panel('共享情况 · 占位', 'share-panel', body);
+  }
   const variants = data.variants || [{ id: data.id, label: '地图图片', url: data.imageUrl }];
   const existing = doc.shares[data.id];
   const picker = element('select'); picker.setAttribute('aria-label', data.name + '共享图片版本');
@@ -418,6 +435,10 @@ function changeProperty(field, value) {
   render(); status('对象已更新。');
 }
 async function syncShares() {
+  if (moduleData.capabilities?.sharing === false) {
+    $('#shares-summary').replaceChildren(element('p', 'panel-hint', '玩家共享暂未启用。此文件可独立离线使用。'));
+    return;
+  }
   const generation = ++shareGeneration;
   const shares = structuredClone(doc.shares);
   let release;
@@ -425,7 +446,7 @@ async function syncShares() {
   shareQueue = new Promise(resolve => { release = resolve; });
   await previous;
   try {
-    const response = await fetch('/api/shares', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shares }) });
+    const response = await request('/api/shares', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shares }) });
     if (!response.ok) throw Error('共享预览更新失败');
     const result = await response.json(); if (generation !== shareGeneration) return;
     const summary = $('#shares-summary'); summary.replaceChildren(element('p', 'panel-hint', '本机玩家接收预览，仅显示获准图片：'));
@@ -519,7 +540,7 @@ function bind() {
 }
 
 try {
-  const response = await fetch('/api/module'); if (!response.ok) throw Error('风骸岛资料读取失败');
+  const response = await request('/api/module'); if (!response.ok) throw Error('风骸岛资料读取失败');
   moduleData = await response.json(); doc = createDocument(moduleData); doc.shares ||= {};
   renderDirectory(); bind(); render(); syncControls(); fitAll(); setTool('select'); await syncShares();
   window.mapPreview = {
@@ -527,5 +548,5 @@ try {
     validate: value => validateDocument(value, moduleData), importDocument: async value => { const incoming = validateDocument(value, moduleData); cancelGesture(); remember(); doc = incoming; selection = null; render(); syncControls(); await syncShares(); },
     ready: true
   };
-  status('地图已就绪。右侧选地点进入，左侧工具编辑；保存画布后可离线恢复布局。');
+  status(offlineData ? '本地完整版已就绪，无需服务或联网。编辑后请保存画布文件，下次载入恢复。' : '地图已就绪。右侧选地点进入，左侧工具编辑；保存画布后可离线恢复布局。');
 } catch (error) { status('无法打开地图：' + error.message); console.error(error); }

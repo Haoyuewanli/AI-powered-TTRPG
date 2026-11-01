@@ -103,9 +103,9 @@ try {
   return Buffer.from(stdout.trim(), 'base64');
 }
 
-export async function loadModuleData({ projectRoot }) {
+export async function loadModuleData({ projectRoot, sourceFile }) {
   const mapRoot = await realpath(resolve(projectRoot, '资源/地图'));
-  const raw = await readFile(resolve(projectRoot, sourcePath), 'utf8'), lines = raw.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const raw = await readFile(sourceFile ? resolve(sourceFile) : resolve(projectRoot, sourcePath), 'utf8'), lines = raw.replace(/^\uFEFF/, '').split(/\r?\n/);
   if (createHash('sha256').update(raw).digest('hex') !== sourceDigest) throw Error('模组原文版本已变化，需要重新核对地点与来源行号');
   const slice = (start, end) => lines.slice(start - 1, end).join('\n').trim();
   const assets = new Map(), sources = new Map();
