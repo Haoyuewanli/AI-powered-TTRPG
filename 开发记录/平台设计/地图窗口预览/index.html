@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>风骸岛 · 地图工作台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true">⌘</div>
+      <div class="brand-copy"><h1>风骸岛 <span>· 地图工作台</span></h1><p>把整个冒险，摊在同一张桌面上。</p></div>
+      <span class="demo-badge">本机 HTML 演示</span>
+      <div class="file-actions" aria-label="文件与历史">
+        <button id="undo" type="button" title="撤销（Ctrl+Z）">↶ <span>撤销</span></button>
+        <button id="redo" type="button" title="重做（Ctrl+Shift+Z）">↷ <span>重做</span></button>
+        <span class="toolbar-separator" aria-hidden="true"></span>
+        <button id="load" type="button">载入</button>
+        <button id="save" class="primary-button" type="button">保存画布</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden aria-label="选择已保存的画布文件">
+      </div>
+    </header>
+
+    <nav class="toolbar" aria-label="画布编辑工具">
+      <div class="tool-group" aria-label="绘制工具">
+        <button type="button" data-tool="select" class="tool-button active" aria-pressed="true" title="选择、移动与调整大小"><span class="tool-glyph" aria-hidden="true">↖</span>选择</button>
+        <button type="button" data-tool="pan" class="tool-button" aria-pressed="false" title="拖动画布"><span class="tool-glyph" aria-hidden="true">✥</span>漫游</button>
+        <span class="toolbar-separator" aria-hidden="true"></span>
+        <button type="button" data-tool="rect" class="tool-button" aria-pressed="false"><span class="tool-glyph" aria-hidden="true">▭</span>矩形</button>
+        <button type="button" data-tool="ellipse" class="tool-button" aria-pressed="false"><span class="tool-glyph" aria-hidden="true">○</span>椭圆</button>
+        <label class="outline-button" title="开启后，几何形状只绘制边框"><input id="outline-only" type="checkbox">仅边框</label>
+        <button type="button" data-tool="text" class="tool-button" aria-pressed="false"><span class="tool-glyph glyph-text" aria-hidden="true">T</span>文本</button>
+        <button type="button" data-tool="arrow" class="tool-button" aria-pressed="false"><span class="tool-glyph" aria-hidden="true">↗</span>箭头</button>
+        <button type="button" data-tool="player" class="tool-button" aria-pressed="false"><span class="tool-glyph" aria-hidden="true">♟</span>玩家标记</button>
+      </div>
+      <div class="view-actions" aria-label="画布视角">
+        <button id="fit-all" type="button" title="查看整张画布">全貌</button>
+        <div class="zoom-control"><button id="zoom-out" type="button" aria-label="缩小">−</button><output id="zoom-label" aria-live="off">100%</output><button id="zoom-in" type="button" aria-label="放大">＋</button></div>
+      </div>
+    </nav>
+
+    <div class="status-strip"><span class="status-dot" aria-hidden="true"></span><p id="status" role="status" aria-live="polite">正在载入风骸岛地图…</p><span class="canvas-hint">滚轮缩放 · 空格拖动</span></div>
+
+    <main class="workspace">
+      <aside id="inspector" class="inspector side-panel" aria-label="对象属性与画布设置">
+        <section class="inspector-section selection-section">
+          <div class="section-heading"><span class="eyebrow">OBJECT</span><h2>对象属性</h2></div>
+          <p class="section-note" id="selection-hint">选中地图、形状或标记后编辑。</p>
+          <label class="field-label" for="selection-name">名字</label>
+          <input id="selection-name" type="text" maxlength="120" placeholder="选择一个对象" autocomplete="off">
+          <div class="field-row color-row">
+            <label for="object-color">边框 / 标记<input id="object-color" type="color" value="#397c86" title="对象边框、文字或玩家标记颜色"></label>
+            <label for="fill-color">填充<input id="fill-color" type="color" value="#dcecee" title="几何形状填充颜色"></label>
+          </div>
+          <label class="range-label" for="border-width"><span>线条粗细</span><input id="border-width" type="range" min="1" max="12" value="3" step="1"></label>
+          <div class="field-row dimension-row"><label for="object-width">宽度<input id="object-width" type="number" min="24" max="10000" step="1" inputmode="numeric"></label><span aria-hidden="true">×</span><label for="object-height">高度<input id="object-height" type="number" min="24" max="10000" step="1" inputmode="numeric"></label></div>
+          <label class="field-label" for="object-text">文本</label>
+          <textarea id="object-text" rows="3" maxlength="10000" placeholder="文本框内容；标记可修改名字"></textarea>
+          <div class="stack-actions"><button id="bring-front" type="button">置于上层</button><button id="send-back" type="button">置于下层</button><button id="delete" class="danger-button" type="button">删除对象</button></div>
+        </section>
+
+        <section class="inspector-section canvas-section">
+          <div class="section-heading"><span class="eyebrow">CANVAS</span><h2>画布设置</h2></div>
+          <div class="field-row color-row"><label for="canvas-color">背景<input id="canvas-color" type="color" value="#edf1f3"></label><label for="grid-color">网格<input id="grid-color" type="color" value="#b9c3c9"></label></div>
+          <label class="field-label" for="grid-mode">辅助网格</label>
+          <select id="grid-mode"><option value="dots">点阵</option><option value="grid">方格</option><option value="none">无</option></select>
+          <label class="range-label" for="grid-size"><span>网格大小</span><input id="grid-size" type="range" min="10" max="160" value="40" step="5"></label>
+        </section>
+
+        <section class="inspector-section sharing-section">
+          <div class="section-heading"><span class="eyebrow">SHARING</span><h2>玩家接收预览</h2></div>
+          <p class="section-note">在地图旁勾选共享对象，再打开对应玩家的图片预览。</p>
+          <div id="shares-summary" class="shares-summary"><p class="empty-state">尚未共享地图</p></div>
+        </section>
+
+        <details id="help-guide" class="inspector-section help-guide">
+          <summary>操作提示</summary>
+          <ul><li>拖动地图标题或图像可移动地图，旁边的信息框会跟随。</li><li>点右侧目录或原图编号，聚焦对应地点。</li><li>矩形和椭圆拖动绘制；文本框和玩家标记点击放置。</li><li>画箭头时，靠近地图或文本框的四角、四边中点可吸附。</li><li>双击文本或玩家标记可编辑；也可在对象属性中修改。</li><li>按住空格拖动画布，滚轮放大或缩小，Esc退出工具。</li><li>Delete删除选中对象，Ctrl+Z撤销，Ctrl+Shift+Z重做。</li><li>保存画布会下载本地文件，之后用“载入”恢复。</li></ul>
+        </details>
+      </aside>
+
+      <section id="viewport" tabindex="0" aria-label="地图画布，滚轮缩放，空格加拖动平移">
+        <div id="world">
+          <svg id="connections" class="world-svg" aria-hidden="true"></svg>
+          <div id="nodes" class="world-layer"></div>
+          <svg id="arrows" class="world-svg" aria-label="画布箭头"></svg>
+          <div id="objects" class="world-layer"></div>
+          <svg id="draft" class="world-svg" aria-hidden="true"></svg>
+        </div>
+        <div class="canvas-watermark" aria-hidden="true"><span>STORMWRECK ISLE</span><small>地图画布</small></div>
+      </section>
+
+      <aside class="directory-panel side-panel" aria-label="地图目录">
+        <div class="directory-heading"><span class="eyebrow">ATLAS</span><h2>地图目录</h2><p>一处地点，只列一次。</p></div>
+        <nav id="directory" aria-label="地图层级目录"><p class="empty-state">正在读取地图目录…</p></nav>
+        <div class="directory-footer"><span class="legend-line" aria-hidden="true"></span>细线表示目录父子关系</div>
+      </aside>
+    </main>
+  </div>
+  <script type="module" src="/app.mjs"></script>
+</body>
+</html>
