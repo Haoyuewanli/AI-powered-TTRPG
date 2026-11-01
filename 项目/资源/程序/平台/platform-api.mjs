@@ -35,7 +35,8 @@ export async function createProjectApi({ root, battle }) {
           if (data.kind === 'module-run' && data.id === 'campaign:' + data.campaignId) continue;
           if (used.has(data.id)) duplicates.add(data.id);
           if (typeof data.id !== 'string' || !data.id || data.id.startsWith('campaign:') || data.id.length > 160 || typeof data.name !== 'string' || !data.name || used.has(data.id)) { issues.push('模组ID/名称无效或重复'); continue; }
-          used.add(data.id); result.push({ id: data.id, name: data.name, source: 'module' });
+          used.add(data.id); result.push({ id: data.id, name: data.name, source: 'module',
+            templateId: typeof data.templateId === 'string' ? data.templateId : typeof data.templateIdentity?.moduleId === 'string' ? data.templateIdentity.moduleId : null });
         }
       }
     }
@@ -78,8 +79,9 @@ export async function createProjectApi({ root, battle }) {
       return send(200, { templates: result.templates.map(({ id, name, reviewStatus, value, category, batchId, packageSha256, relativePath }) => ({
         id, name, reviewStatus, category, batchId, packageSha256, relativePath, maps: value.maps.length, nodes: value.storyNodes.length,
         canTrain: value.encounterTemplates?.some(entry => typeof entry.id === 'string' && entry.id.endsWith('voyage-merrow')) || false
-      })), issues: result.issues });
+      })), categories: result.categories, issues: result.issues });
     }
+    if (path === '/api/project/template-cover' && request.method === 'GET') return send(200, await runtime.templateCover(url.searchParams.get('templateId')));
     if (path === '/api/project/preprocess-sources' && request.method === 'GET') return send(200, { sources: await runtime.sources() });
     if (path === '/api/project/preprocess' && request.method === 'POST') return send(200, await runtime.preprocessSource(body.sourceId));
     if (path === '/api/project/create-run' && request.method === 'POST') {
@@ -111,7 +113,7 @@ export async function createProjectApi({ root, battle }) {
       session.selected = { moduleId: selected.id, moduleName: selected.name, source: selected.source };
       return send(200, { selected: session.selected });
     }
-    if (path === '/api/project/resources' && request.method === 'GET') return send(200, await files.listResources({ rulesFamily: url.searchParams.get('rulesFamily') || 'dnd-2024', kind: url.searchParams.get('kind') || undefined, query: url.searchParams.get('q') || '', offset: Number(url.searchParams.get('offset') || 0), limit: Number(url.searchParams.get('limit') || 100) }));
+    if (path === '/api/project/resources' && request.method === 'GET') return send(200, await files.listResources({ includeSnapshots: false, rulesFamily: url.searchParams.get('rulesFamily') || 'dnd-2024', kind: url.searchParams.get('kind') || undefined, query: url.searchParams.get('q') || '', offset: Number(url.searchParams.get('offset') || 0), limit: Number(url.searchParams.get('limit') || 100) }));
     if (path === '/api/project/read' && request.method === 'GET') {
       const { resource, bytes } = await files.readResource(url.searchParams.get('resourceId'));
       if (resource.kind === '地图' && /\.json$/i.test(resource.path)) {
@@ -122,7 +124,11 @@ export async function createProjectApi({ root, battle }) {
         }
       }
       const mime = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.pdf': 'application/pdf' })[extname(resource.path).toLowerCase()];
-      return send(200, mime ? { resource, mime, base64: bytes.toString('base64') } : { resource, mime: 'text/plain', text: bytes.toString('utf8') });
+      if (mime) return send(200, { resource, mime, base64: bytes.toString('base64') });
+      const text = bytes.toString('utf8');
+      let definition; try { definition = JSON.parse(text); } catch { /* Markdown and text keep their original body. */ }
+      const markdown = definition ? definition.content?.markdown || definition.content?.text || definition.description || definition.text || '' : text;
+      return send(200, { resource, mime: 'text/plain', text, ...await files.resourceImages(resource, markdown) });
     }
     if (path === '/api/project/reveal' && request.method === 'POST') {
       const target = await files.revealTarget(body.resourceId);

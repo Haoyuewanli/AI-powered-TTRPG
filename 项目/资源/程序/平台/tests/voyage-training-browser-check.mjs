@@ -94,8 +94,9 @@ async function attackPlayer(pc, npc) {
   return changed(() => frame.locator('#attack-form button[type=submit]').click());
 }
 async function openModules() {
-  await nav('modules'); const details = page.locator('[data-project-panel=modules]');
-  await until(() => details.evaluate(node => node.open), Boolean, 'real modules opened by ordinary navigation');
+  await nav('modules'); await page.locator('[data-real-module-host][aria-busy=false]').waitFor();
+  await page.locator('[data-real-module-workspace]').waitFor();
+  await page.locator('[data-real-module-ring] button').first().waitFor();
 }
 async function assertFirstScreen(locator, label) {
   assert(await locator.isVisible(), label + ' should be visible');
@@ -119,19 +120,20 @@ try {
   await assertFirstScreen(page.getByRole('button', { name: '风骸岛之龙 · 甲板试玩', exact: true }), 'Named voyage training entry');
   assert.doesNotMatch(await page.locator('#platform-current-session').textContent(), /正式资料尚未接入/);
   await shot('00-首页真实试玩入口.png'); await browse.click();
-  const create = page.locator('[data-project-create-training="' + template.moduleId + '"]'); await create.waitFor();
-  const row = create.locator('..');
-  assert.equal(await page.locator('[data-project-panel=modules]').evaluate(node => node.open), true);
-  await assertFirstScreen(row.locator('strong'), 'Actual voyage template title');
-  await assertFirstScreen(create, 'Actual voyage training create button');
-  await shot('00-模组真实清单首屏.png');
-  await nav('home'); await openModules(); await create.waitFor();
-  await assertFirstScreen(row.locator('strong'), 'Voyage title reached through sidebar');
-  await assertFirstScreen(create, 'Training create button reached through sidebar');
+  const cover = page.locator('[data-real-module-ring] button').filter({ hasText: template.title }).first();
+  await cover.waitFor();
+  await assertFirstScreen(cover, 'Actual voyage cover');
+  await assertFirstScreen(page.locator('.module-heading h3'), 'Actual voyage template title');
+  await shot('00-模组真实封面首屏.png');
+  await nav('home'); await openModules();
+  await assertFirstScreen(page.locator('.module-heading h3'), 'Voyage title reached through sidebar');
   assert.equal(requests.filter(entry => ['/api/project/create-run', '/api/project/select-module', '/api/battle/start'].includes(new URL(entry.url).pathname) && entry.method === 'POST').length, 0);
-  assert((await row.textContent()).includes(template.batchId));
-  assert((await row.textContent()).includes('候选'));
-  await row.getByLabel('新团名称').fill('风骸岛序幕 · 隔离训练验收');
+  await page.getByText('查看模组资料', { exact: true }).click();
+  assert((await page.locator('[data-real-module-workspace]').textContent()).includes(template.batchId));
+  assert((await page.locator('[data-real-module-workspace]').textContent()).includes('候选'));
+  await page.getByText('新开一团', { exact: true }).click();
+  const create = page.locator('[data-project-create-training="' + template.moduleId + '"]'); await create.waitFor();
+  await page.getByLabel('新团名称', { exact: true }).fill('风骸岛序幕 · 隔离训练验收');
   const creation = page.waitForResponse(response => new URL(response.url()).pathname === '/api/project/create-run' && response.request().method() === 'POST');
   await create.evaluate(node => { node.click(); node.click(); });
   const response = await creation; assert.equal(response.status(), 200, await response.text());
@@ -281,6 +283,7 @@ try {
   console.log('CHECKPOINT: first platform and battle services closed before restart');
   app = await startPlatform({ projectRoot, port: 0, appearanceFile: join(directory, '外观.json') }); allowedOrigins.add(app.url);
   await page.goto(app.url); await chooseDm(); await openModules();
+  await page.locator('[data-real-run="' + created.moduleId + '"]').click();
   const select = page.locator('[data-project-select-module="' + created.moduleId + '"]'); await select.waitFor(); await select.click();
   await nav('battle'); await page.locator('[data-voyage-training]').waitFor(); await mountFrame({ enter: false });
   await until(() => page.locator('[data-training-notes]').inputValue(), value => value === note, 'story note restored after server restart');

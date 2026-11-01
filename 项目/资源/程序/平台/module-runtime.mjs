@@ -44,7 +44,8 @@ export function createModuleRuntime({ root }) {
     const base = '模组/预处理', result = [], issues = [], counts = new Map();
     let categories;
     try { categories = await readdir(await safe(base), { withFileTypes: true }); }
-    catch (error) { if (error.code === 'ENOENT') return { templates: [], issues }; throw error; }
+    catch (error) { if (error.code === 'ENOENT') return { templates: [], categories: [], issues }; throw error; }
+    const visibleCategories = [];
     for (const category of categories) {
       if (!category.isDirectory() || category.name.startsWith('.') || ['对话', '战斗'].includes(category.name)) {
         if (category.isSymbolicLink()) issues.push({ folder: category.name, error: '模组目录不能是链接' });
@@ -57,6 +58,7 @@ export function createModuleRuntime({ root }) {
       // Raw input folders are sources, not categories containing prepared packages.
       if (entries.some(entry => entry.isFile() && /\.(md|pdf)$/i.test(entry.name)) &&
         !entries.some(entry => entry.isDirectory() && !['images', '图片', '原图', '原PDF'].includes(entry.name))) continue;
+      if (category.name !== '故事') visibleCategories.push(category.name);
       for (const entry of entries) {
         if (entry.name.startsWith('.') || (!entry.isDirectory() && !entry.isSymbolicLink())) continue;
         const relativePath = categoryPath + '/' + entry.name;
@@ -79,7 +81,25 @@ export function createModuleRuntime({ root }) {
       }
     }
     for (const [id, count] of counts) if (count > 1) issues.push({ id, error: '预处理ID重复' });
-    return { templates: result.filter(entry => counts.get(entry.id) === 1), issues };
+    return { templates: result.filter(entry => counts.get(entry.id) === 1), categories: visibleCategories, issues };
+  }
+  async function templateCover(templateId) {
+    const template = (await templates()).templates.find(entry => entry.id === templateId);
+    if (!template) throw fail('模组不存在或身份不唯一，请刷新目录');
+    const cover = template.value.cover;
+    const candidates = cover?.path ? [cover.referenceBase === 'project' ? cover.path : template.relativePath + '/' + cover.path]
+      : ['封面.png', '模组封面.png', '封面.jpg', '模组封面.jpg', 'cover.png', 'cover.jpg'].map(name => template.relativePath + '/' + name);
+    for (const path of candidates) {
+      if (typeof path !== 'string' || !path.startsWith(template.relativePath + '/') || /[\\:\x00-\x1f]/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) throw fail('封面引用不在本模组目录内');
+      const mime = ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' })[extname(path).toLowerCase()];
+      if (!mime) throw fail('封面须为本地图像文件');
+      try {
+        const absolute = await safe(path), info = await lstat(absolute);
+        if (!info.isFile() || info.nlink > 1 || info.size > 8 * 1024 * 1024) throw fail('封面文件不安全或过大');
+        return { mime, base64: (await readFile(absolute)).toString('base64') };
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    throw fail('尚无可用封面，原资料保留');
   }
   async function sources() {
     const result = [];
@@ -155,7 +175,11 @@ export function createModuleRuntime({ root }) {
         if (!runPath(portable)) throw fail('团存档尚未按新目录迁移');
         const meta = await json(await safe('模组/' + portable + '/团资料.json'));
         if (meta.id !== record.id || !Array.isArray(meta.battles)) throw fail('团资料归属不符');
-        result.push({ id: 'campaign:' + record.id, name: meta.name, source: 'module-run', campaignId: record.id, battles: meta.battles.map(entry => ({ id: entry.id, name: entry.name })) });
+        const manifest = await readRun('campaign:' + record.id);
+        result.push({ id: 'campaign:' + record.id, name: meta.name, source: 'module-run', campaignId: record.id,
+          templateId: manifest.templateId || null, templateIdentity: manifest.templateIdentity || null,
+          lastPlayedAt: meta.lastPlayedAt || null, status: meta.status || null, progressSummary: meta.progressSummary || null,
+          battles: meta.battles.map(entry => ({ id: entry.id, name: entry.name })) });
       } catch (error) { issues.push({ id: record.id, error: error.message }); }
     }
     return { modules: result, issues };
@@ -225,7 +249,7 @@ export function createModuleRuntime({ root }) {
       return { moduleId: id, moduleName: name.trim(), campaignId, battleId, folder, templateIdentity, ...(training ? { training: trainingDetails } : {}), warnings: manifest.warnings };
     } finally { await release(); }
   }
-  return { templates, readRun, createRun, listRuns, sources, preprocessSource, settled: () => preprocessQueue.catch(() => {}) };
+  return { templates, templateCover, readRun, createRun, listRuns, sources, preprocessSource, settled: () => preprocessQueue.catch(() => {}) };
 }
 
 function merrowActor(resource) {

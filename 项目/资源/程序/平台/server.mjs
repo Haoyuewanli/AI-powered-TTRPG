@@ -10,7 +10,7 @@ import { createNativeWindow } from './native-window.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 export const PLATFORM_APP = 'standalone-ttrpg-platform';
-export const PLATFORM_VERSION = 'platform-voyage-v7';
+export const PLATFORM_VERSION = 'platform-workspace-v8';
 export const platformRootKey = createHash('sha256').update(process.platform === 'win32' ? ROOT.toLowerCase() : ROOT).digest('hex');
 export const projectKey = path => createHash('sha256').update(process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)).digest('hex');
 export const defaultProjectRoot = () => process.env.RPG_PROJECT_ROOT || resolve(ROOT, '../../..');
@@ -27,6 +27,11 @@ const staticFiles = new Map([
   ['/design-workspace.css', ['design-workspace.css', 'text/css; charset=utf-8']],
   ['/project-panel.mjs', ['project-panel.mjs', 'text/javascript; charset=utf-8']],
   ['/project-panel.css', ['project-panel.css', 'text/css; charset=utf-8']],
+  ['/module-workspace.mjs', ['module-workspace.mjs', 'text/javascript; charset=utf-8']],
+  ['/module-workspace.css', ['module-workspace.css', 'text/css; charset=utf-8']],
+  ['/resource-workspace.mjs', ['resource-workspace.mjs', 'text/javascript; charset=utf-8']],
+  ['/resource-workspace.css', ['resource-workspace.css', 'text/css; charset=utf-8']],
+  ['/chat-composer.mjs', ['chat-composer.mjs', 'text/javascript; charset=utf-8']],
   ['/voyage-workspace.mjs', ['voyage-workspace.mjs', 'text/javascript; charset=utf-8']],
   ['/map-workspace.mjs', ['map-workspace.mjs', 'text/javascript; charset=utf-8']],
   ['/map-workspace.css', ['map-workspace.css', 'text/css; charset=utf-8']],

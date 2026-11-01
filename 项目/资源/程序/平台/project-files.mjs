@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, lstat, realpath, open, rename, unlink } from 'node:fs/promises';
-import { resolve, relative, dirname, join, isAbsolute, sep } from 'node:path';
+import { resolve, relative, dirname, join, isAbsolute, sep, posix } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 
 export const RESOURCE_KINDS = Object.freeze(['角色', 'NPC', '怪物', '地图', '故事', '规则', '物品']);
@@ -270,6 +270,7 @@ export async function openProjectFiles({ root } = {}) {
           }
           const record = { path: child, kind, name: value?.name && typeof value.name === 'string' ? value.name : entry.name.replace(/\.[^.]+$/, ''), id, fingerprint, bytes: raw.length,
             rulesFamily: value?.edition ? value.edition.rulesFamily || 'unclassified' : 'custom', resourceType: value?.resourceType || kind, sourceBook: value?.source?.book || '',
+            searchText: [value?.name, value?.englishName, value?.nameEn, ...(Array.isArray(value?.aliases) ? value.aliases.filter(item => typeof item === 'string') : []), ...(Array.isArray(value?.tags) ? value.tags.filter(item => typeof item === 'string') : []), value?.source?.book].filter(item => typeof item === 'string').join(' '),
             sourceLabel: value?.projection?.format === 'battle-resource-v1' ? '团内基准快照' : '',
             archive: archiveInitial(value?.name || entry.name, value?.initial) };
           resourceCache.set(child, { stamp, record }); candidates.push({ ...record });
@@ -315,20 +316,22 @@ export async function openProjectFiles({ root } = {}) {
     return value;
   }
 
-  async function listResources({ playerId, rulesFamily, kind, query = '', offset = 0, limit } = {}) {
+  async function listResources({ playerId, rulesFamily, kind, query = '', offset = 0, limit, includeSnapshots = true } = {}) {
     const index = await currentIndex(), result = await inventory(index);
     const indexed = new Map(index.files.map(entry => [entry.path, entry.id]));
     let resources = result.resources.filter(entry => /\.json$/i.test(entry.path) || indexed.get(entry.path) === entry.id);
     if (rulesFamily) resources = resources.filter(entry => entry.rulesFamily === rulesFamily || entry.rulesFamily === 'custom');
     if (kind) resources = resources.filter(entry => entry.kind === kind);
-    if (query) resources = resources.filter(entry => (entry.name + ' ' + entry.sourceBook).toLocaleLowerCase().includes(String(query).toLocaleLowerCase()));
+    if (query) resources = resources.filter(entry => (entry.name + ' ' + entry.sourceBook + ' ' + entry.searchText).toLocaleLowerCase().includes(String(query).toLocaleLowerCase()));
+    const hiddenSnapshots = includeSnapshots ? 0 : resources.filter(entry => entry.sourceLabel === '团内基准快照').length;
+    if (!includeSnapshots) resources = resources.filter(entry => entry.sourceLabel !== '团内基准快照');
     if (playerId !== undefined) {
       identifier(playerId, '玩家ID'); const grants = (await releases()).releases;
       resources = resources.filter(entry => grants.some(grant => grant.playerId === playerId && grant.resourceId === entry.id));
     }
     const total = resources.length;
     if (limit !== undefined) { requireValue(Number.isInteger(limit) && limit >= 1 && limit <= 500 && Number.isInteger(offset) && offset >= 0, '分页参数无效'); resources = resources.slice(offset, offset + limit); }
-    return { revision: index.revision, resources, total, offset, issues: playerId === undefined ? result.issues : [] };
+    return { revision: index.revision, resources, total, offset, hiddenSnapshots, issues: playerId === undefined ? result.issues : [] };
   }
 
   async function resourceById(index, id) {
@@ -350,6 +353,29 @@ export async function openProjectFiles({ root } = {}) {
   }
 
   async function revealTarget(resourceId) { const index = await currentIndex(), resource = await resourceById(index, resourceId); return { path: await checked(resource.path), directory: dirname(await checked(resource.path)), projectPath: resource.path }; }
+  async function resourceImages(resource, markdown) {
+    const images = [], imageIssues = [], seen = new Set();
+    let total = 0;
+    for (const match of String(markdown).matchAll(/!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+"[^"]*")?\s*\)/g)) {
+      const source = match[1] || match[2];
+      if (seen.has(source)) continue;
+      seen.add(source);
+      try {
+        const local = decodeURIComponent(source);
+        requireValue(!/[\\:#?\x00-\x1f]/.test(local) && !local.startsWith('/') && local.trim() === local, '仅显示本地相对路径图片');
+        const path = projectRelativePath(posix.normalize(posix.join(posix.dirname(resource.path), local)));
+        requireValue(/^资源\/(角色|NPC|怪物|地图|故事|规则|物品)\/[A-Z]\//.test(path), '图片不在资源目录内');
+        const mime = ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' })[path.split('.').pop().toLowerCase()];
+        requireValue(mime, '图片类型不受支持');
+        const info = await lstat(await checked(path));
+        requireValue(info.isFile() && info.size <= 8 * 1024 * 1024 && total + info.size <= 16 * 1024 * 1024, '图片过大，请从文件夹查看');
+        const raw = await bytes(path); total += raw.length;
+        images.push({ source, mime, base64: raw.toString('base64') });
+      } catch (error) { imageIssues.push({ source, error: error.code === 'ENOENT' ? '图片缺失，原引用保留' : error.message }); }
+      if (seen.size >= 30) break;
+    }
+    return { images, imageIssues };
+  }
   async function readMapAsset(resourceId) {
     const { resource, bytes: raw } = await readResource(resourceId);
     requireValue(resource.kind === '地图' && /\.json$/i.test(resource.path), '需要地图描述资源');
@@ -549,7 +575,7 @@ export async function openProjectFiles({ root } = {}) {
     });
   }
 
-  return { initialize, scanResources, listResources, readResource, readMapAsset, revealTarget, reference, releaseAndReference, saveCurrent, writeResource, saveBattle, appendDialogue, readDialogue, readModuleState, saveModuleState, readManagedFile, resourceDefinitions, saveProjection,
+  return { initialize, scanResources, listResources, readResource, resourceImages, readMapAsset, revealTarget, reference, releaseAndReference, saveCurrent, writeResource, saveBattle, appendDialogue, readDialogue, readModuleState, saveModuleState, readManagedFile, resourceDefinitions, saveProjection,
     async moduleLocation({ moduleId, moduleName }) { const index = await currentIndex(), current = await currentDocument(index, moduleId, moduleName); return { folder: current.folder, currentPath: current.path }; },
     async manifest() { const index = await currentIndex(); return { formatVersion: 1, revision: index.revision }; },
     async settled() { await queue; } };

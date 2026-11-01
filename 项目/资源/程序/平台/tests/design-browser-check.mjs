@@ -136,17 +136,11 @@ try {
   check('0%地面完全隐藏，20%地面与透视联动；四套配色可切换');
 
   await nav('modules');
-  await until(() => ui('[data-project-panel=modules]').evaluate(node => node.open), Boolean, 'DM module list opened by navigation');
+  await ui('[data-real-module-host][aria-busy=false]').waitFor();
   assert(await ui('[data-group=a]').isHidden());
-  for (const name of ['modules', 'resources']) {
-    await nav(name);
-    const summary = ui(`[data-project-panel="${name}"] > summary`);
-    assert.notEqual(await summary.evaluate(node => getComputedStyle(node).boxShadow), 'none');
-    await summary.hover();
-    await until(() => summary.evaluate(node => getComputedStyle(node).transform), value => value !== 'none', 'local tools lift');
-  }
-  await nav('modules');
-  check('DM模组页默认展开本地清单，模组及资源资料入口保留常态阴影与悬停提起');
+  assert(await ui('[data-real-module-workspace]').isVisible());
+  assert(await ui('[data-project-refresh-modules]').isVisible());
+  check('DM模组页默认显示真实封面工作区，原示例通过独立入口保留');
   const selectedBeforeExamples = await formalSelection();
   await showModuleExamples(); await ui('[data-group=a]').click(); await idleRing();
   assert.equal(await ui('[data-module-index]').count(), 5);
@@ -166,7 +160,7 @@ try {
   check('分类滑块及1/3/5封面环保留，连续跨首尾旋转和方向键浏览、明确确认可用');
   await ui('[data-project-module-examples]').click();
   assert(await ui('[data-group=a]').isHidden());
-  assert.equal(await ui('[data-project-panel=modules]').evaluate(node => node.open), true);
+  assert(await ui('[data-real-module-workspace]').isVisible());
   assert.deepEqual(await formalSelection(), selectedBeforeExamples);
   await showModuleExamples();
   assert.equal(await ui('[data-module-name]').textContent(), '封面 B');
@@ -189,6 +183,8 @@ try {
   assert(await ui('[data-crop-dialog]').isHidden());
   check('横竖封面均保留完整显示/3:4裁切演示、JSON预览、应用及取消，不改真实原图');
 
+  await nav('home'); await page.locator('#platform-switch-identity').click(); await page.locator('#enter-player').click();
+  await until(() => ui('[data-project-module-examples]').isHidden(), Boolean, 'Player public examples');
   await nav('resources');
   assert.deepEqual(await ui('[data-rule-version] option').evaluateAll(nodes => nodes.map(node => ({ value: node.value, label: node.textContent }))), [{ value: 'dnd-2024', label: 'Dungeons & Dragons 2024（龙与地下城2024版）' }]);
   await page.evaluate(() => { window.__ruleFamilies = []; window.addEventListener('platform-rule-version', event => window.__ruleFamilies.push(event.detail.rulesFamily)); });
@@ -200,12 +196,12 @@ try {
   await ui('[data-resource="角色"]').click(); await ui('[data-resource-layout][data-phase=open]').waitFor();
   phases.push(...await page.evaluate(() => window.__resourcePhases));
   assert(phases.indexOf('moving') >= 0 && phases.indexOf('opening') > phases.indexOf('moving') && phases.indexOf('open') > phases.indexOf('opening'));
-  assert.equal(await ui('[data-info]').count(), 6); assert(await ui('.p-drawer').isVisible());
-  const drawer = await ui('.p-drawer').boundingBox(), workspace = await ui('[data-resource-layout]').boundingBox();
+  assert.equal(await ui('[data-info]').count(), 6); assert(await ui('[data-resource-layout] .p-drawer').isVisible());
+  const drawer = await ui('[data-resource-layout] .p-drawer').boundingBox(), workspace = await ui('[data-resource-layout]').boundingBox();
   assert(drawer.height < workspace.height);
   assert((await ui('[data-info]').first().evaluate(node => getComputedStyle(node).backgroundImage)).includes('gradient'));
   await ui('[data-info]').first().click(); assert.equal(await ui('[data-info]').first().getAttribute('aria-pressed'), 'true');
-  await shot('设计恢复-资源抽屉.png'); await ui('[data-close-drawer]').click(); assert(await ui('.p-drawer').isHidden());
+  await shot('设计恢复-资源抽屉.png'); await ui('[data-close-drawer]').click(); assert(await ui('[data-resource-layout] .p-drawer').isHidden());
   check('资源横向分类先移动再开矮抽屉，6张渐变信息卡及选择/收起反馈保留');
 
   const immediate = await ui('[data-resource="NPC"]').evaluate(async button => {

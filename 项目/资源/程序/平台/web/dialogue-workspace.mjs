@@ -1,3 +1,5 @@
+import { bindChatComposer } from './chat-composer.mjs';
+
 const layouts = [
   ['single', '单屏', 1], ['columns', '左右分屏', 2], ['rows', '上下分屏', 2],
   ['grid', '四方格', 4], ['left-stack', '左二右一', 3], ['right-stack', '左一右二', 3]
@@ -92,16 +94,14 @@ export function createDialogueWorkspace(container) {
     const label = node('label', 'dialogue-composer-label', '本页消息'); label.htmlFor = 'dialogue-message';
     const input = node('textarea'); input.id = 'dialogue-message'; input.rows = 2; input.value = draft;
     input.placeholder = '输入一条本地演示消息…'; input.setAttribute('aria-describedby', 'dialogue-message-note');
-    input.addEventListener('input', () => { draft = input.value; });
     const actions = node('div', 'dialogue-compose-actions');
-    const note = node('span', '', '仅本页可见'); note.id = 'dialogue-message-note';
+    const note = node('span', '', 'Enter发送 · Ctrl+Enter换行 · 仅本页可见'); note.id = 'dialogue-message-note';
     const send = button('发送', 'dialogue-send'); send.type = 'submit'; actions.append(note, send);
     form.append(label, input, actions);
-    form.addEventListener('submit', event => {
-      event.preventDefault(); if (!visible || !input.value.trim()) return;
-      messages.push({ speaker: '你 · 本页', text: input.value.trim(), self: true }); draft = ''; input.value = '';
+    bindChatComposer({ input, send, form, isEnabled: () => visible, onDraftChange: value => { draft = value; }, onSubmit: ({ content: text }) => {
+      messages.push({ speaker: '你 · 本页', text: text.trim(), self: true });
       renderMessages(); input.focus({ preventScroll: true }); announce('消息已添加到本页演示，未发送到其他设备或保存为正式进度。');
-    });
+    } });
     area.append(log, form); return area;
   }
   function resourceContent(id) {

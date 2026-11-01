@@ -1,0 +1,37 @@
+#platform-covers .module-workspace{width:100%;min-width:0;display:flex;flex-direction:column;gap:9px;padding:4px 6px 16px;box-sizing:border-box;color:var(--ink);font:13px/1.6 "Segoe UI","Microsoft YaHei",sans-serif}
+#platform-covers .module-toolbar{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+#platform-covers .module-note{color:var(--quiet);font-size:12px;margin:0}
+#platform-covers .module-segments{flex:none;max-width:640px;overflow-x:auto;justify-content:flex-start;min-height:44px}
+#platform-covers .module-segments>.p-segment{flex:1 0 auto;padding-inline:17px}
+#platform-covers .module-ring{height:258px;min-height:258px;flex:none;width:100%;margin:0;cursor:grab}
+#platform-covers .module-ring .p-cover{top:43%;transition:opacity 100ms,border-color 180ms}
+#platform-covers .module-ring .p-cover-image{aspect-ratio:3/4;position:relative}
+#platform-covers .module-ring .p-cover-image [hidden]{display:none!important}
+#platform-covers .module-cover-fallback{display:grid;place-items:center;text-align:center;white-space:normal;font-size:17px;line-height:1.6;letter-spacing:.08em;width:100%;height:100%;padding:16px;box-sizing:border-box;background:linear-gradient(135deg,var(--light),var(--paper) 55%,var(--accent));border:1px solid color-mix(in srgb,var(--ink) 20%,transparent)}
+#platform-covers .module-ring .p-cover-caption>span{overflow:hidden;text-overflow:ellipsis}
+#platform-covers .module-heading{display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:0 10px}
+#platform-covers .module-heading h3{font-size:18px;font-weight:500;margin:0}
+#platform-covers .module-heading small{color:var(--quiet)}
+#platform-covers .module-runs{padding:0 10px}
+#platform-covers .module-runs h4{margin:2px 0 9px;font-size:13px;font-weight:500}
+#platform-covers .module-run-row{border-bottom:1px solid color-mix(in srgb,var(--shadow) 22%,transparent);padding:5px 0}
+#platform-covers .module-run-row>button{width:100%;text-align:left;min-height:43px}
+#platform-covers .module-run-row>button[aria-expanded=true]{background:var(--light);color:var(--light-ink)}
+#platform-covers .module-run-overview{padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px 12px;background:color-mix(in srgb,var(--paper) 85%,var(--shadow));overflow-wrap:anywhere}
+#platform-covers .module-run-overview p{width:100%;margin:0;font-size:12px}
+#platform-covers .module-run-overview small{flex-basis:100%;font-size:11px;color:var(--quiet)}
+#platform-covers .module-extra{padding:0 10px;display:grid;gap:7px}
+#platform-covers .module-details{padding:8px 10px;border-top:1px solid color-mix(in srgb,var(--shadow) 25%,transparent)}
+#platform-covers .module-details>summary{cursor:pointer;min-height:32px;line-height:32px;font-size:12px}
+#platform-covers .module-details p{margin:8px 0;font-size:12px}
+#platform-covers .module-create{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 0}
+#platform-covers .module-create label{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+#platform-covers .module-create label:first-child{flex-basis:100%}
+#platform-covers .module-create input:not([type=checkbox]){flex:1;min-width:100px;max-width:380px;min-height:38px;padding:6px 9px;box-sizing:border-box;background:var(--paper);color:var(--ink);border:1px solid var(--quiet)}
+#platform-covers .module-create input[type=checkbox]{width:18px;height:18px;accent-color:var(--shadow)}
+#platform-covers .module-path{overflow-wrap:anywhere;color:var(--quiet)}
+#platform-covers .module-source{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:7px}
+#platform-covers .module-issues{font-size:12px;color:var(--quiet);overflow-wrap:anywhere}
+#platform-covers .module-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--quiet);text-align:center}
+@media(max-width:760px){#platform-covers .module-ring{height:230px;min-height:230px}#platform-covers .module-workspace{padding-inline:0}#platform-covers .module-heading,#platform-covers .module-runs,#platform-covers .module-extra{padding-inline:2px}}
+@media(prefers-reduced-motion:reduce){#platform-covers .module-workspace *{scroll-behavior:auto;transition:none}}

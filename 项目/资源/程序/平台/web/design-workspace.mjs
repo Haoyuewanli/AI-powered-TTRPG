@@ -127,7 +127,7 @@ export function createDesignWorkspace({ onPageChange = () => {}, onIdentityChang
     if(!cropped){image.src=source;return;}
     const original=new Image();original.onload=()=>{if(!image.isConnected||image.dataset.renderToken!==token)return;const canvas=document.createElement('canvas');canvas.width=300;canvas.height=400;const c=canvas.getContext('2d'),r=entry.crop;c.drawImage(original,r.x*item.w,r.y*item.h,r.width*item.w,r.height*item.h,0,0,300,400);image.src=canvas.toDataURL('image/png');};original.src=source;
   }
-  function refreshCoverImages(){all('.p-cover img').forEach((image,index)=>applyCoverImage(image,items()[index],index));}
+  function refreshCoverImages(){all('[data-ring] .p-cover img').forEach((image,index)=>applyCoverImage(image,items()[index],index));}
   function layoutCrop(beforeOpen=false){
     const dialog=$('[data-crop-dialog]');if(!dialog.open&&!beforeOpen)return;const box=app.getBoundingClientRect(),view=app.ownerDocument.defaultView,inset=box.width<430?8:20;dialog.style.left=(box.left+view.scrollX+inset)+'px';dialog.style.top=(box.top+view.scrollY+inset)+'px';dialog.style.width=(box.width-inset*2)+'px';dialog.style.height=(box.height-inset*2)+'px';renderCropPreview();
   }
@@ -154,7 +154,7 @@ export function createDesignWorkspace({ onPageChange = () => {}, onIdentityChang
     items().forEach((item,index)=>{const button=document.createElement('button');button.type='button';button.className='p-cover cursor-interaction';button.dataset.moduleIndex=index;button.setAttribute('aria-label',`${item.name}，${ratioLabel(item)}`);button.setAttribute('aria-pressed','false');const box=document.createElement('span');box.className='p-cover-image';const image=document.createElement('img');image.src=makeCover(item,index);image.alt=`${item.name}，${ratioLabel(item)}占位图`;image.draggable=false;image.width=item.w;image.height=item.h;box.append(image);const caption=document.createElement('span');caption.className='p-cover-caption';const name=document.createElement('span'),ratio=document.createElement('span');name.textContent=item.name;ratio.textContent=ratioLabel(item);caption.append(name,ratio);button.append(box,caption);ring.append(button);});
     refreshCoverImages();const shadows=$('.p-object-shadows');shadows.replaceChildren();shadowNodes=items().map(()=>{const node=document.createElement('span');node.className='p-object-shadow';shadows.append(node);return node;});ringAngle=ringTarget=-state.moduleIndex*2*Math.PI/items().length;drawRing();updateModuleUI();
   }
-  function renderSegment(){const button=$(`[data-group="${state.group}"]`),thumb=$('.p-segment-thumb');all('[data-group]').forEach(node=>node.setAttribute('aria-pressed',String(node===button)));if(button.offsetWidth){thumb.style.width=button.offsetWidth+'px';thumb.style.transform=`translateX(${button.offsetLeft}px)`;}}
+  function renderSegment(){const button=$(`[data-group="${state.group}"]`),thumb=$('.p-module > .p-segments .p-segment-thumb');all('[data-group]').forEach(node=>node.setAttribute('aria-pressed',String(node===button)));if(button.offsetWidth){thumb.style.width=button.offsetWidth+'px';thumb.style.transform=`translateX(${button.offsetLeft}px)`;}}
   function updateModuleUI(){
     const current=items()[state.moduleIndex],moving=Math.abs(ringTarget-ringAngle)>.003;
     $('[data-module-name]').textContent=current.name;$('[data-module-ratio]').textContent=`${current.w>current.h?'横版':current.w===current.h?'方形':'竖版'} · ${ratioLabel(current)}`;$('[data-module-position]').textContent=`${state.moduleIndex+1} / ${items().length}`;

@@ -1,5 +1,8 @@
 import { createMapWorkspace } from './map-workspace.mjs';
 import { createVoyageWorkspace } from './voyage-workspace.mjs';
+import { createModuleWorkspace } from './module-workspace.mjs';
+import { createResourceWorkspace, renderResourcePreview } from './resource-workspace.mjs';
+import { bindChatComposer } from './chat-composer.mjs';
 
 const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
 const button = (text, action) => { const node = el('button', text, 'project-button'); node.type = 'button'; node.addEventListener('click', action); return node; };
@@ -14,7 +17,7 @@ export function createProjectPanel({ platform, dialogue }) {
   window.addEventListener('pagehide', resetCoverViews);
   let token = sessionStorage.getItem('platform-session') || null, role = null, epoch = 0, sessionQueue = Promise.resolve(), selected = null, resources = [], referenceIds = [], connection = null, frame = null, serial = 0, replay = false, changingModule = false;
   const waits = new Map(), tabIds = new Map();
-  let chatDraft = '', resourceQuery = '', resourceKind = '', resourceOffset = 0, resourceLoad = 0, moduleLoad = 0, roleReady = false;
+  let chatDraft = '', moduleLoad = 0, roleReady = false, chatComposer = null, chatLoading = false;
   const root = platform.root;
   const notice = el('p', '真实资料只在本机DM显式打开后读取。', 'project-notice'); notice.setAttribute('role', 'status');
   const blocks = new Map();
@@ -31,7 +34,24 @@ export function createProjectPanel({ platform, dialogue }) {
     moduleExamples.textContent = showing ? '返回本地模组' : '查看界面示例';
   });
   moduleExamples.dataset.projectModuleExamples = ''; moduleExamples.hidden = true;
-  modulesView.prepend(moduleExamples, blocks.get('modules').details);
+  const moduleHost = el('div'); moduleHost.dataset.realModuleHost = '';
+  modulesView.prepend(moduleExamples, moduleHost, blocks.get('modules').details);
+  const moduleView = createModuleWorkspace({
+    host: moduleHost, run, onContinue: continueModule, onCreate: createModule, onRefresh: loadModules,
+    onStartBattle: async () => { connection = await api('/api/battle/start', {}); await loadModules(); },
+    onPreprocess: async source => { const value = await api('/api/project/preprocess', { sourceId: source.id }); notice.textContent = value.notes || '预处理结果已存在。'; await loadModules(); },
+    loadCover: template => api('/api/project/template-cover?templateId=' + encodeURIComponent(template.id)),
+    onManageCovers: () => window.open('/module-covers', 'platform-module-covers')
+  });
+  const resourceView = createResourceWorkspace({
+    root: root.querySelector('[data-platform-view=resources]'), api,
+    getRulesFamily: () => platform.rulesFamily || 'dnd-2024', getSelected: () => selected,
+    onResources: value => { resources = value; }, onStatus: text => { notice.textContent = text; },
+    onOpenContent: openResourceContent,
+    onReference: async resource => { await mutate('reference', { resourceId: resource.id }); if (!referenceIds.includes(resource.id)) referenceIds.push(resource.id); notice.textContent = '已引用到当前团，群聊发送时保存项目相对路径。'; },
+    onRelease: async (resource, playerId) => { await mutate('release', { resourceId: resource.id, playerId }); if (!referenceIds.includes(resource.id)) referenceIds.push(resource.id); notice.textContent = '发放记录已保存；正式Player权限接入仍待后续验收。'; },
+    onReveal: resource => api('/api/project/reveal', { resourceId: resource.id })
+  });
   root.querySelector('.p-appearance-status').append(notice);
   const frameArea = el('section', undefined, 'project-battle-host'); frameArea.hidden = true;
   const frameStatus = el('p', '', 'project-notice'); frameArea.append(frameStatus); root.querySelector('[data-platform-view="battle"]').append(frameArea);
@@ -43,7 +63,7 @@ export function createProjectPanel({ platform, dialogue }) {
   });
   const trainingEntry = button('风骸岛之龙 · 甲板试玩', () => run(async () => {
     if (!await canLeave()) return;
-    platform.show('modules'); blocks.get('modules').details.open = true; await loadModules();
+    platform.show('modules'); await loadModules();
   }));
   trainingEntry.dataset.projectTrainingEntry = ''; trainingEntry.hidden = true;
   trainingEntry.className = 'p-primary p-button cursor-interaction';
@@ -69,147 +89,75 @@ export function createProjectPanel({ platform, dialogue }) {
     for (const node of root.querySelectorAll('[data-module-context]')) node.textContent = selected ? `当前模组：${selected.moduleName}` : '未选择模组';
     for (const block of blocks.values()) block.details.hidden = role !== 'dm';
     modulesView.classList.toggle('has-local-modules', role === 'dm');
+    modulesView.classList.toggle('has-real-modules', role === 'dm');
+    moduleView.setVisible(role === 'dm');
+    resourceView.setActive(role === 'dm');
+    blocks.get('modules').details.hidden = true; blocks.get('resources').details.hidden = true;
     moduleExamples.hidden = role !== 'dm';
     const homeStatus = root.querySelector('#platform-current-session');
     homeStatus.textContent = selected ? '当前团：' + selected.moduleName : role === 'dm'
       ? '从本地模组清单选择资料或继续游玩团。' : '本地资料在选择DM后读取；Player目前为公共演示。';
   }
   async function loadModules() {
-    const request = ++moduleLoad;
-    const body = blocks.get('modules').body; body.replaceChildren();
-    const start = button('载入已有战斗团', () => run(async () => { connection = await api('/api/battle/start', {}); await loadModules(); notice.textContent = '已载入独立战斗模块，请在此确认所属团。'; })); start.dataset.projectStartBattle = '';
-    const refresh = button('刷新模组清单', () => run(loadModules)); refresh.dataset.projectRefreshModules = '';
-    const covers = el('a', '管理真实模组封面', 'project-button'); covers.id = 'platform-manage-covers'; covers.href = '/module-covers'; covers.target = 'platform-module-covers';
-    body.append(el('h3', '本地模组与游玩团'), el('p', '从实际文件读取；浏览清单不会切换当前团。'), refresh, start, covers);
-    const data = await api('/api/project/modules');
+    const request = ++moduleLoad; moduleHost.setAttribute('aria-busy', 'true');
+    try {
+    const [data, prepared, pending] = await Promise.all([api('/api/project/modules'), api('/api/project/templates'), api('/api/project/preprocess-sources')]);
     if (request !== moduleLoad) return;
-    const prepared = await api('/api/project/templates');
-    const pending = await api('/api/project/preprocess-sources');
-    if (request !== moduleLoad) return;
-    body.append(el('p', '已整理资料包从“模组/预处理/分类/模组”读取；旧PDF提取入口继续兼容。候选须核对，不会自动编排剧情。'));
-    for (const source of pending.sources) {
-      const row = el('div', undefined, 'project-row'), process = button('提取预处理候选', () => run(async () => {
-        process.disabled = true; notice.textContent = '正在本机提取PDF/图片，原文件保留；请等待完成。';
-        try { const value = await api('/api/project/preprocess', { sourceId: source.id }); notice.textContent = value.notes || '预处理结果已存在。'; await loadModules(); }
-        finally { process.disabled = false; }
-      }));
-      row.append(el('span', source.name), process); body.append(row);
-    }
-    body.append(el('h3', '可用模组'));
-    for (const template of prepared.templates) {
-      const row = el('section', undefined, 'project-row');
-      row.append(el('strong', template.name), el('span', `${template.maps}张地图 · ${template.nodes}个故事节点 · ${template.reviewStatus === 'verified' ? '已核对' : '待核对候选'}`));
-      if (template.batchId) row.append(el('small', '批次：' + template.batchId + ' · ' + (template.category || '未分类')));
-      const name = el('input'); name.value = template.name + ' · 新团'; name.setAttribute('aria-label', '新团名称'); name.maxLength = 80;
-      const createTemplate = training => run(async () => {
-        if (changingModule) return;
-        changingModule = true; create.disabled = true;
-        if (train) train.disabled = true;
-        try {
-          if (!await canLeave()) return;
-          await removeFrame(); await api('/api/battle/stop', {});
-          let monsterResourceId;
-          if (template.id === 'stormwreck-isle-v1436') {
-            const found = await api('/api/project/resources?kind=' + encodeURIComponent('怪物') + '&rulesFamily=dnd-2024&q=Merrow');
-            monsterResourceId = found.resources.find(entry => entry.sourceBook.includes('2025'))?.id;
-            if (!monsterResourceId) throw new Error('尚未找到已核对的2024梅洛资源，请先完成本地规则资料导入。');
-          }
-          const value = await api('/api/project/create-run', { templateId: template.id, name: name.value.trim() + (training ? ' · 甲板试玩' : ''), training, expectedPackageSha256: template.packageSha256, ...(monsterResourceId ? { monsterResourceId } : {}) });
-          const chosen = await api('/api/project/select-module', { moduleId: value.moduleId, battleId: value.battleId });
-          epoch++; selected = chosen.selected; referenceIds = []; chatDraft = ''; tabIds.clear(); dialogue.clear(); mapView.clear(); voyage.clear(); context();
-          for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
-          connection = await api('/api/battle/status'); await mountBattle();
-          notice.textContent = training ? '独立甲板试玩团已建立；先读场景与教学，再核对角色、提交先攻。整本资料仍为候选。' : '新团已建立，故事、对话和战斗分别保存；首战停在准备阶段，请核对角色。';
-          await loadModules();
-        } finally { changingModule = false; create.disabled = false; if (train) train.disabled = false; }
-      });
-      const create = button('新建团并选择', () => createTemplate(false));
-      const train = template.canTrain ? button('新建甲板试玩团', () => createTemplate(true)) : null;
-      if (train) train.dataset.projectCreateTraining = template.id;
-      create.dataset.projectCreateRun = template.id; row.append(name, create); if (train) row.append(train); body.append(row);
-    }
-    if (prepared.issues?.length) body.append(el('p', prepared.issues.map(item => item.error).join('；')));
-    body.append(el('h3', '已有游玩团'));
-    for (const item of data.modules) {
-      const row = el('div', undefined, 'project-row'), label = el('span', item.name + (item.campaignId ? ' · 游玩模组' : ''));
-      const battle = el('select'); battle.setAttribute('aria-label', '该团战斗');
-      for (const entry of item.battles || []) { const option = el('option', entry.name); option.value = entry.id; battle.append(option); }
-      const choose = button('确认所属模组', () => run(async () => {
-        if (changingModule) return;
-        changingModule = true;
-        try {
-        if (!await canLeave()) return;
-        await removeFrame();
-        const value = await api('/api/project/select-module', { moduleId: item.id, ...(battle.value ? { battleId: battle.value } : {}) });
-        epoch++;
-        selected = value.selected; referenceIds = []; chatDraft = ''; tabIds.clear(); dialogue.clear(); mapView.clear(); voyage.clear(); context();
-        for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
-        if (item.campaignId) { connection = await api('/api/battle/status'); await mountBattle(); } else await removeFrame();
-        notice.textContent = '当前所属模组已切换；地图、对话、战斗共用此选择。';
-        } finally { changingModule = false; }
-      })); choose.dataset.projectSelectModule = item.id;
-      row.append(label); if (item.battles?.length) row.append(battle); row.append(choose); body.append(row);
-    }
-    if (!data.modules.length) body.append(el('p', '暂无已创建的游玩模组；可从下方已预处理模板新建团。'));
-    if (data.issues.length) body.append(el('p', data.issues.join('；')));
+    moduleView.render({ templates: prepared.templates, categories: prepared.categories, modules: data.modules, sources: pending.sources,
+      issues: [...(data.issues || []), ...(prepared.issues || [])] });
+    } finally { if (request === moduleLoad) moduleHost.setAttribute('aria-busy', 'false'); }
   }
-  async function preview(resource) {
-    const value = await api('/api/project/read?resourceId=' + encodeURIComponent(resource.id));
+  async function resetSelected(chosen) {
+    epoch++; selected = chosen; referenceIds = []; chatDraft = ''; tabIds.clear();
+    chatComposer?.dispose(); chatComposer = null; dialogue.clear(); mapView.clear(); voyage.clear(); resourceView.clear(); context();
+    for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
+  }
+  async function continueModule(item, battleId) {
     if (changingModule) return;
-    resource = value.resource;
-    const content = el('article', undefined, 'project-preview'); content.append(el('h3', resource.name), el('p', resource.path));
-    if (value.mime?.startsWith('image/')) { const image = el('img'); image.alt = resource.name; image.src = 'data:' + value.mime + ';base64,' + value.base64; content.append(image); }
-    else {
-      let item; try { item = JSON.parse(value.text); } catch { /* Plain files remain readable as text. */ }
-      if (item?.content?.text) {
-        content.append(el('p', `${item.source?.book || '本地资料'} · ${item.edition?.rulesFamily === 'dnd-2024' ? 'Dungeons & Dragons 2024（龙与地下城2024版）' : '版本待核对'} · 资料收录，启用须由DM核对`));
-        if (item.statBlock) content.append(el('p', `AC ${item.statBlock.armorClass ?? '待核对'} · HP ${item.statBlock.hitPoints ?? '待核对'} · ${item.statBlock.speedText || ''}`));
-        content.append(el('pre', item.content.text));
-      } else if (item?.description) {
-        content.append(el('p', item.description));
-        if (item.source?.book) content.append(el('p', '来源：' + item.source.book + (item.source.pdfPages?.length ? ' · PDF第' + item.source.pdfPages.join('、') + '页' : '')));
-        if (item.availability?.status === 'module-reference-only') content.append(el('p', '模组剧情引用；这里不启用或换算旧版机械数值。'));
+    changingModule = true;
+    try {
+      if (!await canLeave()) return;
+      await removeFrame();
+      const value = await api('/api/project/select-module', { moduleId: item.id, ...(battleId ? { battleId } : {}) });
+      await resetSelected(value.selected);
+      if (item.campaignId) { connection = await api('/api/battle/status'); await mountBattle(); }
+      notice.textContent = '已继续此团；地图、对话和战斗共用此选择。';
+      await loadModules();
+    } finally { changingModule = false; }
+  }
+  async function createModule(template, { name, training }) {
+    if (changingModule) return;
+    changingModule = true;
+    try {
+      if (!await canLeave()) return;
+      await removeFrame(); await api('/api/battle/stop', {});
+      let monsterResourceId;
+      if (template.id === 'stormwreck-isle-v1436') {
+        const found = await api('/api/project/resources?kind=' + encodeURIComponent('怪物') + '&rulesFamily=dnd-2024&q=Merrow');
+        monsterResourceId = found.resources.find(entry => entry.sourceBook.includes('2025'))?.id;
+        if (!monsterResourceId) throw new Error('尚未找到已核对的2024梅洛资源，请先完成本地规则资料导入。');
       }
-      else content.append(el('pre', value.text || '此文件可通过“打开文件夹位置”查看。'));
-      if (typeof item?.resolvedRuleResourceId === 'string') content.append(button('查看已核对的2024规则资料', () => run(() => preview({ id: item.resolvedRuleResourceId }))));
-    }
+      const value = await api('/api/project/create-run', { templateId: template.id, name, training, expectedPackageSha256: template.packageSha256, ...(monsterResourceId ? { monsterResourceId } : {}) });
+      const chosen = await api('/api/project/select-module', { moduleId: value.moduleId, battleId: value.battleId });
+      await resetSelected(chosen.selected);
+      connection = await api('/api/battle/status'); await mountBattle(); await loadModules();
+      notice.textContent = training ? '独立甲板试玩团已建立；先阅读场景，再核对角色。整本资料仍为候选。' : '新团已建立，首战停在准备阶段。';
+    } finally { changingModule = false; }
+  }
+  function openResourceContent(resource, content) {
     const key = tabIds.get(resource.id) || 'real-' + crypto.randomUUID(); tabIds.set(resource.id, key);
     platform.show('dialogue'); dialogue.openContent(key, resource.name, content);
   }
-  async function loadResources() {
-    const request = ++resourceLoad;
-    const body = blocks.get('resources').body; body.replaceChildren();
-    const refresh = button('刷新本地资源', () => run(async () => { await mutate('refresh', {}); await loadResources(); })); refresh.dataset.projectRefreshResources = '';
-    const search = el('input'); search.placeholder = '按名称或来源书搜索'; search.value = resourceQuery; search.setAttribute('aria-label', '搜索本地资源');
-    const category = el('select'); category.setAttribute('aria-label', '本地资源类型');
-    for (const kind of ['', '角色', 'NPC', '怪物', '地图', '故事', '规则', '物品']) { const option = el('option', kind || '全部类型'); option.value = kind; category.append(option); }
-    category.value = resourceKind;
-    const apply = () => run(async () => { resourceQuery = search.value.trim(); resourceKind = category.value; resourceOffset = 0; await loadResources(); });
-    search.addEventListener('keydown', event => { if (event.key === 'Enter') apply(); }); category.addEventListener('change', apply);
-    body.append(el('p', '下方为真实本地资源；右键或“更多”可引用、发放或打开文件夹。'), refresh, category, search, button('搜索', apply));
-    const query = new URLSearchParams({ rulesFamily: platform.rulesFamily || 'dnd-2024', q: resourceQuery, kind: resourceKind, offset: resourceOffset, limit: '100' });
-    const data = await api('/api/project/resources?' + query);
-    if (request !== resourceLoad) return;
-    resources = data.resources;
-    body.append(el('p', `共${data.total}条，当前${data.resources.length ? resourceOffset + 1 : 0}～${resourceOffset + data.resources.length}条；原书收录不等于已启用。`));
-    for (const resource of resources) {
-      const row = el('article', undefined, 'project-resource-row'); row.dataset.projectResource = resource.id;
-      const open = button(`${resource.kind} · ${resource.name}${resource.sourceLabel ? ' · ' + resource.sourceLabel : ''}`, () => run(() => preview(resource))); row.append(open, el('small', resource.path));
-      const menu = el('div', undefined, 'project-resource-menu'); menu.hidden = true;
-      const moduleHint = el('p', selected ? '引用到：' + selected.moduleName : '请先在模组窗口确认所属模组');
-      const player = el('input'); player.placeholder = '玩家ID'; player.setAttribute('aria-label', '开放给玩家ID');
-      const reference = button('引用', () => run(async () => { await mutate('reference', { resourceId: resource.id }); if (!referenceIds.includes(resource.id)) referenceIds.push(resource.id); notice.textContent = '已引用到当前模组，群聊发送时会保存项目相对路径。'; })); reference.dataset.projectReference = '';
-      const release = button('开放给某玩家并引用', () => run(async () => { await mutate('release', { resourceId: resource.id, playerId: player.value.trim() }); if (!referenceIds.includes(resource.id)) referenceIds.push(resource.id); notice.textContent = '发放记录与当前引用已保存。真实Player身份接入后按此记录读取。'; })); release.dataset.projectRelease = '';
-      const reveal = button('打开文件夹位置', () => run(async () => { await api('/api/project/reveal', { resourceId: resource.id }); notice.textContent = '已请求打开资源文件夹。'; })); reveal.dataset.projectReveal = '';
-      menu.append(moduleHint, reference, player, release, reveal); row.append(button('更多', () => { menu.hidden = !menu.hidden; }), menu);
-      row.addEventListener('contextmenu', event => { event.preventDefault(); menu.hidden = false; }); body.append(row);
-    }
-    if (!resources.length) body.append(el('p', '资源目录为空；原有设计卡片与示例仍保留。'));
-    if (resourceOffset > 0) body.append(button('上一页', () => run(async () => { resourceOffset = Math.max(0, resourceOffset - 100); await loadResources(); })));
-    if (resourceOffset + 100 < data.total) body.append(button('下一页', () => run(async () => { resourceOffset += 100; await loadResources(); })));
-    if (data.issues?.length) body.append(el('pre', JSON.stringify(data.issues, null, 2)));
+  async function preview(resource) {
+    const value = await api('/api/project/read?resourceId=' + encodeURIComponent(resource.id));
+    if (!changingModule) openResourceContent(value.resource, renderResourcePreview(value, { onOpenResource: id => run(() => preview({ id })) }));
   }
+  async function loadResources() { return resourceView.load(); }
   async function openChat() {
+    if (chatComposer?.pending || chatLoading) return;
+    chatLoading = true;
+    try {
+    chatComposer?.dispose(); chatComposer = null;
     const body = blocks.get('dialogue').body; body.replaceChildren();
     if (!selected) { body.append(el('p', '请先在模组窗口选择所属模组。公共示例群聊继续可用。')); return; }
     const content = el('article', undefined, 'project-chat'); content.append(el('h3', selected.moduleName + ' · 本地群聊'));
@@ -217,7 +165,17 @@ export function createProjectPanel({ platform, dialogue }) {
     const input = el('textarea'); input.rows = 3; input.placeholder = '保存一条当前模组消息'; input.dataset.projectChatInput = '';
     input.value = chatDraft; input.addEventListener('input', () => { chatDraft = input.value; });
     const refs = el('p', '已选引用：' + (referenceIds.length ? referenceIds.map(id => resources.find(resource => resource.id === id)?.name || id).join('、') : '无'));
-    const send = button('保存到本地群聊', () => run(async () => { if (!input.value.trim()) return; await mutate('dialogue', { content: input.value, resourceIds: [...referenceIds] }); input.value = ''; chatDraft = ''; referenceIds = []; refs.textContent = '已选引用：无'; await refresh(); notice.textContent = '群聊消息及引用已保存。'; })); send.dataset.projectChatSend = '';
+    const send = el('button', '发送到本地群聊', 'project-button'); send.type = 'button'; send.dataset.projectChatSend = '';
+    const help = el('small', 'Enter发送 · Ctrl+Enter换行');
+    chatComposer = bindChatComposer({ input, send, isEnabled: () => role === 'dm' && !!selected,
+      onDraftChange: value => { chatDraft = value; }, onError: error => { notice.textContent = error.message; },
+      onSubmit: async ({ content }) => {
+        await mutate('dialogue', { content, resourceIds: [...referenceIds] });
+        referenceIds = []; refs.textContent = '已选引用：无';
+        notice.textContent = '群聊消息及引用已保存。';
+        try { await refresh(); } catch (error) { notice.textContent = '消息已保存，读取列表失败：' + error.message; }
+      }
+    });
     async function refresh() {
       const value = await api('/api/project/dialogue-read'); log.replaceChildren();
       const chunks = value.content.split(/^## (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\r?$/m);
@@ -235,8 +193,9 @@ export function createProjectPanel({ platform, dialogue }) {
       if (!log.childElementCount) log.append(el('p', value.content && chunks.length === 1 ? value.content : '还没有正式群聊消息。'));
       log.scrollTop = log.scrollHeight;
     }
-    content.append(log, refs, input, send); body.append(button('打开当前模组群聊标签', () => { platform.show('dialogue'); dialogue.openContent('real-chat', selected.moduleName + ' · 群聊', content); }));
-    await refresh(); dialogue.openContent('real-chat', selected.moduleName + ' · 群聊', content);
+    content.append(log, refs, input, help, send); body.append(button('打开当前模组群聊标签', () => { platform.show('dialogue'); dialogue.openContent('real-chat', selected.moduleName + ' · 群聊', content); }));
+    await refresh(); dialogue.openContent('real-chat', selected.moduleName + ' · 群聊', content); blocks.get('dialogue').details.open = false;
+    } finally { chatLoading = false; }
   }
   function bridge(type, payload = {}) {
     if (!frame?.contentWindow || !connection?.url) return Promise.resolve({ allowed: true });
@@ -251,6 +210,7 @@ export function createProjectPanel({ platform, dialogue }) {
   });
   async function canLeave() {
     if (!voyage.canLeave()) { notice.textContent = '试玩记录有未保存草稿或正在保存，请先保存或明确放弃草稿。'; return false; }
+    if (chatComposer?.pending) { notice.textContent = '群聊正在保存，请稍候再切换。'; return false; }
     if (chatDraft.trim()) { notice.textContent = '群聊仍有未发送草稿，请先保存或清空后再切换。'; return false; }
     if (mapView.canLeave && !mapView.canLeave()) { notice.textContent = '地图或故事记录仍有草稿，请先保存或明确重新读取后再切换所属团或身份。'; return false; }
     if (!frame) return true;
@@ -281,6 +241,7 @@ export function createProjectPanel({ platform, dialogue }) {
   }, true);
   async function setRole(value) {
     resetCoverViews();
+    chatComposer?.dispose(); chatComposer = null; moduleView.clear(); resourceView.clear();
     mapView.clear();
     voyage.clear(); trainingEntry.hidden = true; roleReady = false;
     role = value; const generation = ++epoch; selected = null; referenceIds = []; chatDraft = ''; resources = []; tabIds.clear();
@@ -303,16 +264,16 @@ export function createProjectPanel({ platform, dialogue }) {
     if (frame?.dataset.ready) run(() => bridge('setVisible', { visible: page === 'battle' }));
     if (page === 'modules' && role === 'dm' && roleReady && token) {
       modulesView.classList.remove('show-module-examples'); moduleExamples.textContent = '查看界面示例';
-      const details = blocks.get('modules').details;
-      if (!details.open) details.open = true; else run(loadModules);
+      run(loadModules);
     }
+    if (page === 'resources' && role === 'dm' && roleReady && token) run(loadResources);
   }
   setInterval(async () => {
     if (!frame || role !== 'dm' || platform.page !== 'battle') return;
     try { const status = await api('/api/battle/status'); frameStatus.textContent = status.projection?.state === 'error' ? '文件同步待处理：' + status.projection.error : status.projection?.state === 'saved' ? '当前资源与战斗进度已同步' : '正在同步资源与进度'; } catch { /* Navigation may revoke this view while a read is pending. */ }
   }, 3000);
   context();
-  root.addEventListener('platform-rule-version', () => { resourceOffset = 0; if (role === 'dm' && blocks.get('resources').details.open) run(loadResources); });
+  root.addEventListener('platform-rule-version', () => { if (role === 'dm' && platform.page === 'resources') run(loadResources); });
   run(() => setRole(null));
   return { setRole, setPage, canLeave };
 }
