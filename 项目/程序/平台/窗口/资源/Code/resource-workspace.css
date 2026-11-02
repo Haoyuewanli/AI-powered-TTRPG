@@ -1,0 +1,75 @@
+#platform-covers .has-real-resources > :not(.real-resource-workspace){display:none!important}
+#platform-covers .real-resource-workspace{display:flex;flex-direction:column;min-height:0;min-width:0;height:100%;overflow:hidden;padding:4px 8px 12px;gap:12px}
+#platform-covers .real-resource-workspace[hidden]{display:none}
+#platform-covers .real-resource-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;flex-shrink:0;position:relative;z-index:12}
+#platform-covers .real-resource-toolbar>input{flex:1 1 200px;min-width:140px}
+#platform-covers .real-resource-toolbar>select{max-width:150px}
+#platform-covers .real-resource-workspace input,#platform-covers .real-resource-workspace select{font:inherit;color:var(--ink);background:var(--paper);border:1px solid color-mix(in srgb,var(--shadow) 32%,transparent);min-height:36px;padding:7px;border-radius:3px}
+#platform-covers .real-resource-workspace button:not(.p-resource-card){min-height:34px;padding:6px 9px;white-space:normal}
+#platform-covers .real-resource-status{margin:0;font-size:12px;color:var(--quiet);flex-shrink:0;overflow-wrap:anywhere}
+#platform-covers .real-resource-body{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;flex:1;min-height:0;min-width:0}
+#platform-covers .real-resource-body.has-reader{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+#platform-covers .real-resource-browser{display:flex;flex-direction:column;min-width:0;min-height:0}
+#platform-covers .real-resource-layout{flex:1;min-height:0;height:100%;padding:0;position:relative;--dock-width:110px;--dock-card-width:96px;--resource-card-height:240px}
+#platform-covers .real-resource-track{gap:18px;scroll-snap-type:x proximity;min-width:0;max-height:100%}
+#platform-covers .real-resource-track .p-resource-card{width:170px;flex-basis:170px;scroll-snap-align:start}
+#platform-covers .real-resource-layout.is-open{grid-template-columns:110px minmax(0,1fr)}
+#platform-covers .real-resource-layout.is-open .p-resource-card{width:96px;flex-basis:96px}
+#platform-covers .real-resource-layout.is-open .p-cover-art{transform:scale(.75) rotate(-4deg)}
+#platform-covers .real-resource-drawer{height:calc(100% - 26px);min-height:0;align-self:center;width:100%;min-width:0;margin:0;padding:12px}
+#platform-covers .real-resource-drawer[hidden]{display:none}
+#platform-covers .real-resource-list{overflow:auto;min-height:0;min-width:0;padding:8px;gap:10px;align-content:start}
+#platform-covers .real-resource-row{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;min-height:90px;height:auto;min-width:0;padding:12px;gap:10px;background:linear-gradient(125deg,var(--gradient-start,var(--paper)),var(--gradient-end,var(--active-surface)));transform:none}
+#platform-covers .real-resource-name{display:flex;flex-direction:column;gap:5px;min-width:0}
+#platform-covers .real-resource-name strong{font-size:15px;font-weight:500}
+#platform-covers .real-resource-name small{font-size:11px;white-space:normal;overflow-wrap:anywhere;color:var(--quiet)}
+#platform-covers .real-resource-row-controls{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px;min-width:0}
+#platform-covers .real-resource-row.is-expanded{box-shadow:inset 0 0 0 1px var(--quiet)}
+#platform-covers .real-resource-share{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;min-width:0;width:100%}
+#platform-covers .real-resource-share>small{font-size:11px;flex-basis:100%;color:var(--quiet)}
+#platform-covers .real-resource-multi{position:relative;min-width:110px;font-size:12px;color:var(--ink)}
+#platform-covers .real-resource-multi>summary{list-style:none;cursor:pointer;padding:8px 10px;min-height:36px;background:var(--paper);border:1px solid color-mix(in srgb,var(--shadow) 30%,transparent);border-radius:3px;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#platform-covers .real-resource-multi>summary:after{content:" ▾"}
+#platform-covers .real-resource-multi>summary[aria-disabled=true]{cursor:default;opacity:.5}
+#platform-covers .real-resource-options{background:var(--paper);border:1px solid color-mix(in srgb,var(--shadow) 30%,transparent);padding:8px;min-width:150px;max-height:250px;overflow:auto}
+#platform-covers .real-resource-toolbar .real-resource-options{position:absolute;top:calc(100% + 4px);left:0;z-index:30;box-shadow:0 14px 25px -16px var(--cast);max-width:280px}
+#platform-covers .real-resource-choices{display:flex;flex-direction:column;gap:3px}
+#platform-covers .real-resource-choices>label{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;white-space:normal;overflow-wrap:anywhere}
+#platform-covers .real-resource-choices input[type=checkbox]{min-height:18px;width:16px;height:16px;margin:4px;flex-shrink:0}
+#platform-covers .real-resource-pager{display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
+#platform-covers .real-resource-pager[hidden],#platform-covers .real-resource-pager button[hidden]{display:none}
+#platform-covers .real-resource-navigation{display:flex;gap:12px;justify-content:center;align-items:center;font-size:11px;color:var(--quiet);flex-shrink:0;padding-top:8px}
+#platform-covers .real-resource-symbol{display:flex;align-items:center;justify-content:center;font:62px Georgia,serif;color:var(--quiet)}
+#platform-covers .real-resource-reader{height:100%;overflow:auto;overscroll-behavior:contain;background:var(--paper);padding:18px;border:1px solid color-mix(in srgb,var(--shadow) 25%,transparent);box-shadow:0 20px 32px -28px var(--cast);min-width:0;min-height:0;scrollbar-gutter:stable}
+#platform-covers .real-resource-reader[hidden]{display:none}
+#platform-covers .real-resource-reader-controls{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:12px}
+#platform-covers .real-resource-preview{min-width:0;color:var(--ink);line-height:1.8;font-size:14px;overflow-wrap:anywhere}
+#platform-covers .real-resource-preview h3{font-size:22px;margin:0 0 8px}
+#platform-covers .real-resource-preview img{display:block;max-width:100%;height:auto;margin:12px auto;max-height:650px;object-fit:contain}
+#platform-covers .real-resource-path{font-size:11px;color:var(--quiet);overflow-wrap:anywhere;word-break:break-word}
+#platform-covers .real-resource-source,#platform-covers .real-resource-note,#platform-covers .real-resource-image-note{font-size:12px;color:var(--quiet)}
+#platform-covers .real-resource-markdown h2{font-size:21px;margin:22px 0 10px}
+#platform-covers .real-resource-markdown h3{font-size:18px;margin:18px 0 8px}
+#platform-covers .real-resource-markdown h4,#platform-covers .real-resource-markdown h5,#platform-covers .real-resource-markdown h6{font-size:15px;margin:16px 0 8px}
+#platform-covers .real-resource-markdown p{white-space:pre-wrap;margin:10px 0}
+#platform-covers .real-resource-markdown ul,#platform-covers .real-resource-markdown ol{padding-left:24px;margin:10px 0}
+#platform-covers .real-resource-markdown li{margin:4px 0}
+#platform-covers .real-resource-markdown pre,#platform-covers .real-resource-facts dd{white-space:pre-wrap;font-size:12px;overflow-wrap:anywhere}
+#platform-covers .real-resource-markdown pre{padding:12px;background:color-mix(in srgb,var(--shadow) 8%,var(--paper));border-radius:3px}
+#platform-covers .real-resource-markdown blockquote{border-left:3px solid var(--accent);padding-left:14px;margin:14px 0;color:var(--quiet)}
+#platform-covers .real-resource-table{overflow:auto;width:100%}
+#platform-covers .real-resource-markdown table{border-collapse:collapse;min-width:240px;width:100%;font-size:13px}
+#platform-covers .real-resource-markdown th,#platform-covers .real-resource-markdown td{border:1px solid color-mix(in srgb,var(--shadow) 25%,transparent);padding:6px 10px;text-align:left}
+#platform-covers .real-resource-link{text-decoration:underline dotted;cursor:help}
+#platform-covers .real-resource-facts{display:grid;grid-template-columns:minmax(70px,auto) minmax(0,1fr);gap:7px 14px}
+#platform-covers .real-resource-facts dt{font-weight:600}
+#platform-covers .real-resource-facts dd{margin:0}
+#platform-covers .real-resource-issues{grid-column:1/-1;font-size:12px}
+@media(max-width:900px){
+  #platform-covers .real-resource-layout.is-open{grid-template-columns:82px minmax(0,1fr)}
+  #platform-covers .real-resource-layout.is-open .p-resource-card{width:72px;flex-basis:72px;padding-left:4px;padding-right:4px}
+  #platform-covers .real-resource-layout.is-open .p-resource-card h3{font-size:18px}
+  #platform-covers .real-resource-body{gap:10px}
+  #platform-covers .real-resource-reader{padding:10px}
+  #platform-covers .real-resource-drawer{padding:6px}
+}

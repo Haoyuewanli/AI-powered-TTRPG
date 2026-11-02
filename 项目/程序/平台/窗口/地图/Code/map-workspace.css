@@ -1,0 +1,9 @@
+#platform-covers .has-map-editor{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+#platform-covers .has-map-editor>:not(.formal-map-workspace){display:none!important}
+#platform-covers .formal-map-workspace{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;gap:7px}
+#platform-covers .formal-map-workspace[hidden]{display:none!important}
+#platform-covers .formal-map-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font:12px/1.5 "Microsoft YaHei",sans-serif}
+#platform-covers .formal-map-toolbar button,#platform-covers .formal-map-toolbar select,#platform-covers .formal-map-filter>summary{min-height:33px;border:1px solid color-mix(in srgb,var(--shadow) 40%,transparent);background:var(--paper);color:var(--ink);padding:5px 9px;cursor:pointer}
+#platform-covers .formal-map-filter{position:relative}#platform-covers .formal-map-filter>div{position:absolute;top:100%;left:0;width:260px;max-height:280px;overflow:auto;background:var(--paper);box-shadow:0 12px 25px #34374d25;padding:10px;z-index:50;border:1px solid var(--quiet)}
+#platform-covers .formal-map-filter label{display:flex;gap:8px;padding:7px 2px;align-items:center}#platform-covers .formal-map-status{font-size:11px;margin:0;color:var(--quiet);overflow-wrap:anywhere}#platform-covers .formal-map-frame{width:100%;min-height:420px;flex:1;border:1px solid color-mix(in srgb,var(--shadow) 35%,transparent);background:var(--paper)}#platform-covers .formal-map-empty{padding:28px;text-align:center;color:var(--quiet)}
+@media(max-width:760px){#platform-covers .formal-map-frame{min-height:620px}#platform-covers .has-map-editor{overflow:auto}.formal-map-toolbar select{max-width:200px}}

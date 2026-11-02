@@ -1,0 +1,14 @@
+{
+  "name": "standalone-ttrpg-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node Code/launcher.mjs",
+    "serve": "node Code/server.mjs",
+    "test": "node --test Code/tests/*.test.mjs"
+  }
+}

@@ -2,17 +2,17 @@
 
 可复用流程：盘点原件 → 当前会话理解MD和查看图片 → 填写地图计划 → 独立校验 → 生成资料包与离线HTML → 浏览器核对。程序不调用AI API、不读取PDF、不自动判断图片语义；视觉证据由实际查看图片的会话记录，不冒充用户人工审核。
 
-公共代码在本目录，`工作台/`为通用地图编辑器唯一维护入口，起点来自先前风骸岛HTML演示；旧演示作为历史样本保留。模组名称、原图路径、来源行号及热点仅存在本批地图计划，不写入公共代码。不要重新开发编辑器。
+公共代码集中在`Code/`，`Code/工作台/`为通用地图编辑器唯一维护入口，起点来自先前风骸岛HTML演示；旧演示作为历史样本保留。模组名称、原图路径、来源行号及热点仅存在本批地图计划，不写入公共代码。不要重新开发编辑器。
 
 ## 四个命令
 
 从本目录执行，参数中的路径由操作者指定。`--md`相对于`--input-dir`，图片默认子目录`images`；可用`--images`指定。所有结果必须在原件目录之外，且输出不能已存在。
 
 ```powershell
-node cli.mjs index --input-dir "原件目录" --md "原文.md" --out "新批次/索引.json"
-node cli.mjs template --input-dir "原件目录" --index "新批次/索引.json" --id "稳定模组ID" --title "模组名称" --version "实际版本或unknown" --out "新批次/地图计划.json"
-node cli.mjs validate --input-dir "原件目录" --md "原文.md" --plan "新批次/地图计划.json"
-node cli.mjs build --input-dir "原件目录" --md "原文.md" --plan "新批次/地图计划.json" --out "输出/模组ID/新批次"
+node Code/cli.mjs index --input-dir "原件目录" --md "原文.md" --out "新批次/索引.json"
+node Code/cli.mjs template --input-dir "原件目录" --index "新批次/索引.json" --id "稳定模组ID" --title "模组名称" --version "实际版本或unknown" --out "新批次/地图计划.json"
+node Code/cli.mjs validate --input-dir "原件目录" --md "原文.md" --plan "新批次/地图计划.json"
+node Code/cli.mjs build --input-dir "原件目录" --md "原文.md" --plan "新批次/地图计划.json" --out "输出/模组ID/新批次"
 ```
 
 `template`只生成图片待核对清单，nodes为空，不能直接当成完成品。会话按`地图计划规范.md`完成地点、原文范围、图像绑定、提词和热点后再校验。索引包含标题、图片引用、尺寸与摘要；索引全文留在本机，计数、哈希、生成和打包交给程序，不向模型反复输出整本原文或HTML/Base64。
@@ -35,8 +35,8 @@ node cli.mjs build --input-dir "原件目录" --md "原文.md" --plan "新批次
 ## 检查
 
 ```powershell
-node --test tests/*.test.mjs
-node check-html.mjs "输出/模组ID/新批次/地图.html"
+node --test Code/tests/*.test.mjs
+node Code/check-html.mjs "输出/模组ID/新批次/地图.html"
 ```
 
 浏览器检查使用开发机已有Playwright与Edge，可通过`RPG_PLATFORM_PLAYWRIGHT_MODULE`、`RPG_PLATFORM_BROWSER`指定。产品运行只需现有Node.js；裁取原图区域用Windows自带PowerShell/System.Drawing，不重新绘制图片。图片尺寸读取不是解码验证，浏览器解码与热点实际点击另行检查。

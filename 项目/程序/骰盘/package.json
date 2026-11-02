@@ -1,0 +1,17 @@
+{
+  "name": "solo-dice-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:offline": "node Code/build-offline.mjs",
+    "start": "node Code/server.mjs",
+    "test": "node --test Code/tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@3d-dice/dice-box-threejs": "0.0.12"
+  }
+}
