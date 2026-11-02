@@ -17,6 +17,11 @@ export function validatePlan(plan, index, sourceText) {
   const wait = message => add(pending, message);
   const warn = message => add(warnings, message);
   const result = () => ({ ok: errors.length === 0, errors, pending, warnings });
+  for(const issue of Array.isArray(index?.warnings)?index.warnings:[]){
+    const summary='输入盘点：'+String(issue.code||'unknown')+' '+String(issue.path||issue.target||'')+(issue.line?'（第'+issue.line+'行）':'');
+    warn(summary);
+    if(['missing-image-reference','external-image-reference','unsafe-image-reference','unresolved-image-reference','image-dimensions-unknown'].includes(issue.code))wait(summary);
+  }
 
   function inspect(value, label = '计划', ancestors = new WeakSet(), depth = 0, count = { n: 0 }) {
     if (++count.n > 100000) { error('计划内容超过允许的结构大小。'); return; }

@@ -21,6 +21,14 @@ function fixture(prefix = 'island') {
 const validate = value => validatePlan(value.plan, value.index, value.source);
 const hasError = (value, expression) => { const result = validate(value); assert.equal(result.ok, false); assert(result.errors.some(message => expression.test(message)), result.errors.join('\n')); };
 
+test('缺图及外部引用必须进入最终待核对，不能只藏在索引中',()=>{
+  const value=fixture();value.index.warnings=[{code:'missing-image-reference',line:2,path:'images/missing.png'},{code:'external-image-reference',line:3,target:'https://example.invalid/map.png'},{code:'duplicate-image-reference',line:4,path:'images/map.png'}];
+  const result=validate(value);assert.equal(result.ok,true);assert.equal(result.pending.length,2);assert.equal(result.warnings.length,3);
+});
+test('地图数量上限与通用工作台保持一致',()=>{
+  const value=fixture();value.plan.nodes=Array.from({length:501},()=>structuredClone(value.plan.nodes[0]));hasError(value,/500/);
+});
+
 test('两部不同合成模组使用同一规范，不改变原始计划', () => {
   for (const id of ['island', 'castle']) {
     const value = fixture(id), before = structuredClone(value);
