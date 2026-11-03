@@ -1,4 +1,5 @@
 import { createPlayerStore } from './player-store.mjs';
+import { archiveDirectory, archivePlayerIdentity, materializePlayerMembers, playerRelationOverview, playerRelationRevision, setPlayerMemberships, storedRun, validatePlayerMemberships } from './player-relations.mjs';
 import { archiveInitial } from './project-files.mjs';
 import { moduleImageIndex } from './module-image-index.mjs';
 import { discoverModules } from './module-discovery.mjs';
@@ -74,6 +75,7 @@ export function createLibraryStore({ root }) {
     let value;
     try { value = await json(statePath); } catch (error) { if (error.code === 'ENOENT') return freshState(); throw error; }
     if (value.schemaVersion !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0 || !value.shares || !value.invites || !Array.isArray(value.notifications)) fail('资料库状态格式无效，已保留原文件。', 409);
+    validatePlayerMemberships(value);
     return value;
   }
   async function atomic(path, value) {
@@ -103,7 +105,8 @@ export function createLibraryStore({ root }) {
   function expected(state, revision) {
     if (!Number.isSafeInteger(revision) || revision !== state.revision) fail('资料库已变化，请重新核对当前团与开放对象。', 409, 'revision_conflict');
   }
-  async function inventory(includeResources = true) {
+  async function inventory(includeResources = true, relationState) {
+    relationState ||= await loadState();
     const discovery = await discoverModules({ directories: dirs, readManifest: json });
     const modules = [], issues = [...discovery.issues], resources = [], kinds = new Set();
     const categories = discovery.categories;
@@ -132,7 +135,9 @@ export function createLibraryStore({ root }) {
     const duplicateModules = new Set(modules.filter((item, index) => modules.findIndex(other => other.id === item.id) !== index).map(item => item.id));
     for (const id of duplicateModules) issues.push({ id, reason: '模组ID重复，相关模组与资源不可引用。' });
     const usableModules = modules.filter(module => !duplicateModules.has(module.id));
-    if (!includeResources) return { categories, modules: usableModules, resources: [], issues, kinds: [] };
+    const playerTree = await players.tree(), archive = archiveDirectory(playerTree);
+    materializePlayerMembers({ modules: usableModules, issues }, relationState, archive);
+    if (!includeResources) return { categories, modules: usableModules, resources: [], issues, kinds: [], archive, playerTree };
     const jobs = [], livePaths = new Set();
     async function scan(path, scope, module) {
       let entries;
@@ -180,7 +185,7 @@ export function createLibraryStore({ root }) {
     const counts = new Map(); for (const item of resources) counts.set(item.resource.id, (counts.get(item.resource.id) || 0) + 1);
     const duplicateIds = new Set([...counts].filter(([, count]) => count > 1).map(([id]) => id));
     for (const id of duplicateIds) issues.push({ id, reason: '资源ID重复，禁止读取或分享。' });
-    return { categories, modules: usableModules, resources: resources.filter(item => !duplicateIds.has(item.resource.id)), issues, kinds: [...kinds].sort() };
+    return { categories, modules: usableModules, resources: resources.filter(item => !duplicateIds.has(item.resource.id)), issues, kinds: [...kinds].sort(), archive, playerTree };
   }
   function selectedRun(data, selected) {
     const module = data.modules.find(item => item.id === selected?.moduleId), run = module?.runs.find(item => item.id === selected?.runId);
@@ -192,11 +197,15 @@ export function createLibraryStore({ root }) {
     const invite = state.invites[sha(actor.token)];
     const current = selectedRun(data, invite);
     if (!invite || invite.revoked || !current || !current.run.characters.some(character => character.playerId === invite.playerId)) fail('邀请或玩家会话已失效。', 401, 'session_invalid');
+    if (invite.managedMemberIds) {
+      const members = current.run.characters.filter(character => character.playerId === invite.playerId && character.managed).map(character => character.id).sort();
+      if (JSON.stringify(members) !== JSON.stringify(invite.managedMemberIds)) fail('所属角色已变化，请由DM重新生成邀请。', 401, 'session_invalid');
+    }
     return { role: 'player', current, playerId: invite.playerId, inviteId: invite.id };
   }
   function permitted(item, session, state) {
     if (session.role === 'dm') return true;
-    if (item.scope === 'player') return item.ownerPlayerIds?.includes(session.playerId) || false;
+    if (item.scope === 'player') return item.ownerPlayerIds?.includes(session.playerId) || validId(item.ownerId) && archivePlayerIdentity(item.ownerId) === session.playerId;
     if (item.scope === 'world') return true;
     if (!item.shareable) return false;
     const current = session.current;
@@ -214,15 +223,42 @@ export function createLibraryStore({ root }) {
       edition: typeof edition === 'object' ? { rulesFamily: edition.rulesFamily, publicationYear: edition.publicationYear, year: edition.year } : label(edition) };
   };
   const publicModules = data => data.modules.map(({ id, name, category, runs }) => ({ id, name, category, runs: runs.map(({ path, ...run }) => run) }));
-  async function snapshot(actor, includeResources = true) { const [state, data] = await Promise.all([loadState(), inventory(includeResources)]); return { state, data, session: await actorSession(actor, state, data) }; }
+  async function snapshot(actor, includeResources = true) { const state = await loadState(), data = await inventory(includeResources, state); return { state, data, session: await actorSession(actor, state, data) }; }
   function requireDm(session) { if (session.role !== 'dm') fail('只有DM可以操作。', 403); }
   function requireCurrent(session) { if (!session.current) fail('请先选择当前模组与游玩团。', 409, 'run_required'); return session.current; }
   function findResource(data, id) { const found = data.resources.find(item => item.resource.id === id); if (!found) fail('资源不存在、无效或身份重复。', 404, 'resource_missing'); return found; }
 
   return {
+    async playerRelations(actor) {
+      const { state, data, session } = await snapshot(actor, false); requireDm(session);
+      return playerRelationOverview(data.playerTree, data, state);
+    },
+    async setPlayerRelations(actor, body) {
+      return transaction(async state => {
+        const data = await inventory(false, state), session = await actorSession(actor, state, data); requireDm(session); expected(state, body.expectedRevision);
+        const tree = data.playerTree;
+        if (body.expectedPlayerRevision !== playerRelationRevision(tree, data) || (await players.tree()).revision !== tree.revision) fail('玩家目录或团名单已变化，请刷新后再保存。', 409, 'player_revision_conflict');
+        return setPlayerMemberships(state, data, data.archive, body);
+      });
+    },
     async playerTree(actor) { const {session}=await snapshot(actor,false); requireDm(session); return players.tree(); },
     async playerRead(actor,path) { const {session}=await snapshot(actor,false); requireDm(session); return players.read(path); },
-    async playerOperation(actor,body) { const {session}=await snapshot(actor,false); requireDm(session); return players.operation({...body,allowedPlayerIds:(session.current?.run.characters||[]).map(item=>item.playerId)}); },
+    async playerOperation(actor, body) {
+      const { session, data } = await snapshot(actor, false); requireDm(session);
+      const source = data.archive.characters.find(character => character.path === body.path);
+      const changesOwner = body.action === 'move' && source && body.parent !== source.path.split('/').slice(0, -1).join('/');
+      if (!changesOwner) return players.operation({ ...body, allowedPlayerIds: (session.current?.run.characters || []).map(item => item.playerId) });
+      const result = await transaction(async state => {
+        const currentData = await inventory(false, state), currentSession = await actorSession(actor, state, currentData); requireDm(currentSession);
+        const tree = await players.operation({ ...body, allowedPlayerIds: (currentSession.current?.run.characters || []).map(item => item.playerId) });
+        // Changing owner permanently retires the old grant IDs, including a later move back.
+        // If the state save fails after the directory move, the new owner's derived ID still
+        // cannot use the old owner's grants; the directory itself remains intact for recovery.
+        for (const membership of state.playerMemberships || []) if (membership.characterId === source.id) membership.id = randomUUID();
+        return { tree };
+      });
+      return result.tree;
+    },
     async revealTarget(actor, id) {
       const { data, session } = await snapshot(actor); requireDm(session);
       const found = findResource(data, id);
@@ -275,7 +311,7 @@ export function createLibraryStore({ root }) {
         const data = await inventory(false), session = await actorSession(actor, state, data); requireDm(session);
         if (expectedRevision !== undefined) expected(state, expectedRevision);
         const current = selectedRun(data, { moduleId, runId }); if (!current) fail('所选模组或游玩团不存在。', 404);
-        const { path, ...record } = current.run; await atomic(path + '/团.json', { ...record, lastPlayedAt: new Date().toISOString() });
+        const path = current.run.path, record = storedRun(current.run); await atomic(path + '/团.json', { ...record, lastPlayedAt: new Date().toISOString() });
         state.selected = { moduleId, runId }; return { selected: current.selection, characters: current.run.characters };
       });
     },
@@ -298,7 +334,7 @@ export function createLibraryStore({ root }) {
         const data = await inventory(false), session = await actorSession(actor, state, data); requireDm(session);
         expected(state, expectedRevision);
         const current = selectedRun(data, { moduleId, runId }); if (!current) fail('团已移动或删除，请刷新目录。', 404);
-        const { path, ...record } = current.run;
+        const path = current.run.path, record = storedRun(current.run);
         if (action === 'rename') {
           if (!label(name)) fail('请输入团名。');
           await atomic(path + '/团.json', { ...record, name: label(name) });
@@ -314,6 +350,10 @@ export function createLibraryStore({ root }) {
           await atomic(pending + '/团.json', { ...record, id, name: label(name, record.name + ' · 副本'), copiedFrom: record.id });
           for (const [filename, value] of files) await atomic(pending + '/' + filename, filename === '画布.json' ? { ...value, runId: id, revision: 1 } : value);
           await rename(await safe(pending), await safe(destination, true));
+          const copied = (state.playerMemberships || []).filter(item => item.moduleId === moduleId && item.runId === runId).map(item => ({ ...item, id: randomUUID(), runId: id }));
+          if (copied.length) state.playerMemberships = [...state.playerMemberships, ...copied];
+          const detached = (state.detachedLegacyMembers || []).filter(item => item.moduleId === moduleId && item.runId === runId).map(item => ({ ...item, runId: id }));
+          if (detached.length) state.detachedLegacyMembers = [...state.detachedLegacyMembers, ...detached];
         } else if (action === 'archive') {
           // Keep every file intact; archived runs can be restored in the file manager.
           const target = current.module.path + '/已归档团/' + runId + '-' + randomUUID();
@@ -363,7 +403,7 @@ export function createLibraryStore({ root }) {
         if (!label(name) || current.run.characters.length >= 100) fail('需要角色名，且每团最多100个角色。');
         if (playerId && !current.run.characters.some(character => character.playerId === playerId)) fail('该玩家不属于当前团。');
         const character = { id: 'character-' + randomUUID(), name: label(name), playerId: playerId || 'player-' + randomUUID(), ...(label(playerName) ? { playerName: label(playerName) } : {}) };
-        const { path, ...run } = current.run; run.characters.push(character); await atomic(path + '/团.json', run); return { character, characters: run.characters };
+        const path = current.run.path, run = storedRun(current.run); run.characters.push(character); await atomic(path + '/团.json', run); return { character, characters: [...current.run.characters, character] };
       });
     },
     async shares(actor, resourceId) {
@@ -393,13 +433,16 @@ export function createLibraryStore({ root }) {
         return { resourceId, characterIds: next, selected: current.selection, notificationsCreated: created.length };
       });
     },
-    async createInvite(actor, { playerId, expectedRevision }) {
+    async createInvite(actor, { playerId, moduleId, runId, expectedRevision }) {
       const token = randomBytes(32).toString('base64url');
       return transaction(async state => {
-        const data = await inventory(false), session = await actorSession(actor, state, data); requireDm(session); const current = requireCurrent(session);
+        const data = await inventory(false, state), session = await actorSession(actor, state, data); requireDm(session);
+        const current = moduleId !== undefined || runId !== undefined ? selectedRun(data, { moduleId, runId }) : requireCurrent(session);
+        if (!current) fail('所选游玩团不存在，请刷新。', 404);
         if (expectedRevision !== undefined) expected(state, expectedRevision);
         if (!current.run.characters.some(character => character.playerId === playerId)) fail('玩家不属于当前团。');
-        const id = randomUUID(); state.invites[sha(token)] = { id, moduleId: current.module.id, runId: current.run.id, playerId, createdAt: new Date().toISOString() };
+        const managedMemberIds = current.run.characters.filter(character => character.playerId === playerId && character.managed).map(character => character.id).sort();
+        const id = randomUUID(); state.invites[sha(token)] = { id, moduleId: current.module.id, runId: current.run.id, playerId, createdAt: new Date().toISOString(), ...(managedMemberIds.length ? { managedMemberIds } : {}) };
         return { inviteId: id, token, ...current.selection, playerId };
       });
     },
@@ -407,9 +450,11 @@ export function createLibraryStore({ root }) {
       const { session } = await snapshot({ token }, false);
       return { token, role: 'player', playerId: session.playerId, selected: session.current.selection, inviteId: session.inviteId };
     },
-    async revokeInvite(actor, { inviteId, expectedRevision }) {
+    async revokeInvite(actor, { inviteId, moduleId, runId, expectedRevision }) {
       return transaction(async state => {
-        const data = await inventory(false), session = await actorSession(actor, state, data); requireDm(session); const current = requireCurrent(session);
+        const data = await inventory(false, state), session = await actorSession(actor, state, data); requireDm(session);
+        const current = moduleId !== undefined || runId !== undefined ? selectedRun(data, { moduleId, runId }) : requireCurrent(session);
+        if (!current) fail('所选游玩团不存在，请刷新。', 404);
         if (expectedRevision !== undefined) expected(state, expectedRevision);
         const invite = Object.values(state.invites).find(item => item.id === inviteId);
         if (!invite || invite.moduleId !== current.module.id || invite.runId !== current.run.id) fail('邀请不存在于当前团。', 404);
@@ -423,7 +468,7 @@ export function createLibraryStore({ root }) {
       const rows = state.notifications.filter(item => item.moduleId === session.current.module.id && item.runId === session.current.run.id && (session.role === 'dm' || item.playerId === session.playerId));
       return { notifications: rows.map(item => {
         const currentGrants = state.shares[runKey(session.current.selection)]?.[item.resourceId] || [];
-        return { ...item, canOpen: item.type === 'share' && currentGrants.includes(item.characterId) && (session.role === 'dm' || permitted({ id: item.resourceId, scope: 'world' }, session, state)) };
+        return { ...item, canOpen: item.type === 'share' && currentGrants.includes(item.characterId) && session.current.run.characters.some(character => character.id === item.characterId && character.playerId === item.playerId) && (session.role === 'dm' || item.playerId === session.playerId) };
       }), revision: state.revision, playerRevision };
     }
   };

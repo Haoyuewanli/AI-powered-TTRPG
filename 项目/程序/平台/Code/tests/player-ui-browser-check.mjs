@@ -15,6 +15,7 @@ try {
   await page.goto(app.url); await page.locator('#enter-dm').click();
   await page.getByRole('button', { name: '玩家与角色', exact: true }).click();
   const dialog = page.locator('.player-explorer'), toolbar = dialog.locator('.player-toolbar');
+  await dialog.getByRole('button', { name: '档案文件', exact: true }).click();
   const row = path => dialog.locator('[data-player-path="' + path + '"]');
   async function promptAction(button, name) { page.once('dialog', event => event.accept(name)); await button.click(); }
   async function create(name, path) { await promptAction(toolbar.getByRole('button', { name: '新建', exact: true }), name); await row(path).waitFor(); }

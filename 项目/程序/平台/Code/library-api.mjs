@@ -29,7 +29,8 @@ export function createLibraryApi({ root, sessionResolver = () => null }) {
       const session = await actor(request);
       if (method === 'GET') {
         const query = Object.fromEntries(url.searchParams);
-        if (route === 'players') send(200, await store.playerTree(session));
+        if (route === 'player-relations') send(200, await store.playerRelations(session));
+        else if (route === 'players') send(200, await store.playerTree(session));
         else if (route === 'player-file') send(200, await store.playerRead(session, query.path));
         else if (route === 'cover') send(200, await store.moduleCover(session,query.moduleId));
         else if (route === 'chat') send(200, await store.chat(session));
@@ -46,6 +47,7 @@ export function createLibraryApi({ root, sessionResolver = () => null }) {
           if (process.platform === 'win32') await new Promise((resolve, reject) => execFile('explorer.exe', [target.directory], { windowsHide: true }, error => error && error.code !== 1 ? reject(error) : resolve()));
           send(200, { opened: process.platform === 'win32', projectPath: target.projectPath });
         }
+        else if (route === 'player-relations') send(200, await store.setPlayerRelations(session, body));
         else if (route === 'players') send(200, await store.playerOperation(session, body));
         else if (route === 'select') send(200, await store.select(session, body));
         else if (route === 'manage-run') send(200, await store.manageRun(session, body));

@@ -12,7 +12,7 @@ import { createMapLibraryApi } from './map-library-api.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 export const PLATFORM_APP = 'standalone-ttrpg-platform';
-export const PLATFORM_VERSION = 'platform-workspace-v11';
+export const PLATFORM_VERSION = 'platform-workspace-v12';
 export const platformRootKey = createHash('sha256').update(process.platform === 'win32' ? ROOT.toLowerCase() : ROOT).digest('hex');
 export const projectKey = path => createHash('sha256').update(process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)).digest('hex');
 export const defaultProjectRoot = () => process.env.RPG_PROJECT_ROOT || resolve(ROOT, '../../..');

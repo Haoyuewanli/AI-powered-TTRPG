@@ -35,3 +35,28 @@ test('预处理建立固定模版、发布角色并拒绝覆盖正式档案', as
   const file = join(projectRoot, '预处理/玩家/合成玩家/合成角色-测试/01级/选择.md');
   const before = await readFile(file, 'utf8'); await prepareCharacter(args); assert.equal(await readFile(file, 'utf8'), before);
 });
+
+test('更换档案所属玩家保留角色身份与正文，并立即改变旧新邀请的读取权限', async () => {
+  const { root, store, op } = await setup();
+  await op({ action: 'create', name: '玩家乙' });
+  const runPath = join(root, '模组/测试/游玩团/run');
+  await mkdir(runPath, { recursive: true });
+  await writeFile(join(root, '模组/测试/模组.json'), JSON.stringify({ id: 'm', name: '测试' }));
+  await writeFile(join(runPath, '团.json'), JSON.stringify({ id: 'run', moduleId: 'm', name: '团', characters: [
+    { id: 'a', name: '角色甲', playerId: 'a' }, { id: 'b', name: '角色乙', playerId: 'b' }
+  ] }));
+  const library = createLibraryStore({ root }), dm = { role: 'dm' };
+  await library.select(dm, { moduleId: 'm', runId: 'run' });
+  const a = await library.createInvite(dm, { playerId: 'a' }), b = await library.createInvite(dm, { playerId: 'b' });
+  for (const [path, playerId] of [['玩家甲', 'a'], ['玩家乙', 'b']]) {
+    await library.playerOperation(dm, { action: 'bind', path, playerIds: [playerId], expectedRevision: (await store.tree()).revision });
+  }
+  const id = (await store.records()).resources[0].resource.id, before = await library.read({ token: a.token }, id);
+  await assert.rejects(library.read({ token: b.token }, id), error => error.status === 403);
+  const signature = (await library.notifications({ token: a.token })).playerRevision;
+  await library.playerOperation(dm, { action: 'move', path: '玩家甲/角色甲-冒险', parent: '玩家乙', expectedRevision: (await store.tree()).revision });
+  await assert.rejects(library.read({ token: a.token }, id), error => error.status === 403);
+  const after = await library.read({ token: b.token }, id);
+  assert.equal(after.text, before.text); assert.equal(after.resource.id, id); assert.equal(after.resource.ownerName, '玩家乙');
+  assert.notEqual((await library.notifications({ token: a.token })).playerRevision, signature);
+});
