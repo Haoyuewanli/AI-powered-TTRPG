@@ -1,3 +1,4 @@
+import { createPlayerStore } from './player-store.mjs';
 import { archiveInitial } from './project-files.mjs';
 import { moduleImageIndex } from './module-image-index.mjs';
 import { discoverModules } from './module-discovery.mjs';
@@ -30,6 +31,7 @@ export function parseLibraryMarkdown(text) {
 
 export function createLibraryStore({ root }) {
   root = resolve(root);
+  const players = createPlayerStore({ root });
   let queue = Promise.resolve();
   const markdownCache = new Map();
 
@@ -137,7 +139,7 @@ export function createLibraryStore({ root }) {
       try { entries = await readdir(await safe(path), { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return; issues.push({ path, reason: error.message }); return; }
       for (const entry of entries) {
         const child = path + '/' + entry.name;
-        if (entry.isSymbolicLink() || excluded.has(entry.name) || entry.isDirectory() && entry.name.startsWith('.')) continue;
+        if (child === '资源/玩家' || entry.isSymbolicLink() || excluded.has(entry.name) || entry.isDirectory() && entry.name.startsWith('.')) continue;
         if (entry.isDirectory()) { await scan(child, scope, module); continue; }
         if (!entry.isFile() || !/\.md$/i.test(entry.name) || entry.name === '示例模版.md' || entry.name === '示例模板.md' || entry.name.toLowerCase() === 'readme.md') continue;
         livePaths.add(child); jobs.push(async () => { try {
@@ -174,6 +176,7 @@ export function createLibraryStore({ root }) {
     let nextJob = 0;
     await Promise.all(Array.from({ length: Math.min(12, jobs.length) }, async () => { while (nextJob < jobs.length) await jobs[nextJob++](); }));
     for (const path of markdownCache.keys()) if (!livePaths.has(path)) markdownCache.delete(path);
+    const playerData = await players.records(); resources.push(...playerData.resources); issues.push(...playerData.issues); if (playerData.resources.length) kinds.add('角色');
     const counts = new Map(); for (const item of resources) counts.set(item.resource.id, (counts.get(item.resource.id) || 0) + 1);
     const duplicateIds = new Set([...counts].filter(([, count]) => count > 1).map(([id]) => id));
     for (const id of duplicateIds) issues.push({ id, reason: '资源ID重复，禁止读取或分享。' });
@@ -193,6 +196,7 @@ export function createLibraryStore({ root }) {
   }
   function permitted(item, session, state) {
     if (session.role === 'dm') return true;
+    if (item.scope === 'player') return item.ownerPlayerIds?.includes(session.playerId) || false;
     if (item.scope === 'world') return true;
     if (!item.shareable) return false;
     const current = session.current;
@@ -201,9 +205,9 @@ export function createLibraryStore({ root }) {
     return current.run.characters.some(character => character.playerId === session.playerId && granted.includes(character.id));
   }
   const publicResource = (resource, full = false) => {
-    const { scopeRoot, ...value } = resource; if (full) return value;
+    const { scopeRoot, ownerPlayerIds, ownerId, ...value } = resource; if (full) return value;
     const source = resource.source || {}, edition = resource.edition || {};
-    return { id: resource.id, name: resource.name, kind: resource.kind, initial: resource.initial, scope: resource.scope, path: resource.path, shareable: !!resource.shareable,
+    return { id: resource.id, name: resource.name, kind: resource.kind, initial: resource.initial, scope: resource.scope, ownerName: resource.ownerName, path: resource.path, shareable: !!resource.shareable,
       ...(resource.moduleId ? { moduleId: resource.moduleId, moduleName: resource.moduleName } : {}),
       aliases: Array.isArray(resource.aliases) ? resource.aliases.slice(0, 30).map(item => label(item)) : [], tags: Array.isArray(resource.tags) ? resource.tags.slice(0, 30).map(item => label(item)) : [],
       sourceBook: label(resource.sourceBook || source.book || source.title || source.name), sourceLabel: label(resource.sourceLabel || source.label || source.book || source.title),
@@ -216,6 +220,9 @@ export function createLibraryStore({ root }) {
   function findResource(data, id) { const found = data.resources.find(item => item.resource.id === id); if (!found) fail('资源不存在、无效或身份重复。', 404, 'resource_missing'); return found; }
 
   return {
+    async playerTree(actor) { const {session}=await snapshot(actor,false); requireDm(session); return players.tree(); },
+    async playerRead(actor,path) { const {session}=await snapshot(actor,false); requireDm(session); return players.read(path); },
+    async playerOperation(actor,body) { const {session}=await snapshot(actor,false); requireDm(session); return players.operation({...body,allowedPlayerIds:(session.current?.run.characters||[]).map(item=>item.playerId)}); },
     async revealTarget(actor, id) {
       const { data, session } = await snapshot(actor); requireDm(session);
       const found = findResource(data, id);
@@ -235,10 +242,10 @@ export function createLibraryStore({ root }) {
     async catalog(actor, query = {}) {
       const { state, data, session } = await snapshot(actor), initials = list(query.initials || query.initial).map(value => value.toUpperCase()), moduleIds = list(query.modules), q = String(query.q || '').trim().toLocaleLowerCase();
       const visible = data.resources.filter(item => permitted(item.resource, session, state) && (query.media !== 'maps' || ['地图', '地图图片', '世界地图'].includes(item.resource.kind)));
-      const filtered = visible.filter(({ resource, text }) => (!query.kind || (query.kind === '模组' ? resource.scope === 'module' : resource.scope === 'world' && resource.kind === query.kind))
-        && (!initials.length || initials.includes(resource.initial)) && (!moduleIds.length || resource.scope === 'world' || moduleIds.includes(resource.moduleId))
+      const filtered = visible.filter(({ resource, text }) => (!query.kind || (query.kind === '模组' ? resource.scope === 'module' : resource.scope !== 'module' && resource.kind === query.kind))
+        && (!initials.length || initials.includes(resource.initial)) && (!moduleIds.length || resource.scope !== 'module' || moduleIds.includes(resource.moduleId))
         && (!q || JSON.stringify(session.role === 'player' && resource.scope === 'module' ? [resource.name, imageMarkdown(text)] : [resource.name, resource.aliases, resource.tags, resource.source, text]).toLocaleLowerCase().includes(q)));
-      return { resources: filtered.map(({ resource }) => publicResource(resource)), cardKinds: [...new Set(visible.filter(item => item.resource.scope === 'world').map(item => item.resource.kind)), ...(data.modules.length ? ['模组'] : [])].sort(), total: filtered.length, kinds: [...new Set(visible.map(item => item.resource.kind))].sort(),
+      return { resources: filtered.map(({ resource }) => publicResource(resource)), cardKinds: [...new Set(visible.filter(item => item.resource.scope !== 'module').map(item => item.resource.kind)), ...(data.modules.length ? ['模组'] : [])].sort(), total: filtered.length, kinds: [...new Set(visible.map(item => item.resource.kind))].sort(),
         modules: session.role === 'dm' ? publicModules(data) : [{ id: session.current.module.id, name: session.current.module.name }], revision: state.revision, ...(session.role === 'dm' ? { issues: data.issues, categories: data.categories } : {}) };
     },
     async read(actor, id) {
@@ -411,12 +418,13 @@ export function createLibraryStore({ root }) {
     },
     async notifications(actor) {
       const { state, session } = await snapshot(actor, false);
-      if (!session.current) return { notifications: [], revision: state.revision };
+      const playerRevision = (await players.tree()).revision;
+      if (!session.current) return { notifications: [], revision: state.revision, playerRevision };
       const rows = state.notifications.filter(item => item.moduleId === session.current.module.id && item.runId === session.current.run.id && (session.role === 'dm' || item.playerId === session.playerId));
       return { notifications: rows.map(item => {
         const currentGrants = state.shares[runKey(session.current.selection)]?.[item.resourceId] || [];
         return { ...item, canOpen: item.type === 'share' && currentGrants.includes(item.characterId) && (session.role === 'dm' || permitted({ id: item.resourceId, scope: 'world' }, session, state)) };
-      }), revision: state.revision };
+      }), revision: state.revision, playerRevision };
     }
   };
 }

@@ -8,7 +8,7 @@ const button = (text, action, className = 'p-secondary p-button') => {
   const value = node('button', text, className); value.type = 'button'; value.addEventListener('click', action); return value;
 };
 
-function categoryIcon(kind) {
+export function categoryIcon(kind) {
   const paths = {
     all: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
     book: 'M12 6v15 M12 6C9 3 5 3 2 4v15c4-1 7-1 10 2 3-3 6-3 10-2V4c-3-1-7-1-10 2Z',
@@ -111,7 +111,7 @@ export function renderResourcePreview(value, { onOpenResource } = {}) {
   if (item?.availability?.status === 'module-reference-only') content.append(node('p', '模组剧情引用；不启用或换算旧版机械数值。', 'real-resource-note'));
   if (typeof item?.resolvedRuleResourceId === 'string' && onOpenResource) content.append(button('查看已核对的2024规则资料', () => onOpenResource(item.resolvedRuleResourceId)));
   if (value.imageIssues?.length) content.append(node('p', value.imageIssues.map(entry => '图片 ' + entry.source + '：' + (entry.reason || entry.error)).join('；'), 'real-resource-note'));
-  content.append(node('p', '共享基础资料；团内受伤、状态和消耗不在此处显示。原书收录不代表已启用。', 'real-resource-note'));
+  content.append(node('p', resource.scope === 'player' ? '对应等级的档案快照；当前团的受伤、状态和消耗另行记录。' : '共享基础资料；团内受伤、状态和消耗不在此处显示。原书收录不代表已启用。', 'real-resource-note'));
   return content;
 }
 
@@ -133,7 +133,7 @@ function multiSelect(label, values, onChange, { emptyLabel = '全部' } = {}) {
   return { element: details, panel, summary, setOptions(next) { options = next; refresh(); }, refresh };
 }
 
-export function createResourceWorkspace({ root, api, onlyMaps = false, getRulesFamily = () => 'dnd-2024', getSelected = () => null, getRole = () => 'dm', onReference = async () => {}, onRelease = async () => {}, onReveal = async () => {}, onOpenContent = () => {}, onResources = () => {}, onStatus = () => {} }) {
+export function createResourceWorkspace({ root, api, onlyMaps = false, getRulesFamily = () => 'dnd-2024', getSelected = () => null, getRole = () => 'dm', onReveal = async () => {}, onOpenContent = () => {}, onResources = () => {}, onStatus = () => {} }) {
   const host = node('section', undefined, 'real-resource-workspace'); host.hidden = true; root.append(host);
   let active = false, kind = '', query = '', offset = 0, loadId = 0, previewId = 0, navigationId = 0, opening = 0, latest = [], drawerOpen = false, expandedId = null, context = null, cards = [], categoryIndex = 0;
   const initials = new Set(), moduleIds = new Set(), rowNodes = new Map(), knownWorldKinds = new Set();
@@ -286,17 +286,16 @@ export function createResourceWorkspace({ root, api, onlyMaps = false, getRulesF
     for (const resource of latest.slice(offset, offset + pageSize)) {
       const row = node('article', undefined, 'p-info-card real-resource-row'); row.dataset.projectResource = resource.id; rowNodes.set(resource.id, row);
       const text = node('div', undefined, 'p-info-text real-resource-name');
-      text.append(node('strong', resource.name), node('small', [resource.kind, resource.moduleName || '世界通用资源', resource.sourceBook].filter(Boolean).join(' · ')));
+      text.append(node('strong', resource.name), node('small', [resource.kind, resource.ownerName ? '玩家：' + resource.ownerName : '', resource.moduleName || (resource.scope === 'player' ? '角色档案' : '世界通用资源'), resource.sourceBook].filter(Boolean).join(' · ')));
       const controls = node('div', undefined, 'real-resource-row-controls');
       const expand = button(resource.id === expandedId ? '收起' : '展开', () => run(() => open(resource)), 'p-secondary p-button real-resource-expand');
       expand.dataset.resourceExpand = resource.id; expand.setAttribute('aria-expanded', String(resource.id === expandedId)); expand.setAttribute('aria-label', (resource.id === expandedId ? '收起' : '展开') + resource.name);
       controls.append(expand);
       if (isDM()) {
-        const reference = button('引用', () => run(() => onReference(resource))); reference.dataset.projectReference = '';
         const reveal = button('打开文件夹位置', () => run(() => onReveal(resource))); reveal.dataset.projectReveal = '';
-        controls.append(reference, reveal);
+        controls.append(reveal);
         if (resource.shareable) controls.append(shareControls(resource));
-        else controls.append(node('small', resource.scope === 'world' ? '默认开放' : '仅DM可见'));
+        else controls.append(node('small', resource.scope === 'world' ? '默认开放' : resource.scope === 'player' ? '所属玩家与DM可见' : '仅DM可见'));
       }
       row.append(text, controls);
       if (expandedId === resource.id) row.classList.add('is-expanded');
@@ -354,9 +353,13 @@ export function createResourceWorkspace({ root, api, onlyMaps = false, getRulesF
     const navigation = ++navigationId;
     if (expandedId === resource.id) { collapse(); return; }
     const request = ++previewId;
-    const value = await api('/api/library/read?resourceId=' + encodeURIComponent(resource.id));
-    if (!active || request !== previewId || navigation !== navigationId) return;
-    await showPreview(value);
+    markExpanded(resource); reader.setAttribute('aria-busy', 'true'); reader.replaceChildren(node('p', '正在读取…', 'resource-loading'));
+    try {
+      const value = await api('/api/library/read?resourceId=' + encodeURIComponent(resource.id));
+      if (!active || request !== previewId || navigation !== navigationId) return;
+      await showPreview(value);
+    } catch (error) { if (active && request === previewId) reader.replaceChildren(node('p', error.message)); }
+    finally { if (request === previewId) reader.removeAttribute('aria-busy'); }
   }
   async function openResource(id) {
     if (!active) return;

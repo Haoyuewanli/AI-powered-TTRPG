@@ -42,7 +42,7 @@ export function createModuleWorkspace({ host, run = operation => operation(), on
   const coverActions = element('div', undefined, 'module-cover-actions');
   smallCover.append(smallImage, smallTitle, coverActions); detail.append(smallCover, runsArea);
   stage.append(backdrop, ring, controls, current, detail, extra);
-  root.append(segments, toolbar, stage, issuesArea);
+  root.append(segments, toolbar, issuesArea, stage);
   let opened = false;
   function closeModule() { opened = false; stage.classList.remove('is-open'); draw(); }
   function openModule() {
@@ -253,6 +253,7 @@ export function createModuleWorkspace({ host, run = operation => operation(), on
   ring.addEventListener('wheel', event => { if (templates().length < 2 || opened) return; event.preventDefault(); if (!ring.wheelTimer) { step(event.deltaY > 0 || event.deltaX > 0 ? 1 : -1); ring.wheelTimer = setTimeout(() => { ring.wheelTimer = null; }, 180); } }, { passive: false });
   const observer = new ResizeObserver(() => { draw(); alignThumb(); }); observer.observe(root);
   return {
+    setStatus(text) { issuesArea.replaceChildren(element('p', text)); },
     render(value) {
       generation++; catalog = value; grouped = groupModuleCatalog(value);
       if (!grouped.groups.some(group => group.name === category)) category = grouped.groups.find(group => group.templates.length)?.name || grouped.groups[0]?.name || '';

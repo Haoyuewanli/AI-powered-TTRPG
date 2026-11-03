@@ -1,0 +1,42 @@
+import { renderResourceMarkdown } from '/resource-workspace.mjs';
+const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
+export function createPlayerWorkspace({root,api,getRole}) {
+ const css=document.createElement('link');css.rel='stylesheet';css.href='/player-workspace.css';document.head.append(css);
+ const dialog=el('dialog',undefined,'player-explorer'),title=el('h2','玩家与角色'),toolbar=el('div',undefined,'player-toolbar'),crumb=el('div',undefined,'player-breadcrumb'),body=el('div',undefined,'player-explorer-body'),list=el('div',undefined,'player-files'),detail=el('section',undefined,'player-detail'),status=el('p','', 'player-status'),menu=el('div',undefined,'player-context');menu.hidden=true;status.setAttribute('role','status');
+ dialog.append(title,toolbar,crumb,body,status,menu);body.append(list,detail);root.append(dialog);
+ let data={entries:[],revision:''},current='',selected=null,clipboard=null,dirty=false,busy=false,serial=0;
+ const action=(name,fn)=>{const b=el('button',name);b.type='button';b.onclick=()=>run(fn);return b;};
+ const run=async fn=>{if(busy)return;busy=true;dialog.setAttribute('aria-busy','true');try{await fn();}catch(e){status.textContent=e.message;}finally{busy=false;dialog.removeAttribute('aria-busy');}};
+ const clean=()=>{if(dirty)throw new Error('请先保存或放弃正在编辑的MD。');};
+ async function refresh(){clean();data=await api('/api/library/players');if(current&&!data.entries.some(e=>e.path===current))current='';selected=null;render();status.textContent=data.issues.length?'部分文件需要核对：'+data.issues.map(e=>e.path+' '+e.error).join('；'):'拖动移动；按住Ctrl拖动复制。复制/粘贴也支持Ctrl+C、Ctrl+X、Ctrl+V。';}
+ async function mutate(value){clean();data=await api('/api/library/players',{...value,expectedRevision:data.revision});selected=null;render();status.textContent='已保存到本地目录。';}
+ function enter(path){clean();current=path;selected=null;render();}
+ async function create(){clean();const depth=current?current.split('/').length:0;if(depth>=3)return;const label=['玩家名','角色名-模组','等级目录（如01级）'][depth];const name=prompt(label,depth===2?'01级':'');if(name?.trim())await mutate({action:'create',parent:current,name:name.trim()});}
+ function copy(cut=false){if(!selected||selected.type==='file')throw new Error('请选择玩家、角色或等级文件夹。');clipboard={path:selected.path,name:selected.name,cut};status.textContent=cut?'已剪切；到目标文件夹粘贴。':'已复制；到目标文件夹粘贴。';}
+ async function paste(){if(!clipboard)return;const name=prompt('粘贴后的名称',data.entries.some(e=>e.path===[current,clipboard.name].filter(Boolean).join('/'))?clipboard.name+' · 副本':clipboard.name);if(!name)return;await mutate({action:clipboard.cut?'move':'copy',path:clipboard.path,parent:current,name});if(clipboard.cut)clipboard=null;}
+ async function rename(){if(!selected||selected.type==='file')return;const name=prompt('重命名',selected.name);if(name&&name!==selected.name)await mutate({action:'rename',path:selected.path,name});}
+ async function duplicate(){if(!selected||selected.type==='file')return;const name=prompt('副本名称',selected.name+' · 副本');if(name)await mutate({action:'copy',path:selected.path,parent:current,name});}
+ const up=action('上一级',()=>enter(current.split('/').slice(0,-1).join('/'))),fresh=action('刷新',refresh),add=action('新建',create);
+ toolbar.append(up,fresh,add,action('重命名',rename),action('剪切',()=>copy(true)),action('复制',()=>copy()),action('粘贴',paste),action('建立副本',duplicate),action('关闭',()=>{clean();dialog.close();}));
+ dialog.addEventListener('cancel',event=>{if(dirty){event.preventDefault();status.textContent='请先保存或放弃MD修改。';}});
+ dialog.addEventListener('keydown',event=>{if(event.target.matches('textarea,input'))return;if(event.ctrlKey&&['c','x','v'].includes(event.key.toLowerCase())){event.preventDefault();run(()=>event.key.toLowerCase()==='v'?paste():copy(event.key.toLowerCase()==='x'));}});
+ function drop(event,parent){event.preventDefault();const path=event.dataTransfer.getData('application/x-player-path');if(!path)return;run(async()=>{clean();const source=data.entries.find(e=>e.path===path);if(!source)return;let name=source.name;if(event.ctrlKey&&data.entries.some(e=>e.path===[parent,name].filter(Boolean).join('/')))name=prompt('副本名称',name+' · 副本');if(name)await mutate({action:event.ctrlKey?'copy':'move',path,parent,name});});}
+ list.ondragover=e=>e.preventDefault();list.ondrop=e=>drop(e,current);
+ function render(){serial++;menu.hidden=true;detail.replaceChildren(el('p','选择文件夹查看信息，双击进入；选择MD可阅读或编辑。'));list.replaceChildren();crumb.replaceChildren(action('玩家',()=>enter('')));crumb.firstElementChild.ondragover=e=>e.preventDefault();crumb.firstElementChild.ondrop=e=>drop(e,'');const parts=current.split('/').filter(Boolean);parts.forEach((part,i)=>{const path=parts.slice(0,i+1).join('/');const b=action(part,()=>enter(path));b.ondragover=e=>e.preventDefault();b.ondrop=e=>drop(e,path);crumb.append(el('span',' / '),b);});up.disabled=!current;add.disabled=parts.length>=3;
+  for(const entry of data.entries.filter(e=>e.path.split('/').slice(0,-1).join('/')===current)){
+   const row=el('button',undefined,'player-file');row.type='button';row.dataset.playerPath=entry.path;row.append(el('span',entry.type==='file'?'▤':'▱'),el('strong',entry.name));row.draggable=entry.type!=='file';row.ondragstart=e=>{if(dirty){e.preventDefault();return;}e.dataTransfer.setData('application/x-player-path',entry.path);e.dataTransfer.effectAllowed='copyMove';};
+   row.onclick=()=>{if(busy)return;try{clean();selected=entry;list.querySelectorAll('button').forEach(b=>b.classList.toggle('selected',b===row));show(entry).catch(e=>{status.textContent=e.message;});}catch(e){status.textContent=e.message;}};row.ondblclick=()=>entry.type!=='file'&&run(()=>enter(entry.path));
+   row.oncontextmenu=e=>{e.preventDefault();if(dirty)return;selected=entry;menu.replaceChildren(action('打开',()=>entry.type==='file'?show(entry):enter(entry.path)),action('新建',create),action('重命名',rename),action('剪切',()=>copy(true)),action('复制',()=>copy()),action('粘贴',paste),action('建立副本',duplicate));menu.hidden=false;menu.style.left=Math.min(e.clientX,innerWidth-180)+'px';menu.style.top=Math.min(e.clientY,innerHeight-300)+'px';};
+   if(entry.type!=='file'){row.ondragover=e=>{e.preventDefault();e.stopPropagation();};row.ondrop=e=>{e.stopPropagation();drop(e,entry.path);};}list.append(row);
+  }if(!list.children.length)list.append(el('p','此处为空，点击“新建”添加。'));
+ }
+ async function show(entry){const request=++serial;detail.replaceChildren(el('h3',entry.name));if(entry.type==='player'){
+   const context=await api('/api/library/context');if(request!==serial)return;const selection=new Set(entry.linkedPlayerIds||[]),choices=el('details'),summary=el('summary','所属玩家绑定（多选本团角色）');choices.append(summary);
+   for(const c of context.characters||[]){const label=el('label'),check=el('input');check.type='checkbox';check.checked=selection.has(c.playerId);check.onchange=()=>check.checked?selection.add(c.playerId):selection.delete(c.playerId);label.append(check,el('span',c.name));choices.append(label);}detail.append(el('p','绑定后，该邀请身份可以在资源窗口读取此玩家的角色能力。'),choices,action('保存绑定',()=>mutate({action:'bind',path:entry.path,playerIds:[...selection]})));return;
+  }if(entry.type!=='file'){detail.append(action('打开文件夹',()=>enter(entry.path)));return;}
+  const value=await api('/api/library/player-file?'+new URLSearchParams({path:entry.path}));if(request!==serial)return;data.revision=value.revision;const textarea=el('textarea');textarea.value=value.text;textarea.setAttribute('aria-label','编辑'+entry.name);textarea.hidden=true;textarea.oninput=()=>{dirty=true;};const preview=renderResourceMarkdown(value.text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/,''));
+  detail.append(action('编辑MD',()=>{textarea.hidden=false;preview.hidden=true;}),action('保存',async()=>{const result=await api('/api/library/players',{action:'save',path:entry.path,text:textarea.value,expectedRevision:data.revision});dirty=false;data=result;await show(entry);status.textContent='MD已保存。';}),action('放弃修改',()=>{dirty=false;return show(entry);}),preview,textarea);
+ }
+ dialog.addEventListener('click',e=>{if(!menu.contains(e.target))menu.hidden=true;});
+ return{hasDraft:()=>dirty||busy,clear(){serial++;dirty=false;selected=null;clipboard=null;data={entries:[],revision:''};current='';dialog.close();list.replaceChildren();detail.replaceChildren();status.textContent='';},async open(){if(getRole()!=='dm')return;if(!dialog.open)dialog.showModal();await run(refresh);}};
+}

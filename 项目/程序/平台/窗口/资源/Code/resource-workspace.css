@@ -98,3 +98,9 @@
 }
 
 #platform-covers .real-resource-track .p-resource-card{flex-direction:row;white-space:nowrap}
+
+#platform-covers .real-resource-row,#platform-covers .real-resource-row.is-expanded{background:linear-gradient(115deg,var(--gradient-start,#fff),var(--gradient-end,#e9b5d5));transition:box-shadow 160ms,border-color 160ms;transform:none!important}
+#platform-covers .real-resource-row .p-info-text{background:transparent}
+#platform-covers .real-resource-reader>.real-resource-preview{animation:resource-enter 160ms ease-out}
+@keyframes resource-enter{from{opacity:.35;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){#platform-covers .real-resource-reader>.real-resource-preview{animation:none}}

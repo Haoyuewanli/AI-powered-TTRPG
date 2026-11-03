@@ -11,8 +11,9 @@ export function createShareNotifications({ host, api, onOpenResource = () => {},
     loading = true; const current = generation;
     try {
       const value = await api('/api/library/notifications'); if (current !== generation || !active) return;
-      if (revision !== null && revision !== value.revision) await onPermissionsChanged({ revision: value.revision });
-      revision = value.revision;
+      const nextRevision = JSON.stringify([value.revision, value.playerRevision || '']);
+      if (revision !== null && revision !== nextRevision) await onPermissionsChanged({ revision: value.revision });
+      revision = nextRevision;
       const next = JSON.stringify(value.notifications || []); if (next === signature) return; signature = next;
       list.replaceChildren();
       for (const notification of value.notifications || []) {

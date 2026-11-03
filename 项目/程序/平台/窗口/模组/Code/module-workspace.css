@@ -73,3 +73,5 @@
 #platform-covers .module-small-cover:has(>img[hidden]){min-height:300px;display:flex;flex-direction:column;justify-content:space-between}
 
 #platform-covers .module-small-cover>img{object-fit:cover}
+
+#platform-root[data-page=modules] .p-footer,#platform-root[data-page=modules] .p-appearance-status{display:none}

@@ -1,7 +1,8 @@
+import { createPlayerWorkspace } from '/player-workspace.mjs';
 import { createMapWorkspace } from '/map-editor/map-workspace.mjs';
 import { createVoyageWorkspace } from '/voyage-workspace.mjs';
 import { createModuleWorkspace } from '/module-workspace.mjs';
-import { createResourceWorkspace, renderResourcePreview } from '/resource-workspace.mjs';
+import { createResourceWorkspace, renderResourcePreview, categoryIcon } from '/resource-workspace.mjs';
 import { bindChatComposer } from '/chat-composer.mjs';
 import { createShareNotifications } from '/party/share-notifications.mjs';
 import { createPartyPanel } from '/party/party-panel.mjs';
@@ -17,12 +18,14 @@ function resetCoverViews() {
 
 export function createProjectPanel({ platform, dialogue }) {
   window.addEventListener('pagehide', resetCoverViews);
-  let token = sessionStorage.getItem('platform-session') || null, role = null, epoch = 0, sessionQueue = Promise.resolve(), selected = null, resources = [], referenceIds = [], connection = null, frame = null, serial = 0, replay = false, changingModule = false;
+  let token = sessionStorage.getItem('platform-session') || null, role = null, epoch = 0, sessionQueue = Promise.resolve(), selected = null, resources = [], connection = null, frame = null, serial = 0, replay = false, changingModule = false;
   const waits = new Map(), tabIds = new Map();
   let libraryReady = false, resourcePageLoad = Promise.resolve();
   let libraryToken = sessionStorage.getItem('library-token') || '';
   let chatDraft = '', moduleLoad = 0, roleReady = false, chatComposer = null, chatLoading = false;
   const root = platform.root;
+  const playerWindow = createPlayerWorkspace({ root, api, getRole: () => role });
+  const playerEntry = button('', () => playerWindow.open()); playerEntry.append(categoryIcon('角色'), el('span', '玩家')); playerEntry.hidden = true; playerEntry.className = 'p-nav-button p-button'; playerEntry.setAttribute('aria-label', '玩家与角色'); playerEntry.setAttribute('aria-haspopup', 'dialog'); root.querySelector('.p-nav').append(playerEntry);
   const notice = el('p', '真实资料只在本机DM显式打开后读取。', 'project-notice'); notice.setAttribute('role', 'status');
   const blocks = new Map();
   for (const page of ['modules', 'resources', 'dialogue', 'maps']) {
@@ -54,8 +57,6 @@ export function createProjectPanel({ platform, dialogue }) {
     getRulesFamily: () => platform.rulesFamily || 'dnd-2024', getSelected: () => selected, getRole: () => role,
     onResources: value => { resources = value; }, onStatus: text => { notice.textContent = text; },
     onOpenContent: openResourceContent,
-    onReference: async resource => { await preview(resource); notice.textContent = '已在对话标签中打开资源；按角色开放使用条目下方菜单。'; },
-    onRelease: async (resource, playerId) => { await mutate('release', { resourceId: resource.id, playerId }); if (!referenceIds.includes(resource.id)) referenceIds.push(resource.id); notice.textContent = '发放记录已保存；正式Player权限接入仍待后续验收。'; },
     onReveal: async resource => { const result = await api('/api/library/reveal', { resourceId: resource.id }); notice.textContent = result.opened ? '已打开资源所在文件夹。' : '项目相对路径：' + result.projectPath; }
   });
   root.querySelector('.p-appearance-status').append(notice);
@@ -97,7 +98,7 @@ export function createProjectPanel({ platform, dialogue }) {
   trainingEntry.className = 'p-primary p-button cursor-interaction';
   root.querySelector('.p-home-actions').prepend(trainingEntry);
   window.addEventListener('beforeunload', event => {
-    if (voyage.hasDraft() || chatDraft.trim() || !mapView.canLeave() || !dialogue.canLeave()) { event.preventDefault(); event.returnValue = ''; }
+    if (playerWindow.hasDraft() || voyage.hasDraft() || chatDraft.trim() || !mapView.canLeave() || !dialogue.canLeave()) { event.preventDefault(); event.returnValue = ''; }
   });
   async function loadMaps() {
     const body = blocks.get('maps').body; body.replaceChildren();
@@ -111,9 +112,10 @@ export function createProjectPanel({ platform, dialogue }) {
     const result = await response.json(); if (generation !== epoch) throw new Error('视角已切换');
     if (!response.ok) throw Object.assign(new Error(result.error || '本地操作失败'), result, { status: response.status }); return result;
   }
-  async function run(operation) { const generation = epoch; try { return await operation(); } catch (error) { if (generation === epoch) notice.textContent = error.message; } }
+  async function run(operation) { const generation = epoch; try { return await operation(); } catch (error) { if (generation === epoch) { notice.textContent = error.message; if (platform.page === 'modules') moduleView.setStatus(error.message); } } }
   async function mutate(route, body) { const expectedModuleId = selected?.moduleId; const status = await api('/api/project/status'); return api('/api/project/' + route, { expectedRevision: status.revision, ...body, ...(expectedModuleId ? { expectedModuleId } : {}) }); }
   function context() {
+    playerEntry.hidden = role !== 'dm' || !roleReady;
     for (const node of root.querySelectorAll('[data-module-context]')) node.textContent = selected ? `当前团：${selected.runName || selected.moduleName} · 模组：${selected.moduleName}` : '未选择模组';
     for (const block of blocks.values()) block.details.hidden = role !== 'dm';
     modulesView.classList.toggle('has-local-modules', role === 'dm');
@@ -140,7 +142,7 @@ export function createProjectPanel({ platform, dialogue }) {
     } finally { if (request === moduleLoad) moduleHost.setAttribute('aria-busy', 'false'); }
   }
   async function resetSelected(chosen) {
-    epoch++; selected = chosen; referenceIds = []; chatDraft = ''; tabIds.clear();
+    epoch++; selected = chosen; chatDraft = ''; tabIds.clear();
     notifications.clear(); party.clear();
     chatComposer?.dispose(); chatComposer = null; dialogue.clear(); mapView.clear(); voyage.clear(); resourceView.clear(); context();
     for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
@@ -169,7 +171,7 @@ export function createProjectPanel({ platform, dialogue }) {
     const key = 'resource-' + crypto.randomUUID(), host = el('div', undefined, 'dialogue-resource-tab');
     const view = createResourceWorkspace({ root: host, api, onlyMaps, getSelected: () => selected, getRole: () => role,
       onStatus: text => { notice.textContent = text; }, onOpenContent: openResourceContent,
-      onReference: openResourceTab, onReveal: item => api('/api/library/reveal', { resourceId: item.id }) });
+      onReveal: item => api('/api/library/reveal', { resourceId: item.id }) });
     tabIds.set(key, key); platform.show('dialogue');
     dialogue.openContent(key, resource?.name || (onlyMaps ? '地图' : '资源'), host, { dispose: () => { view.dispose(); tabIds.delete(key); } });
     view.setActive(true);
@@ -230,6 +232,7 @@ export function createProjectPanel({ platform, dialogue }) {
     clearTimeout(pending.timer); waits.delete(event.data.id); pending.accept(event.data);
   });
   async function canLeave() {
+    if (playerWindow.hasDraft()) { notice.textContent = '玩家档案仍有未保存修改，请先保存或放弃修改。'; return false; }
     if (!dialogue.canLeave()) { notice.textContent = '对话标签中有未保存内容，请先保存。'; return false; }
     if (!voyage.canLeave()) { notice.textContent = '试玩记录有未保存草稿或正在保存，请先保存或明确放弃草稿。'; return false; }
     if (chatComposer?.pending) { notice.textContent = '群聊正在保存，请稍候再切换。'; return false; }
@@ -257,17 +260,18 @@ export function createProjectPanel({ platform, dialogue }) {
     const target = event.target.closest('button[data-platform-page],button[data-page],button[data-home-identity],button[data-change-role],button[data-role]');
     const identityChange = target?.hasAttribute('data-change-role') || target?.hasAttribute('data-role');
     if (!target || target.dataset.platformPage === 'battle' || (platform.page !== 'battle' && !identityChange)) return;
-    if (!frame && !voyage.hasDraft() && !chatDraft.trim() && mapView.canLeave()) return;
+    if (!playerWindow.hasDraft() && !frame && !voyage.hasDraft() && !chatDraft.trim() && mapView.canLeave()) return;
     event.preventDefault(); event.stopImmediatePropagation();
     run(async () => { if (!await canLeave()) return; await bridge('setVisible', { visible: false }); if (target.hasAttribute('data-change-role')) await bridge('logout'); replay = true; target.click(); replay = false; });
   }, true);
   async function setRole(value) {
+    playerWindow.clear();
     resetCoverViews();
     notifications.setVisible(false); notifications.clear(); party.clear(); partyBox.hidden = true;
     chatComposer?.dispose(); chatComposer = null; moduleView.clear(); resourceView.clear();
     mapView.clear();
     voyage.clear(); trainingEntry.hidden = true; roleReady = false; libraryReady = false;
-    role = value; const generation = ++epoch; selected = null; referenceIds = []; chatDraft = ''; resources = []; tabIds.clear();
+    role = value; const generation = ++epoch; selected = null; chatDraft = ''; resources = []; tabIds.clear();
     sessionStorage.removeItem('platform-session');
     frame?.remove(); frame = null; frameContext.textContent = ''; frameContext.hidden = true; frameArea.hidden = true; frameArea.parentElement.classList.remove('has-live-battle');
     for (const block of blocks.values()) { block.details.open = false; block.body.replaceChildren(); } context();
