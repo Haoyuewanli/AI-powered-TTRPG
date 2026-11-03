@@ -72,4 +72,3 @@ try {
  assert.deepEqual(errors, []); await writeFile(join(directory,'result.json'), JSON.stringify({checks,errors},null,2)); console.log('证据：' + directory);
 } catch(error) { await page?.screenshot({ path: join(directory, 'failure.png'), fullPage: true }); console.error('证据：'+directory, errors); throw error; }
 finally { await browser?.close(); await app.close(); }
-
