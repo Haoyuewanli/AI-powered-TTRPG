@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import { join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+import { isolatePlatform, startIsolated } from './check-helpers.mjs';
+import { createPlayerStore } from '../player-store.mjs';
+const { chromium } = await import(pathToFileURL(join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')));
+const { directory, isolated } = await isolatePlatform('inline-workspaces-'), projectRoot = join(directory, '项目');
+const store = createPlayerStore({ root: projectRoot });
+for (const body of [{ name: '合成玩家甲' }, { name: '合成玩家乙' }, { parent: '合成玩家甲', name: '合成角色-测试' }]) await store.operation({ action: 'create', ...body, expectedRevision: (await store.tree()).revision });
+const characterId = (await store.tree()).entries.find(entry => entry.type === 'character').id;
+const app = await startIsolated(isolated, { projectRoot });
+let browser, page; const errors = [], writes = [], checks = [];
+try {
+  browser = await chromium.launch({ executablePath: 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
+  page = await browser.newPage({ viewport: { width: 1540, height: 1020 } }); page.setDefaultTimeout(15000);
+  page.on('pageerror', error => errors.push(error.message)); page.on('request', request => { if (request.method() === 'POST') writes.push(new URL(request.url()).pathname); });
+  await page.goto(app.url); await page.locator('#enter-dm').click(); await page.getByRole('button', { name: '玩家与角色', exact: true }).click();
+  const workspace = page.locator('.player-explorer'); await workspace.locator('[data-relation-character="' + characterId + '"]').click();
+  assert.equal(await page.locator('#platform-root').getAttribute('data-page'), 'players');
+  assert.equal(await workspace.evaluate(element => element.tagName), 'SECTION'); assert.equal(await page.locator('dialog.player-explorer').count(), 0);
+  assert.equal(await page.getByRole('button', { name: '关闭', exact: true }).count(), 0);
+  await workspace.getByLabel('角色所属玩家', { exact: true }).selectOption({ label: '合成玩家乙' });
+  await page.locator('[data-platform-page=battle]').click();
+  assert.equal(await page.locator('#platform-root').getAttribute('data-page'), 'players');
+  assert.match(await workspace.locator('.player-status').innerText(), /未保存/);
+  await workspace.getByRole('button', { name: '放弃归属修改', exact: true }).click();
+  await page.locator('[data-platform-page=battle]').click();
+  assert.equal(await page.locator('.p-heading').isVisible(), false); assert.equal(await page.locator('.p-footer').isVisible(), false);
+  assert.equal(await page.locator('[data-project-battle-frame]').count(), 0);
+  assert.equal(await page.getByRole('button', { name: '建立本团战斗', exact: true }).isDisabled(), true);
+  assert.match(await page.locator('.platform-battle-empty').innerText(), /模组窗口/);
+  assert.equal(writes.filter(path => path === '/api/battle/start').length, 0);
+  checks.push('玩家为同级主区页面，未保存归属会阻止导航；战斗页无大标题且无团不自动创建');
+  await page.getByRole('button', { name: '玩家与角色', exact: true }).click();
+  await workspace.getByLabel('角色所属玩家', { exact: true }).waitFor();
+  await page.screenshot({ path: join(directory, 'inline-player.png') });
+  await page.setViewportSize({ width: 700, height: 950 });
+  assert.equal(await workspace.evaluate(element => element.scrollWidth <= element.clientWidth + 2), true);
+  checks.push('返回玩家页面保留已选角色，窄屏主区可用');
+  assert.deepEqual(errors, []); await writeFile(join(directory, 'result.json'), JSON.stringify({ checks, errors }, null, 2));
+  for (const check of checks) console.log('通过：' + check); console.log('证据：' + directory);
+} catch (error) { await page?.screenshot({ path: join(directory, 'failure.png'), fullPage: true }); console.error('证据：' + directory, errors); throw error; }
+finally { await browser?.close(); await app.close(); }

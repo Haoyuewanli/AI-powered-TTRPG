@@ -78,7 +78,7 @@ test('server preserves standalone frame denial and opts in only for the configur
     const info = await (await fetch(app.url + '/api/client-info')).json();
     assert.deepEqual(info, { audience: 'local', embedOrigin: 'http://127.0.0.1:4198' });
     const health = await (await fetch(app.url + '/health')).json();
-    assert.equal(health.coreVersion, 'class-resource-tests-v8'); assert.equal(health.capabilities.platformBridge, 1);
+    assert.equal(health.coreVersion, 'class-resource-tests-v9'); assert.equal(health.capabilities.platformBridge, 1);
     assert.equal((await fetch(app.url + '/platform-bridge.mjs')).status, 200);
     assert.equal((await fetch(app.url + '/project-paths.mjs')).status, 404);
   } finally { await app.close(); }

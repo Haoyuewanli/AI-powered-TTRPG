@@ -74,7 +74,7 @@ try {
   const hostBox = await frameElement.boundingBox(), workspaceBox = await page.locator('[data-platform-view=battle]').boundingBox();
   assert(hostBox && workspaceBox && hostBox.width >= workspaceBox.width * .8, 'Embedded battle should use the platform workspace width');
   const health = await (await page.request.get(battleOrigin + '/health')).json();
-  assert.equal(health.embedOrigin, app.url); assert.equal(health.capabilities.platformBridge, 1); assert.equal(health.coreVersion, 'class-resource-tests-v8');
+  assert.equal(health.embedOrigin, app.url); assert.equal(health.capabilities.platformBridge, 1); assert.equal(health.coreVersion, 'class-resource-tests-v9');
   const battleToken = await frame.evaluate(() => sessionStorage.getItem('battle-session'));
   let currentBattleToken = battleToken;
   const denied = await page.request.post(battleOrigin + '/api/select', { headers: { Authorization: 'Bearer ' + battleToken }, data: selection });

@@ -5,6 +5,8 @@ import { validateOperations, actionCatalog, operationCosts } from './action-cata
 import { validateInventory, getItem, getItemUse, inventoryChoices, consumeInventory } from './inventory.mjs';
 import { ITEM_CATALOG } from '../data/items-2024.mjs';
 import { createClassTestActors } from './testing-presets.mjs';
+import { MODEL_CLASSES, MODEL_SPECIES, MODEL_WEAPONS } from '../data/model-catalog.mjs';
+import { combatVisual } from './combat-visual.mjs';
 
 import { RuleError, requireRule, integer } from './rule-errors.mjs';
 export { RuleError, requireRule, integer } from './rule-errors.mjs';
@@ -83,9 +85,11 @@ export function validateAppearance(a) {
   requireRule(['voxel', 'box'].includes(a.model) && ['human', 'giant', 'monster'].includes(a.preset), '模型或外观预设无效');
   for (const key of ['skin', 'clothes', 'hair']) requireRule(/^#[0-9a-f]{6}$/i.test(a[key]), '外观颜色须为六位色值');
   const materials = ['none', 'leather', 'chain', 'iron', 'gold', 'diamond'];
-  requireRule(['none', 'sword', 'axe', 'club', 'bow'].includes(a.weapon) && materials.includes(a.material) && typeof a.shield === 'boolean', '装备外观无效');
+  requireRule(MODEL_WEAPONS.some(item => item.id === a.weapon) && materials.includes(a.material) && typeof a.shield === 'boolean', '装备外观无效');
+  if (a.species !== undefined) requireRule(MODEL_SPECIES.some(item => item.id === a.species), '种族外观无效');
+  if (a.classId !== undefined) requireRule(MODEL_CLASSES.some(item => item.id === a.classId), '职业外观无效');
   for (const slot of ['head', 'chest', 'legs', 'feet']) requireRule(materials.includes(a.armor?.[slot]), '盔甲外观无效');
-  requireRule(Object.keys(a).every(k => ['model','preset','skin','clothes','hair','weapon','material','shield','armor'].includes(k)) && Object.keys(a.armor).every(k => ['head','chest','legs','feet'].includes(k)), '不支持的外观字段');
+  requireRule(Object.keys(a).every(k => ['model','preset','skin','clothes','hair','weapon','material','shield','armor','species','classId'].includes(k)) && Object.keys(a.armor).every(k => ['head','chest','legs','feet'].includes(k)), '不支持的外观字段');
 }
 
 export function validateActor(actor, board) {
@@ -181,7 +185,7 @@ export function validateState(state) {
     requireRule(['program', 'physical'].includes(state.diceMode) && Array.isArray(state.undoStack) && state.undoStack.length <= 30, '骰子或撤销记录无效');
     requireRule(Array.isArray(state.objects) && state.objects.length <= 2000, '地形列表无效（最多2000件）');
   }
-  requireRule(Array.isArray(state.actors) && state.actors.length > 0 && state.actors.length <= 40, '参与者数量无效');
+  requireRule(Array.isArray(state.actors) && state.actors.length <= 40 && (state.actors.length > 0 || state.combat?.phase !== 'active'), '参与者数量无效');
   validateInventory(state.partyInventory, '团队背包');
   requireRule((state.board.extended === undefined || typeof state.board.extended === 'boolean') && (state.board.baseEnabled === undefined || typeof state.board.baseEnabled === 'boolean'), '盘面开关无效');
   integer(state.board.width, 20, 300, '棋盘宽'); integer(state.board.depth, 20, 300, '棋盘深');
@@ -255,6 +259,7 @@ const initiativeInputs = state => JSON.stringify({ diceMode: state.diceMode || '
   [actor.id, actor.initiativeBonus, actor.confirmed, actor.hp > 0]).sort((a, b) => a[0].localeCompare(b[0])) });
 function initiativeReady(state) {
   requireRule(state.combat.phase !== 'active', '战斗已经开始');
+  requireRule(state.actors.length > 0, '请先点击＋添加参战者');
   requireRule(state.actors.every(a => a.confirmed), '请先由DM核对全部角色的数值、资源与形态');
   requireRule(state.actors.every(a => a.hp > 0), '起始参与者须有生命值');
 }
@@ -688,13 +693,18 @@ export function executeAction(original, command, principal, { draw = die, id = r
         body: { width: 2, depth: 1, height: 6 }, space: { width: 5, depth: 5 }, facing: 0,
         immunities: [], resistances: [], vulnerabilities: [], attacks: [], notes: '待DM核对的占位资料', resources: '', hidden: false, confirmed: false
       };
+      if (payload.draft !== undefined) {
+        const fields = ['ac','maxHp','hp','tempHp','speed','initiativeBonus','attackLimit','body','space','attacks','notes','resources','appearance','reference'];
+        requireRule(!source && payload.draft && typeof payload.draft === 'object' && !Array.isArray(payload.draft) && Object.keys(payload.draft).every(key => fields.includes(key)), '资源草稿字段无效');
+        Object.assign(actor, structuredClone(payload.draft));
+      }
       Object.assign(actor, { id: `${kind}-${id()}`, kind, name: payload.name || `${source?.name || '新角色'}副本`,
         ownerId: kind === 'pc' ? payload.ownerId || `player-${state.actors.filter(a => a.kind === 'pc').length + 1}` : null,
         position: payload.position || { x: 12.5, y: 0, z: 12.5 }, tiePriority: state.actors.length, confirmed: false });
       validateActor(actor, state.board); state.actors.push(actor); dmText = `新增棋子 ${actor.name}，请摆放并核对资料。`; break;
     }
     case 'remove-actor': {
-      dmOnly(principal); requireRule(state.combat.phase !== 'active' && state.actors.length > 1, '只可战前移出棋子，且至少保留一个');
+      dmOnly(principal); requireRule(state.combat.phase !== 'active' && state.actors.length > 0, '只可战前移出棋子');
       const actor = getActor(state, payload.actorId); state.actors = state.actors.filter(a => a.id !== actor.id);
       if(state.combat.turnHistory)delete state.combat.turnHistory[actor.id];
       dmText = `将 ${actor.name} 移出本场战斗（原卡不变，可撤销）。`; break;
@@ -854,6 +864,8 @@ export function executeAction(original, command, principal, { draw = die, id = r
     state.undoStack = state.undoStack.slice(-30);
   }
   state.appliedIds.push(command.actionId);
+  const visualEffect = combatVisual(state, command);
+  if (visualEffect) eventExtra = { ...eventExtra, visualEffect };
   state.events.push({ id: id(), revision: state.revision, time: now(), actionId: command.actionId,
     type: command.type, publicText, dmText: dmText || publicText, rolls, principal: principal.id, ...eventExtra });
   validateState(state);
@@ -897,7 +909,8 @@ export function projectState(state, principal) {
         { moved: state.combat.moved, attacksUsed: state.combat.attacksUsed, action: state.combat.action } : {}),
       slotSpentBy: (state.combat.slotSpentBy || []).filter(id => state.actors.some(a => a.id === id && a.ownerId === principal.id)),
       turnHistory:Object.fromEntries(Object.entries(state.combat.turnHistory||{}).filter(([id])=>state.actors.some(a=>a.id===id&&a.ownerId===principal.id)).map(([id,r])=>[id,structuredClone(r)])) },
-    events: state.events.filter(e => e.publicText).map(e => ({ revision: e.revision, time: e.time, text: e.publicText, undoneBy: e.undoneBy })) };
+    events: state.events.filter(e => e.publicText).map(e => ({ revision: e.revision, time: e.time, text: e.publicText, undoneBy: e.undoneBy,
+      ...(e.visualEffect && allowedIds.has(e.visualEffect.actorId) && (!e.visualEffect.targetId || allowedIds.has(e.visualEffect.targetId)) ? { visualEffect: structuredClone(e.visualEffect) } : {}) })) };
 }
 
 export function handoff(state, principal) {

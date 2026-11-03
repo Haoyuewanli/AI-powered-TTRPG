@@ -28,7 +28,7 @@ async function readBody(request) {
   return body;
 }
 
-export async function startApp({ campaignDir, workspaceDir, port = 4182, initial, persist, sharingOptions = {}, embedOrigin: requestedEmbedOrigin } = {}) {
+export async function startApp({ campaignDir, workspaceDir, port = 4182, initial, persist, sharingOptions = {}, resourceProvider, embedOrigin: requestedEmbedOrigin } = {}) {
   const embedOrigin = normalizeEmbedOrigin(requestedEmbedOrigin);
   const directory = resolve(campaignDir || await defaultCampaign());
   const workspaceDirectory = resolve(workspaceDir || (campaignDir ? resolve(directory, '.工作区') : defaultArchiveRoot));
@@ -37,9 +37,11 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
   const sessions = new Map();
   const preferences = await openPreferences(join(workspaceDirectory,'界面设置.json')).catch(async e=>{await workspace.close();throw e;});
   const staticFiles = new Map([
-    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars', 'resource-panel', 'resource-icons', 'action-panel','action-icons','resource-orbit','manual-record-panel','inventory-panel','platform-bridge'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
+    ...['workspace-panel', 'dice-panel', 'terrain-panel', 'terrain-view', 'shell', 'sharing-panel', 'client-utils', 'voxel-model', 'files-panel', 'value-bars', 'resource-panel', 'resource-icons', 'action-panel','action-icons','resource-orbit','manual-record-panel','inventory-panel','platform-bridge','creative-building','combat-effects','actor-add-panel'].map(name => [`/${name}.mjs`, [join(ROOT, `web/${name}.mjs`), 'text/javascript; charset=utf-8']]),
     ...['resources','rule-errors','action-catalog','inventory'].map(name => [`/${name}.mjs`, [join(ROOT,`src/${name}.mjs`),'text/javascript; charset=utf-8']]),
     ['/data/items-2024.mjs', [join(ROOT,'data/items-2024.mjs'),'text/javascript; charset=utf-8']],
+    ['/data/model-catalog.mjs', [join(ROOT,'data/model-catalog.mjs'),'text/javascript; charset=utf-8']],
+    ['/resource-actor.mjs', [join(ROOT,'src/resource-actor.mjs'),'text/javascript; charset=utf-8']],
     ['/', [join(ROOT, 'web/index.html'), 'text/html; charset=utf-8']],
     ['/style.css', [join(ROOT, 'web/style.css'), 'text/css; charset=utf-8']],
     ['/platform-embed.css', [join(ROOT, 'web/platform-embed.css'), 'text/css; charset=utf-8']],
@@ -71,7 +73,7 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
       if (request.method === 'GET' && path === '/favicon.ico') { response.writeHead(204); response.end(); return; }
       if (request.method === 'GET' && path === '/api/client-info') return send(200, { audience, ...(audience === 'local' ? { embedOrigin } : {}) });
       if (audience === 'local' && request.method === 'GET' && path === '/health') return send(200, {
-        app: 'local-battle-v1', coreVersion: 'class-resource-tests-v8', capabilities: { platformBridge: 1 }, embedOrigin, campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
+        app: 'local-battle-v1', coreVersion: 'class-resource-tests-v9', capabilities: { platformBridge: 1 }, embedOrigin, campaignKey: hash(directory.toLowerCase()).toString('hex'), workspaceKey: hash(workspaceDirectory.toLowerCase()).toString('hex') });
       if (audience === 'player' && request.method === 'POST' && path === '/api/join') {
         const body = await readBody(request);
         return send(200, sharing.join(body.invite));
@@ -116,6 +118,12 @@ export async function startApp({ campaignDir, workspaceDir, port = 4182, initial
           if (principal.role !== 'dm') throw new RuleError('需要DM权限', 403);
           if (request.method === 'GET') return send(200, sharing.status());
           if (request.method === 'POST') return send(200, await sharing.operate(await readBody(request)));
+        }
+        if (request.method === 'GET' && ['/api/resource-catalog', '/api/resource-read'].includes(path)) {
+          if (principal.role !== 'dm') throw new RuleError('资源选取只对DM开放', 403);
+          if (!resourceProvider) return send(200, { resources: [], unavailable: true });
+          const query = new URL(request.url, origin).searchParams;
+          return send(200, path === '/api/resource-catalog' ? await resourceProvider.catalog({ q: query.get('q') || '', kind: query.get('kind') || '' }) : await resourceProvider.read(query.get('id')));
         }
         if (request.method === 'GET' && path === '/api/state') return send(200, {...reply(), ...(principal.role === 'dm' ? {externalFileChanged:await workspace.store.fileStatus().then(s=>s.changed).catch(()=>true)} : {})});
         if (request.method === 'GET' && path === '/api/handoff') return send(200, handoff(workspace.store.state, principal));

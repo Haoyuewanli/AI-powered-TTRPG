@@ -26,7 +26,7 @@ try {
   await row('玩家甲/角色甲-测试/01级/能力.md').click();
   await dialog.getByRole('button', { name: '编辑MD', exact: true }).click();
   const editor = dialog.getByLabel('编辑能力.md'); await editor.fill(await editor.inputValue() + '\n合成验收能力说明');
-  await toolbar.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.locator('[data-platform-page=home]').click();
   assert.equal(await dialog.isVisible(), true); assert.match(await dialog.locator('.player-status').innerText(), /请先保存/);
   await dialog.getByRole('button', { name: '保存', exact: true }).click(); await dialog.getByText('MD已保存。', { exact: true }).waitFor();
   assert.match(await readFile(join(projectRoot, '资源/玩家/玩家甲/角色甲-测试/01级/能力.md'), 'utf8'), /合成验收能力说明/);
@@ -64,7 +64,7 @@ try {
   await access(join(projectRoot, '资源/玩家/玩家甲/接收角色-测试/保留副本/能力.md'));
   await access(join(projectRoot, '资源/玩家/玩家甲/接收角色-测试/01级/能力.md'));
   note('拖动移动、Ctrl拖动复制及重命名同步到目录，原档保留');
-  await toolbar.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.locator('[data-platform-page=home]').click();
   await page.locator('[data-platform-page=resources]').click();
   await page.locator('[data-real-resource-kind="角色"]').click();
   await page.locator('[data-resource-expand="' + original.id + '"]').click();

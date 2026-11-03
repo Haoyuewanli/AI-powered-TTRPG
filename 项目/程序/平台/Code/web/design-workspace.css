@@ -261,3 +261,22 @@ html,body{min-height:100%;background:#f5f6fa}
 @media(max-width:759px){#platform-covers .p-app.is-compact{min-height:100vh;height:auto}#platform-covers .p-main{height:auto}#platform-covers .p-workspace{min-height:440px;overflow:visible}#platform-covers .p-dialogue-view{height:auto;min-height:740px}#platform-covers .p-dialogue-view #dialogue-workspace{height:650px;min-height:490px}#platform-covers .p-dialogue-view [data-dialogue-host]{flex:none}#platform-covers .p-home .p-role-gate{min-height:400px}#platform-covers .p-settings-grid{position:relative;bottom:auto;max-height:65vh;margin-top:6px}#platform-covers .p-settings[open]{width:100%}#platform-covers .p-footer{flex-wrap:wrap}}
 @media(max-width:430px){#platform-covers .p-app{grid-template-columns:46px minmax(0,1fr);gap:12px;padding:16px 10px 18px 5px}#platform-covers .p-role-options{gap:9px}#platform-covers .p-role-choice{width:calc(50% - 5px);height:150px}#platform-covers .p-role-choice strong{font-size:26px}#platform-covers .p-home .p-role-gate{padding:10px 0}#platform-covers .p-home h2{font-size:22px}}
 @media(max-width:600px){#platform-covers .p-rule-version{align-items:flex-start;flex-direction:column;gap:2px;width:100%}#platform-covers .p-rule-version select{width:100%;font-size:10px}}
+
+#platform-root[data-page=battle] .p-heading,
+#platform-root[data-page=battle] .p-footer,
+#platform-root[data-page=battle] .p-appearance-status { display:none; }
+#platform-covers .p-player-view { height:100%; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+#platform-covers [data-platform-view=battle] { height:100%; min-height:0; display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; text-align:left; gap:8px; overflow:hidden; }
+#platform-covers .platform-battle-toolbar { display:flex; flex-wrap:wrap; gap:7px; align-items:center; flex:none; min-height:36px; }
+#platform-covers .platform-battle-toolbar>span { margin-right:auto; font-size:12px; overflow-wrap:anywhere; }
+#platform-covers .platform-battle-empty { flex:1; min-height:250px; display:grid; place-content:center; padding:24px; border:1px dashed color-mix(in srgb,var(--shadow) 40%,transparent); background:color-mix(in srgb,var(--paper) 70%,transparent); }
+#platform-covers .platform-battle-empty p { font-size:14px; line-height:1.8; max-width:48em; }
+#platform-covers .project-battle-host { flex:1 1 0; height:auto; min-height:0; width:100%; overflow:hidden; }
+#platform-covers .project-battle-host iframe { display:block; flex:1; min-height:0; border:0; }
+#platform-covers .project-battle-host>.project-notice { flex:none; margin:0; min-height:0; }
+@media(max-width:759px) {
+ #platform-covers .p-player-view { min-height:780px; }
+ #platform-covers [data-platform-view=battle] { min-height:760px; }
+ #platform-covers .platform-battle-toolbar>span { flex-basis:100%; }
+ #platform-covers .project-battle-host { min-height:640px; flex:1 0 640px; }
+}

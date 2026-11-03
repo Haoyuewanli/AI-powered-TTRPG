@@ -2,6 +2,8 @@ import * as THREE from '/vendor/three.module.js';
 import { terrainGroup } from '/terrain-view.mjs';
 import { voxelModel } from '/voxel-model.mjs';
 import { largestFaces } from '/geometry.mjs';
+import { baseBlockBrush, placementAgainstFace, buildingBoundsValid } from '/creative-building.mjs';
+import { BattleEffects, tickActorModel, playActorAnimation } from '/combat-effects.mjs';
 
 function textTexture(text, subtitle, background, width = 256, height = 256) {
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
@@ -47,6 +49,9 @@ export class BattleBoard {
     this.orbit = { azimuth: .4, polar: .82, distance: 135 }; this.wanted = { ...this.orbit };
     this.ray = new THREE.Raycaster(); this.pointer = new THREE.Vector2(); this.meshes = [];
     this.autoFit = true; this.frame = 0; this.drag = null; this.heldKeys = new Set();
+    this.effects = new BattleEffects(this.scene); this.actorModels = new Map();
+    this.buildMode = false; this.buildUnit = '5'; this.buildAction = 'remove'; this.buildBusy = false;
+    this.installBuildTools();
     this.resize = new ResizeObserver(() => {
       const width = container.clientWidth, height = container.clientHeight;
       if (!width || !height) return;
@@ -57,6 +62,12 @@ export class BattleBoard {
     canvas.addEventListener('contextmenu', event => event.preventDefault());
     canvas.addEventListener('pointerdown', event => {
       if (!this.visible) return;
+      if (this.buildMode) {
+        event.preventDefault(); container.focus();
+        if (event.button === 0 && !this.pointerLocked && !this.lookDrag) { this.lookDrag = { x: event.clientX, y: event.clientY, moved: false }; canvas.setPointerCapture(event.pointerId); }
+        if (event.button === 2) void this.performBuild('place');
+        return;
+      }
       if (this.drag) { this.cancelDrag(); return; }
       event.preventDefault(); container.focus(); canvas.setPointerCapture(event.pointerId);
       this.cast(event);
@@ -77,6 +88,13 @@ export class BattleBoard {
         context: this.state ? { campaignId: this.state.campaignId, battleId: this.state.battleId, revision: this.state.revision } : null };
     });
     canvas.addEventListener('pointermove', event => {
+      if (this.buildMode) {
+        const dx = this.pointerLocked ? event.movementX : this.lookDrag ? event.clientX - this.lookDrag.x : 0;
+        const dy = this.pointerLocked ? event.movementY : this.lookDrag ? event.clientY - this.lookDrag.y : 0;
+        if (this.lookDrag) { this.lookDrag.x = event.clientX; this.lookDrag.y = event.clientY; this.lookDrag.moved ||= Math.hypot(dx, dy) > 1; }
+        if (dx || dy) { this.firstPerson.yaw -= dx * .003; this.firstPerson.pitch = THREE.MathUtils.clamp(this.firstPerson.pitch - dy * .003, -1.5, 1.5); this.requestRender(); }
+        return;
+      }
       const drag = this.drag;
       if (!drag || event.pointerId !== drag.pointerId) return;
       const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
@@ -92,6 +110,12 @@ export class BattleBoard {
       this.requestRender();
     });
     canvas.addEventListener('pointerup', event => {
+      if (this.buildMode) {
+        const moved = this.lookDrag?.moved; this.lookDrag = null;
+        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+        if (event.button === 0 && !moved) void this.performBuild(this.buildAction);
+        return;
+      }
       const drag = this.drag;
       if (!drag || event.pointerId !== drag.pointerId) return;
       const destination = drag.destination;
@@ -105,18 +129,20 @@ export class BattleBoard {
         const point = this.planePoint(event, 0); if (point) this.onPlace?.(point);
       }
     });
-    canvas.addEventListener('pointercancel', () => this.cancelDrag());
-    canvas.addEventListener('lostpointercapture', () => this.cancelDrag());
-    canvas.addEventListener('wheel', event => { if (!this.visible) return; event.preventDefault(); if (!this.drag?.actor && !this.drag?.object) this.zoom(Math.exp(event.deltaY * .001)); }, { passive: false });
+    canvas.addEventListener('pointercancel', () => { this.lookDrag = null; this.cancelDrag(); });
+    canvas.addEventListener('lostpointercapture', () => { this.lookDrag = null; this.cancelDrag(); });
+    canvas.addEventListener('wheel', event => { if (!this.visible) return; event.preventDefault(); if (this.buildMode) { this.buildUnit = this.buildUnit === '5' ? '1' : '5'; this.buildUnitSelect.value = this.buildUnit; this.requestRender(); return; } if (!this.drag?.actor && !this.drag?.object) this.zoom(Math.exp(event.deltaY * .001)); }, { passive: false });
     container.addEventListener('keydown', event => {
       if (!this.visible) return;
-      if (event.code === 'Escape') { this.cancelDrag(); return; }
+      if (event.target.matches('input,select,textarea,button')) return;
+      if (event.code === 'Escape') { if (this.buildMode) this.setBuildMode(false); this.cancelDrag(); return; }
+      if (this.buildMode && ['Digit1', 'Digit2'].includes(event.code)) { event.preventDefault(); this.buildUnit = event.code === 'Digit1' ? '1' : '5'; this.buildUnitSelect.value = this.buildUnit; this.requestRender(); return; }
       if (this.drag?.actor || this.drag?.object || event.ctrlKey || event.altKey || event.metaKey) return;
       if (event.code === 'Digit0' || event.code === 'Numpad0') {
         event.preventDefault(); if (!event.repeat) this.reset(); return;
       }
       const keys = ['KeyQ', 'KeyE', 'KeyR', 'KeyF', 'KeyW', 'KeyA', 'KeyS', 'KeyD',
-        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract'];
+        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Equal', 'Minus', 'NumpadAdd', 'NumpadSubtract', 'Space', 'ShiftLeft', 'ShiftRight'];
       if (!keys.includes(event.code)) return;
       event.preventDefault();
       if (this.heldKeys.has(event.code)) return;
@@ -124,7 +150,8 @@ export class BattleBoard {
       this.heldKeys.add(event.code); this.advanceKeyboard(1 / 60); this.requestRender();
     });
     window.addEventListener('keyup', event => { this.heldKeys.delete(event.code); });
-    const releaseKeys = () => { this.heldKeys.clear(); this.cancelDrag(); };
+    document.addEventListener('pointerlockchange', () => { this.pointerLocked = document.pointerLockElement === canvas; });
+    const releaseKeys = () => { this.heldKeys.clear(); this.lookDrag = null; this.cancelDrag(); };
     container.addEventListener('blur', releaseKeys);
     window.addEventListener('blur', releaseKeys);
     document.addEventListener('visibilitychange', () => { if (document.hidden) releaseKeys(); });
@@ -135,6 +162,94 @@ export class BattleBoard {
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
     this.ray.setFromCamera(this.pointer, this.camera);
+  }
+  installBuildTools() {
+    const create = (tag, text) => { const node = document.createElement(tag); if (text) node.textContent = text; return node; };
+    this.container.style.position ||= 'relative';
+    const tools = create('div'); tools.className = 'battle-build-tools'; tools.hidden = true;
+    Object.assign(tools.style, { position: 'absolute', zIndex: '4', top: '10px', left: '10px', display: 'flex', gap: '6px', flexWrap: 'wrap', maxWidth: 'calc(100% - 20px)', background: '#102735ee', padding: '7px', borderRadius: '6px', color: '#ecf7f4' });
+    const button = (label, fn) => { const node = create('button', label); node.type = 'button'; node.addEventListener('click', fn); return node; };
+    this.buildToggle = button('创造搭建', () => this.setBuildMode(!this.buildMode)); this.buildToggle.setAttribute('aria-label', 'DM创造搭建视角');
+    const options = create('span'); options.style.display = 'contents';
+    const unit = create('select'); unit.setAttribute('aria-label', '基础方块尺寸'); unit.style.width = 'auto'; unit.style.maxWidth = '190px'; unit.style.minWidth = '0';
+    for (const [value, name] of [['5', '5×5×5尺方块'], ['1', '1×1×1尺方块'], ['current', '地形工具中的积木']]) { const item = create('option', name); item.value = value; unit.append(item); }
+    unit.onchange = () => { this.buildUnit = unit.value; this.requestRender(); };
+    const mode = create('select'); mode.setAttribute('aria-label', '创造操作'); mode.style.width = 'auto'; mode.style.minWidth = '0';
+    for (const [value, name] of [['place', '左键放置'], ['remove', '左键破坏']]) { const item = create('option', name); item.value = value; mode.append(item); }
+    mode.value = this.buildAction; mode.onchange = () => { this.buildAction = mode.value; this.requestRender(); };
+    const lock = button('鼠标环视', () => { this.container.focus(); this.renderer.domElement.requestPointerLock?.(); });
+    lock.title = '锁定鼠标环视，Esc释放；不锁定时拖动画布环视';
+    options.append(unit, mode, lock, button('放置', () => this.performBuild('place')), button('破坏', () => this.performBuild('remove')));
+    tools.append(this.buildToggle, options); this.container.append(tools); this.buildTools = tools; this.buildOptions = options; this.buildUnitSelect = unit; options.style.display = 'none'; tools.style.display = 'none';
+    const crosshair = create('div', '+'); crosshair.setAttribute('aria-hidden', 'true'); crosshair.hidden = true;
+    Object.assign(crosshair.style, { position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', zIndex: '3', color: '#ffffff', font: '28px monospace', textShadow: '0 1px 3px #000', pointerEvents: 'none' }); this.container.append(crosshair); this.buildCrosshair = crosshair;
+    const hint = create('div'); hint.hidden = true; hint.setAttribute('role', 'status');
+    Object.assign(hint.style, { position: 'absolute', bottom: '12px', left: '12px', zIndex: '3', background: '#102735e6', color: '#ecf7f4', padding: '8px', borderRadius: '5px', fontSize: '12px', maxWidth: 'calc(100% - 24px)', pointerEvents: 'none' }); this.container.append(hint); this.buildHint = hint;
+  }
+  setBuildMode(enabled) {
+    enabled = !!enabled;
+    if (enabled && (!this.visible || this.state?.viewRole !== 'dm' || !this.interaction.canBuild?.())) { this.interaction.onHint?.('请先保存编辑，只有DM可进入创造搭建'); return false; }
+    this.cancelDrag(); this.heldKeys.clear(); this.buildMode = enabled; this.lookDrag = null;
+    this.buildToggle.textContent = enabled ? '退出创造视角' : '创造搭建'; this.buildToggle.setAttribute('aria-pressed', String(enabled));
+    this.buildOptions.style.display = enabled ? 'contents' : 'none'; this.buildCrosshair.hidden = !enabled; this.buildHint.hidden = !enabled;
+    if (enabled) {
+      this.interaction.onHint?.('');
+      const direction = this.camera.getWorldDirection(new THREE.Vector3());
+      this.firstPerson = { position: this.camera.position.clone(), yaw: Math.atan2(-direction.x, -direction.z), pitch: Math.asin(direction.y) };
+      // Start near the selected piece/board center instead of the distant orbit camera.
+      const actor = this.state.actors.find(actor => actor.id === this.selected);
+      this.firstPerson.position.set(actor?.position.x ?? this.target.x, Math.max(6, (actor?.position.y || 0) + 6), (actor?.position.z ?? this.target.z) + 12);
+      this.firstPerson.yaw = 0; this.firstPerson.pitch = -.35;
+      this.container.focus();
+    } else {
+      if (document.pointerLockElement === this.renderer.domElement) document.exitPointerLock?.();
+      this.clearBuildPreview();
+    }
+    this.renderer.domElement.dataset.buildMode = String(enabled); this.requestRender(); return true;
+  }
+  clearBuildPreview() {
+    if (this.buildGhost) { this.scene.remove(this.buildGhost); disposeGroup(this.buildGhost); this.buildGhost = null; }
+    this.buildGhostKey = ''; this.buildCandidate = null; this.buildHitId = null;
+    delete this.renderer.domElement.dataset.buildPreview; delete this.renderer.domElement.dataset.buildTarget;
+  }
+  updateBuildPreview() {
+    if (!this.buildMode || !this.state) return;
+    this.ray.setFromCamera(new THREE.Vector2(0, 0), this.camera);
+    const hit = this.ray.intersectObjects(this.terrain.children, true).find(hit => hit.object.userData.objectId && hit.distance <= 50);
+    let point = hit?.point, normal;
+    if (hit) normal = hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize();
+    else { point = this.ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3()); if (point && point.distanceTo(this.camera.position) > 50) point = null; normal = new THREE.Vector3(0, 1, 0); }
+    this.buildHitId = hit?.object.userData.objectId || null;
+    if (this.buildHitId) this.renderer.domElement.dataset.buildTarget = this.buildHitId; else delete this.renderer.domElement.dataset.buildTarget;
+    if (!point) { if (this.buildGhost) this.buildGhost.visible = false; this.buildCandidate = null; delete this.renderer.domElement.dataset.buildPreview; this.buildHint.textContent = '瞄准50尺内的地面或积木表面 · WASD移动，Space上升，Shift下降，拖动环视'; return; }
+    let brush;
+    try { brush = this.interaction.buildBrush?.(this.buildUnit) || baseBlockBrush(this.buildUnit); } catch { this.buildCandidate = null; return; }
+    brush.position = placementAgainstFace(brush, point, normal, this.buildUnit);
+    const valid = buildingBoundsValid(brush, this.state.board);
+    const key = JSON.stringify([brush.size, brush.type, brush.shape, brush.rotation]);
+    if (key !== this.buildGhostKey) {
+      if (this.buildGhost) { this.scene.remove(this.buildGhost); disposeGroup(this.buildGhost); }
+      this.buildGhost = terrainGroup({ ...brush, id: 'build-preview', position: { x: 0, y: 0, z: 0 } }, true);
+      this.buildGhost.traverse(mesh => { if (mesh.material) { mesh.material.transparent = true; mesh.material.opacity = .38; mesh.material.depthWrite = false; } mesh.castShadow = false; });
+      this.scene.add(this.buildGhost); this.buildGhostKey = key;
+    }
+    this.buildGhost.visible = true; this.buildGhost.position.set(brush.position.x, brush.position.y, brush.position.z);
+    this.buildGhost.traverse(mesh => mesh.material?.color?.set(valid ? '#83ead0' : '#ff625c'));
+    this.buildCandidate = valid ? brush : null;
+    this.renderer.domElement.dataset.buildPreview = JSON.stringify({ ...brush.position, valid, unit: this.buildUnit });
+    const object = this.state.objects.find(object => object.id === this.buildHitId);
+    this.buildHint.textContent = `${valid ? brush.name : '此处超出搭建边界'} · ${object ? '瞄准：' + object.name : '地面'} · WASD移动，Space上升，Shift下降；拖动环视，左键${this.buildAction === 'remove' ? '破坏' : '放置'}，右键放置，Esc退出`;
+  }
+  async performBuild(operation) {
+    if (!this.buildMode || this.buildBusy || !this.interaction.canBuild?.()) return;
+    this.updateBuildPreview();
+    const context = { campaignId: this.state.campaignId, battleId: this.state.battleId, revision: this.state.revision };
+    const item = this.buildCandidate && structuredClone(this.buildCandidate), id = this.buildHitId;
+    if (operation === 'place' && !item || operation === 'remove' && !id) { this.interaction.onHint?.(operation === 'remove' ? '请瞄准已有积木，辅助网格不能破坏' : '请瞄准绿色预览位置'); return; }
+    this.buildBusy = true;
+    try { if (operation === 'remove') await this.interaction.onBuildRemove?.(id, context); else await this.interaction.onBuildPlace?.(item, context); }
+    catch (error) { this.interaction.onHint?.(error.message); }
+    finally { this.buildBusy = false; this.requestRender(); }
   }
   planePoint(event, height) {
     this.cast(event);
@@ -201,6 +316,18 @@ export class BattleBoard {
   }
   zoom(factor) { this.autoFit = false; this.wanted.distance = THREE.MathUtils.clamp(this.wanted.distance * factor, 14, 700); this.requestRender(); }
   advanceKeyboard(seconds) {
+    if (this.buildMode) {
+      const held = (...keys) => keys.some(key => this.heldKeys.has(key)) ? 1 : 0;
+      const fp = this.firstPerson, speed = (held('KeyW') || held('KeyS')) && held('KeyR') ? 36 : 18;
+      const forward = held('KeyW') - held('KeyS'), right = held('KeyD') - held('KeyA'), scale = seconds * speed / Math.max(1, Math.hypot(forward, right));
+      fp.position.x += (-Math.sin(fp.yaw) * forward + Math.cos(fp.yaw) * right) * scale;
+      fp.position.z += (-Math.cos(fp.yaw) * forward - Math.sin(fp.yaw) * right) * scale;
+      fp.position.y = THREE.MathUtils.clamp(fp.position.y + (held('Space') - held('ShiftLeft', 'ShiftRight')) * speed * seconds, .5, 150);
+      fp.position.x = THREE.MathUtils.clamp(fp.position.x, -10000, 10000); fp.position.z = THREE.MathUtils.clamp(fp.position.z, -10000, 10000);
+      fp.yaw += (held('KeyQ', 'ArrowLeft') - held('KeyE', 'ArrowRight')) * seconds * 1.6;
+      fp.pitch = THREE.MathUtils.clamp(fp.pitch + (held('ArrowUp') - held('ArrowDown')) * seconds, -1.5, 1.5);
+      return;
+    }
     this.autoFit = false;
     const held = (...keys) => keys.some(key => this.heldKeys.has(key)) ? 1 : 0;
     this.wanted.azimuth += (held('KeyQ', 'ArrowLeft') - held('KeyE', 'ArrowRight')) * 1.6 * seconds;
@@ -237,14 +364,22 @@ export class BattleBoard {
       const elapsed = this.lastFrame ? THREE.MathUtils.clamp(time - this.lastFrame, 0, 64) : 16;
       const factor = 1 - Math.exp(-elapsed / 50); this.lastFrame = time;
       if (this.heldKeys.size) this.advanceKeyboard(elapsed / 1000);
-      this.target.lerp(this.wantedTarget, factor);
-      for (const key of ['azimuth', 'polar', 'distance']) this.orbit[key] += (this.wanted[key] - this.orbit[key]) * factor;
-      const { azimuth: a, polar: p, distance: d } = this.orbit;
-      this.camera.position.set(this.target.x + d * Math.sin(p) * Math.sin(a), d * Math.cos(p), this.target.z + d * Math.sin(p) * Math.cos(a));
-      if(this.gridPlane) this.gridPlane.position.set(Math.round(this.target.x/5)*5, .015, Math.round(this.target.z/5)*5);
-      this.camera.lookAt(this.target); this.renderer.render(this.scene, this.camera);
-      this.renderer.domElement.dataset.camera = JSON.stringify({ ...this.orbit, target: this.target.toArray() });
-      if (this.heldKeys.size || this.target.distanceTo(this.wantedTarget) > .001 || Object.keys(this.orbit).some(k => Math.abs(this.orbit[k] - this.wanted[k]) > .001)) this.requestRender();
+      if (this.buildMode) {
+        this.camera.position.copy(this.firstPerson.position); this.camera.rotation.set(this.firstPerson.pitch, this.firstPerson.yaw, 0, 'YXZ');
+        this.camera.updateMatrixWorld(); this.scene.updateMatrixWorld(true); this.updateBuildPreview();
+      } else {
+        this.target.lerp(this.wantedTarget, factor);
+        for (const key of ['azimuth', 'polar', 'distance']) this.orbit[key] += (this.wanted[key] - this.orbit[key]) * factor;
+        const { azimuth: a, polar: p, distance: d } = this.orbit;
+        this.camera.position.set(this.target.x + d * Math.sin(p) * Math.sin(a), d * Math.cos(p), this.target.z + d * Math.sin(p) * Math.cos(a));
+        this.camera.lookAt(this.target);
+      }
+      if(this.gridPlane) this.gridPlane.position.set(Math.round(this.camera.position.x/5)*5, .015, Math.round(this.camera.position.z/5)*5);
+      let animated = this.effects.update(elapsed / 1000);
+      for (const model of this.actorModels.values()) animated = tickActorModel(model, elapsed / 1000) || animated;
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.domElement.dataset.camera = JSON.stringify(this.buildMode ? { firstPerson: true, position: this.firstPerson.position.toArray(), yaw: this.firstPerson.yaw, pitch: this.firstPerson.pitch } : { ...this.orbit, target: this.target.toArray() });
+      if (animated || this.heldKeys.size || !this.buildMode && (this.target.distanceTo(this.wantedTarget) > .001 || Object.keys(this.orbit).some(k => Math.abs(this.orbit[k] - this.wanted[k]) > .001))) this.requestRender();
       else this.renderer.domElement.dataset.settled = 'true';
     });
   }
@@ -288,6 +423,8 @@ export class BattleBoard {
   update(state, selected) {
     if (this.drag?.context && (this.drag.context.revision !== state.revision || this.drag.context.battleId !== state.battleId || this.drag.context.campaignId !== state.campaignId)) this.cancelDrag('局面已更新，请重新拖动');
     this.state = state; this.makeGrid();
+    this.buildTools.hidden = state.viewRole !== 'dm'; this.buildTools.style.display = state.viewRole === 'dm' ? 'flex' : 'none';
+    if (this.buildMode && state.viewRole !== 'dm') this.setBuildMode(false);
     const terrainKey = JSON.stringify(state.objects || []) + JSON.stringify(this.interaction.objectIds?.() || []);
     if (this.terrainKey !== terrainKey) {
       disposeGroup(this.terrain); this.terrainKey = terrainKey;
@@ -299,12 +436,12 @@ export class BattleBoard {
     const piecesKey = JSON.stringify(state.actors.map(a => [a.id, a.name, a.kind, a.body, a.space, a.position, a.facing, a.hidden, a.appearance])) + selected;
     if (this.piecesKey === piecesKey) { this.requestRender(); return; }
     this.piecesKey = piecesKey;
-    disposeGroup(this.pieces); this.meshes = []; this.selected = selected;
+    disposeGroup(this.pieces); this.meshes = []; this.actorModels.clear(); this.selected = selected;
     this.renderer.shadowMap.needsUpdate = true;
     for (const actor of state.actors) {
       const group = new THREE.Group(); group.position.set(actor.position.x, actor.position.y || 0, actor.position.z); group.rotation.y = -actor.facing * Math.PI / 180;
       if (actor.appearance?.model !== 'box') {
-        const model = voxelModel(actor); group.add(model);
+        const model = voxelModel(actor); group.add(model); this.actorModels.set(actor.id, model);
         model.traverse(mesh => { if (mesh.isMesh) this.meshes.push(mesh); });
       } else {
       const color = actor.kind === 'pc' ? '#3b8595' : '#906b60';
@@ -336,6 +473,8 @@ export class BattleBoard {
   setVisible(value) {
     this.visible = !!value;
     if (!this.visible) {
+      if (this.buildMode) this.setBuildMode(false);
+      this.effects.clear();
       this.heldKeys.clear(); this.cancelDrag();
       if (this.frame) cancelAnimationFrame(this.frame);
       this.frame = 0; this.renderer.domElement.dataset.settled = 'true';
@@ -347,5 +486,27 @@ export class BattleBoard {
     }
     this.lastFrame = 0; this.requestRender();
   }
-  clear() { this.cancelDrag(); this.state = null; this.heldKeys.clear(); this.piecesKey = null; this.terrainKey = null; disposeGroup(this.terrain); this.renderer.domElement.dataset.objectCount = '0'; disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.renderer.clear(true, true, true); this.requestRender(); }
+  playCombatEffect({ actorId, targetId, kind = 'attack', weapon, color } = {}) {
+    const actor = this.state?.actors.find(actor => actor.id === actorId), target = this.state?.actors.find(actor => actor.id === targetId);
+    if (!actor) return false;
+    const selectedWeapon = weapon || actor.appearance?.weapon || 'sword';
+    let model = this.actorModels.get(actorId);
+    if (model && model.userData.weapon !== selectedWeapon) {
+      const parent = model.parent;
+      const replacement = voxelModel({ ...actor, appearance: { ...actor.appearance, weapon: selectedWeapon } });
+      parent.remove(model);
+      this.meshes = this.meshes.filter(mesh => mesh.userData.actorId !== actorId);
+      disposeGroup(model); parent.add(replacement);
+      replacement.traverse(mesh => { if (mesh.isMesh) this.meshes.push(mesh); });
+      this.actorModels.set(actorId, replacement); model = replacement;
+      // This override belongs to one saved action. A normal state update restores the registered appearance.
+      this.piecesKey = null; this.renderer.shadowMap.needsUpdate = true;
+    }
+    if (model) playActorAnimation(model, { weapon: selectedWeapon, kind });
+    this.effects.play({ source: new THREE.Vector3(actor.position.x, (actor.position.y || 0) + actor.body.height * .65, actor.position.z),
+      target: target ? new THREE.Vector3(target.position.x, (target.position.y || 0) + target.body.height * .6, target.position.z) : new THREE.Vector3(actor.position.x, (actor.position.y || 0) + 2, actor.position.z - 8),
+      weapon: selectedWeapon, magic: kind === 'magic', color });
+    this.renderer.domElement.dataset.lastEffect = JSON.stringify({ actorId, targetId, kind, weapon: selectedWeapon }); this.requestRender(); return true;
+  }
+  clear() { this.setBuildMode(false); this.cancelDrag(); this.effects.clear(); this.actorModels.clear(); this.state = null; this.heldKeys.clear(); this.piecesKey = null; this.terrainKey = null; disposeGroup(this.terrain); this.buildTools.hidden = true; this.buildTools.style.display = 'none'; this.renderer.domElement.dataset.objectCount = '0'; disposeGroup(this.pieces); this.meshes = []; this.renderer.shadowMap.needsUpdate = true; this.renderer.domElement.dataset.actorCount = '0'; this.renderer.clear(true, true, true); this.requestRender(); }
 }

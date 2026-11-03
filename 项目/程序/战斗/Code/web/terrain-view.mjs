@@ -1,4 +1,5 @@
 import * as THREE from '/vendor/three.module.js';
+import { baseBlockComposition } from '/creative-building.mjs';
 const colors = { wall: '#718b98', hill: '#63816b', floor: '#ac9878', stairs: '#9c8d79', prop: '#826b91', tile: '#667d80' };
 export function terrainGroup(object, selected) {
   const group = new THREE.Group(), { width: w, depth: d, height: h } = object.size;
@@ -27,7 +28,21 @@ export function terrainGroup(object, selected) {
     }
     const mesh=new THREE.Mesh(geometry,material.clone());mesh.material.side=THREE.DoubleSide;mesh.castShadow=true;mesh.receiveShadow=true;group.add(mesh);
     group.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry),new THREE.LineBasicMaterial({color:selected?'#ffe1a3':'#b6c8ca',transparent:true,opacity:.55})));
-  } else block(w, h, d, 0, h / 2, 0);
+  } else {
+    const cells = baseBlockComposition(object.size);
+    if (cells && cells.length > 1) {
+      const matrix = new THREE.Matrix4();
+      for (const unit of [1, 5]) {
+        const members = cells.filter(cell => cell.unit === unit); if (!members.length) continue;
+        const geometry = new THREE.BoxGeometry(unit - .014, unit - .014, unit - .014);
+        const mesh = new THREE.InstancedMesh(geometry, material.clone(), members.length);
+        members.forEach((cell, index) => { matrix.makeTranslation(cell.x, cell.y, cell.z); mesh.setMatrixAt(index, matrix); });
+        mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh);
+      }
+      const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, h, d)), new THREE.LineBasicMaterial({ color: selected ? '#ffe1a3' : '#bfced0', transparent: true, opacity: selected ? .9 : .25 }));
+      outline.position.y = h / 2; group.add(outline);
+    } else block(w, h, d, 0, h / 2, 0);
+  }
   material.dispose();
   group.traverse(mesh => { if(mesh.isMesh) mesh.userData.objectId=object.id; });
   if (object.type === 'floor' && (!object.shape || object.shape === 'box')) {

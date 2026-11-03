@@ -12,7 +12,8 @@ const runKey = value => value.moduleId + '/' + value.runId;
 export function createPlayerWorkspace({ root, api, getRole }) {
   const css = document.createElement('link');
   css.rel = 'stylesheet'; css.href = '/player-workspace.css'; document.head.append(css);
-  const dialog = el('dialog', undefined, 'player-explorer');
+  const dialog = el('section', undefined, 'player-explorer');
+  dialog.setAttribute('aria-label', '玩家与角色'); dialog.hidden = true;
   const title = el('h2', '玩家与角色'), tabs = el('div', undefined, 'player-view-tabs'), toolbar = el('div', undefined, 'player-toolbar');
   const crumb = el('div', undefined, 'player-breadcrumb'), body = el('div', undefined, 'player-explorer-body');
   const browser = el('section', undefined, 'player-browser'), list = el('div', undefined, 'player-files');
@@ -24,7 +25,7 @@ export function createPlayerWorkspace({ root, api, getRole }) {
   search.type = 'search'; search.placeholder = '搜索当前文件夹'; search.setAttribute('aria-label', '搜索当前玩家文件夹');
   searchBar.append(search, count); browser.append(searchBar, unassignedLabel, list); body.append(browser, detail);
   menu.hidden = true; status.setAttribute('role', 'status');
-  dialog.append(title, tabs, toolbar, crumb, body, status, menu); root.append(dialog);
+  title.hidden = true; dialog.append(title, tabs, toolbar, crumb, body, status, menu); root.append(dialog);
 
   let data = { entries: [], revision: '' }, current = '', selected = null, clipboard = null;
   let dirty = '', busy = false, serial = 0, mode = 'relations';
@@ -42,7 +43,7 @@ export function createPlayerWorkspace({ root, api, getRole }) {
   const up = action('上一级', () => enter(parentPath(current))), fresh = action('刷新', refresh), add = action('新建', create);
   const renameButton = action('重命名', rename), cut = action('剪切', () => copy(true)), copyButton = action('复制', () => copy());
   const pasteButton = action('粘贴', paste), duplicateButton = action('建立副本', duplicate);
-  toolbar.append(up, fresh, add, renameButton, cut, copyButton, pasteButton, duplicateButton, action('关闭', () => { clean(); dialog.close(); }));
+  toolbar.append(up, fresh, add, renameButton, cut, copyButton, pasteButton, duplicateButton);
   const relationsTab = action('关系总览', () => changeView('relations')), filesTab = action('档案文件', () => changeView('files'));
   tabs.append(relationsTab, filesTab);
   async function changeView(next) {
@@ -433,7 +434,9 @@ export function createPlayerWorkspace({ root, api, getRole }) {
   dialog.addEventListener('click', event => { if (!menu.contains(event.target)) menu.hidden = true; });
   return {
     hasDraft: () => !!dirty || busy,
-    clear() { serial++; dirty = ''; selected = null; clipboard = null; data = { entries: [], revision: '' }; relations = { players: [], characters: [], runs: [], issues: [] }; current = ''; mode = 'relations'; search.value = ''; unassigned.checked = false; dialog.close(); list.replaceChildren(); detail.replaceChildren(); status.textContent = ''; },
-    async open() { if (getRole() !== 'dm') return; if (!dialog.open) dialog.showModal(); await run(refresh); }
+    reportStatus(message) { status.textContent = message; },
+    clear() { serial++; dirty = ''; selected = null; clipboard = null; data = { entries: [], revision: '' }; relations = { players: [], characters: [], runs: [], issues: [] }; current = ''; mode = 'relations'; search.value = ''; unassigned.checked = false; dialog.hidden = true; list.replaceChildren(); detail.replaceChildren(); status.textContent = ''; },
+    setVisible(value) { dialog.hidden = !value; },
+    async open() { if (getRole() !== 'dm') return; dialog.hidden = false; if (!data.revision) await run(refresh); }
   };
 }

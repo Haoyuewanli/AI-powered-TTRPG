@@ -410,3 +410,4 @@ legend { color: var(--gold); padding: 0 5px; font-size: 12px; }
 .inventory-item p { overflow-wrap:anywhere; }
 #inventory-editor { border-top:1px solid var(--line); padding-top:12px; }
 #inventory-json,#item-result-json,#item-manual-costs,#item-proposal { font-family:ui-monospace,Consolas,monospace; }
+.add-combatant{flex:none;font-size:24px;min-width:46px}.actor-add-dialog form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.actor-add-dialog .actor-resource-picker,.actor-add-dialog .button-grid,.actor-add-dialog form>[role=status]{grid-column:1/-1}.actor-resource-picker{display:grid;gap:8px}.actor-source-preview{max-height:160px;overflow:auto;white-space:pre-wrap;font:12px/1.6 monospace}.actor-add-dialog[aria-busy=true] input,.actor-add-dialog[aria-busy=true] select,.actor-add-dialog[aria-busy=true] button{pointer-events:none}@media(max-width:600px){.actor-add-dialog form{grid-template-columns:1fr}}

@@ -15,13 +15,15 @@ import { resourceView } from '/resources.mjs';
 import { manualRecordPanel } from '/manual-record-panel.mjs';
 import { inventoryPanel } from '/inventory-panel.mjs';
 import { installPlatformBridge } from '/platform-bridge.mjs';
+import { actorAddPanel } from '/actor-add-panel.mjs';
+import { MODEL_CLASSES, MODEL_SPECIES, MODEL_WEAPONS } from '/data/model-catalog.mjs';
 
 const $ = id => document.getElementById(id);
 let token = sessionStorage.getItem('battle-session') || '';
 let state = null, selectedId = null, board = null, busy = false, polling = false;
 let dirty = false, editingRevision = null, toastTimer, selection, library, dice, terrain, previewedProposal, shell, sharing, files;
 let clientAudience = 'local', connected = true, sessionEpoch = 0, manualContext = '';
-let resources, operations, orbit, manualRecords, inventory;
+let resources, operations, orbit, manualRecords, inventory, actorAdder;
 let platformVisible = true, pendingPosts = 0;
 const cancelled = () => Object.assign(new Error('操作所属的会话已结束'), { cancelled: true });
 const contextKey = () => state ? `${state.campaignId}/${state.battleId}` : '';
@@ -65,7 +67,7 @@ async function requestApi(path, body) {
 function clearSession() {
   sessionEpoch++; manualContext = '';
   token = ''; state = null; selectedId = null; dirty = false; editingRevision = null; selection = null;
-  files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); resources?.clear(); operations?.clear(); orbit?.clear(); manualRecords?.clear(); inventory?.clear(); shell?.update(null); clearPreview();
+  actorAdder?.clear(); files?.clear(); library?.clear(); dice?.clear(); terrain?.clear(); sharing?.clear(); resources?.clear(); operations?.clear(); orbit?.clear(); manualRecords?.clear(); inventory?.clear(); shell?.update(null); clearPreview();
   sessionStorage.removeItem('battle-session');
   $('external-file-notice').hidden = true;
   $('table').hidden = true; $('login').hidden = false;
@@ -79,6 +81,8 @@ function ensureBoard() {
   if (board) return;
   try { board = new BattleBoard($('viewport'), choose, placeOnBoard, { canDrag: canDragActor, onDrop: dropActor,
     terrainEditing: () => terrain?.editing(), stamping: () => terrain?.stamping(), acceptsObject: o => terrain?.accepts(o),
+    canBuild: () => isDm() && connected && !busy && !dirty && !terrain?.dirty && !actorAdder?.hasDraft(),
+    buildBrush: unit => terrain?.buildBrush(unit), onBuildPlace: (item, context) => terrain?.buildPlace(item, context), onBuildRemove: (id, context) => terrain?.buildRemove(id, context),
     onSelectObject: id => {const accepted=terrain?.select(id); board?.update(state,selectedId);return accepted;}, canDragObject: () => terrain?.canDrag(),
     objectDestination: (...args) => terrain.destination(...args), objectIds: () => terrain?.selectedIds(),
       onObjectDrop: async (...args) => {try {await terrain.drop(...args);}catch(error){notify(error.message,true);}}, onHint: message => { const hint = $('drag-hint'); if (hint) { hint.textContent = message; hint.hidden = !message; } } });
@@ -101,6 +105,7 @@ function fillEditor(a) {
   $('reference').textContent = JSON.stringify(a.reference || { note: '此棋子没有附加原始资料' }, null, 2);
   const look = a.appearance || { model: 'voxel', preset: a.kind === 'npc' ? 'monster' : 'human', skin: a.kind === 'npc' ? '#7aab75' : '#d6ae88', clothes: a.kind === 'pc' ? '#347e8b' : '#866158', hair: '#4d382c', weapon: 'none', material: 'iron', armor: {}, shield: false };
   for (const key of ['model','preset','skin','clothes','hair','weapon','material']) $(`look-${key}`).value = look[key];
+  $('look-species').value = look.species || 'human'; $('look-classId').value = look.classId || 'fighter';
   for (const key of ['head','chest','legs','feet']) $(`look-${key}`).value = look.armor[key] || 'none';
   $('look-shield').checked = look.shield;
   editingRevision = state.revision; dirty = false; $('dirty-indicator').textContent = '';
@@ -188,13 +193,14 @@ function render(selectionChanged = false) {
   }));
   if (!events.length) $('events').append(text('p', '尚无已保存的战斗事件。', 'fine'));
   files?.update(state); dice?.render(state); terrain?.render(state); resources?.update(); manualRecords?.render(); inventory?.render();
-  board?.update(state, selectedId); shell?.update(state); sharing?.render(state); setConnection(connected);
+  board?.update(state, selectedId); shell?.update(state); sharing?.render(state); actorAdder?.update(state); setConnection(connected);
 }
 function renderTasks() {
   const area = $('battle-tasks'); area.replaceChildren();
   area.hidden = state.combat.phase !== 'preparing';
   if (area.hidden) return;
   area.append(text('strong', isDm() ? '开始战斗 · 下一步' : '我的待办'));
+  if (isDm() && !state.actors.length) { area.append(text('p', '点击参战者栏的＋添加角色、NPC或怪物。也可先进入创造模式搭建场景。', 'fine')); return; }
   const add = (label, fn) => { const b = text('button', label); b.type = 'button'; b.addEventListener('click', fn); area.append(b); };
   const pending = state.actors.filter(a => !a.confirmed || a.hp <= 0);
   if (isDm() && (pending.length || dirty)) {
@@ -213,6 +219,7 @@ function applyResult(result) {
   if (result.requestPath === '/api/state' && result.requestContext !== contextKey()) return;
   if (state && state.campaignId === result.state.campaignId && state.battleId === result.state.battleId && result.state.revision < state.revision) return;
   const switched = state && (state.campaignId !== result.state.campaignId || state.battleId !== result.state.battleId);
+  const beforeRevision = state && !switched ? state.revision : null;
   if (state?.combat.phase !== result.state.combat.phase) dice?.clearAttack();
   if (switched) { $('exchange-text').value = ''; dirty = false; selectedId = null; editingRevision = null; dice?.clear(); terrain?.clear(); sharing?.clear(); shell?.closeTools(); clearPreview(); board?.clear(); }
   const nextCurrent = result.state.viewRole === 'dm' ? result.state.combat.order?.[result.state.combat.index] : result.state.combat.currentActorId;
@@ -221,7 +228,8 @@ function applyResult(result) {
     if (nextActor && (result.state.viewRole === 'dm' || nextActor.ownerId === result.state.viewerId)) selectedId = nextCurrent;
   }
   if (Object.hasOwn(result,'externalFileChanged')) $('external-file-notice').hidden = !result.externalFileChanged || result.state.viewRole !== 'dm';
-  state = result.state; selection = result.selection; $('recovery').hidden = !result.recoveryNote; $('recovery').textContent = result.recoveryNote || ''; render();
+  state = result.state; selection = result.selection; actorAdder?.update(state); $('recovery').hidden = !result.recoveryNote; $('recovery').textContent = result.recoveryNote || ''; render();
+  if (beforeRevision !== null && platformVisible) for (const event of state.events.filter(event => event.revision > beforeRevision && event.visualEffect && !event.undoneBy).slice(-6)) board?.playCombatEffect?.(event.visualEffect);
 }
 async function loadState() {
   const generation = token; const result = await api('/api/state');
@@ -298,6 +306,7 @@ $('edit-form').addEventListener('submit', guarded(async () => {
   for (const key of ['immunities', 'resistances', 'vulnerabilities']) patch[key] = $(`edit-${key}`).value.split(/[,，]/).map(s => s.trim()).filter(Boolean);
   for (const key of ['resources', 'notes']) patch[key] = $(`edit-${key}`).value;
   patch.appearance = Object.fromEntries(['model','preset','skin','clothes','hair','weapon','material'].map(k => [k, $(`look-${k}`).value]));
+  patch.appearance.species = $('look-species').value; patch.appearance.classId = $('look-classId').value;
   patch.appearance.armor = Object.fromEntries(['head','chest','legs','feet'].map(k => [k, $(`look-${k}`).value]));
   patch.appearance.shield = $('look-shield').checked;
   patch.hidden = $('edit-hidden').checked; patch.confirmed = $('edit-confirmed').checked;
@@ -353,7 +362,7 @@ setInterval(async () => {
 function openEditor() { $('edit-details').open = true; shell?.openTool('actor'); }
 $('open-editor').addEventListener('click', openEditor);
 $('go-setup').addEventListener('click', () => shell?.openTool('setup'));
-function canSwitch() { if (busy || dirty || terrain?.dirty) { notify('请先保存或放弃当前棋子/地形的编辑，再切换或摆放。', true); return false; } return true; }
+function canSwitch() { if (busy || dirty || terrain?.dirty || actorAdder?.hasDraft()) { notify('请先保存或放弃当前棋子/地形的编辑，再切换或摆放。', true); return false; } return true; }
 async function placeActor(position) {
   if (!isDm() || state.combat.phase === 'active' || !actor()) return;
   if (!canSwitch()) return;
@@ -384,6 +393,12 @@ manualRecords = manualRecordPanel({action,getState:()=>state,getActor:actor,noti
 shell = initShell();
 files = filesPanel({api, apply:applyResult, notify, getState:()=>state, canEdit:canSwitch});
 sharing = sharingPanel({ api, notify, getState: () => state });
+actorAdder = actorAddPanel({ api, getState: () => state, getSelected: actor, canOpen: canSwitch, notify,
+  add: async payload => { await action('add-actor', payload); selectedId = state.actors.at(-1).id; render(true); },
+  cloneSelected: async () => { const source = actor(); await action('add-actor', { copyActorId: source.id, name: source.name.slice(0, 76) + ' 副本', kind: source.kind, ownerId: source.ownerId }); selectedId = state.actors.at(-1).id; render(true); } });
+for (const [id, options] of [['look-species', MODEL_SPECIES], ['look-classId', MODEL_CLASSES], ['look-weapon', MODEL_WEAPONS]]) {
+  const select = $(id); select.replaceChildren(); for (const item of options) { const option = text('option', item.name); option.value = item.id; select.append(option); }
+}
 async function boot() {
   $('enter-dm').disabled = true; $('login-form').querySelector('button').disabled = true;
   try {

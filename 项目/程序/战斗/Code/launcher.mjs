@@ -53,7 +53,7 @@ try {
     await sleep(100); status = await health(url);
   }
   if (status && (status.app !== 'local-battle-v1' || status.campaignKey !== campaignKey)) throw new Error('此端口运行的是其他服务或战役；请关闭它，或用 --port 指定其他端口。');
-  if (status && status.coreVersion !== 'class-resource-tests-v8') throw new Error('本地核心已更新，请在旧窗口点击停止服务，再重新双击打开跑团。');
+  if (status && status.coreVersion !== 'class-resource-tests-v9') throw new Error('本地核心已更新，请在旧窗口点击停止服务，再重新双击打开跑团。');
   if (status && (status.capabilities?.platformBridge !== 1 || status.embedOrigin !== embedOrigin)) throw new Error('此服务的接入方式与当前平台不同，请停止对应旧服务后重开，或换用其他端口。');
   if (status && status.workspaceKey !== workspaceKey) throw new Error('此端口属于另一个工作区，请关闭原服务或换用其他端口。');
   if (!status) {
@@ -75,7 +75,7 @@ try {
       if (failed || child.exitCode !== null) throw new Error('启动失败，请查看战役目录的“服务错误.log”。');
       await sleep(200);
     }
-    if (!status || status.app !== 'local-battle-v1' || status.campaignKey !== campaignKey || status.workspaceKey !== workspaceKey || status.coreVersion !== 'class-resource-tests-v8' || status.capabilities?.platformBridge !== 1 || status.embedOrigin !== embedOrigin) throw new Error('服务未能就绪，请检查战役目录的日志。');
+    if (!status || status.app !== 'local-battle-v1' || status.campaignKey !== campaignKey || status.workspaceKey !== workspaceKey || status.coreVersion !== 'class-resource-tests-v9' || status.capabilities?.platformBridge !== 1 || status.embedOrigin !== embedOrigin) throw new Error('服务未能就绪，请检查战役目录的日志。');
   }
   if (process.argv.includes('--credentials')) {
     console.log('DM凭据已取消，请在打开的窗口直接选择“我是DM”。');

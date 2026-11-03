@@ -229,6 +229,13 @@ export function createLibraryStore({ root }) {
   function findResource(data, id) { const found = data.resources.find(item => item.resource.id === id); if (!found) fail('资源不存在、无效或身份重复。', 404, 'resource_missing'); return found; }
 
   return {
+    async battleTarget(actor) {
+      const { session } = await snapshot(actor, false); requireDm(session);
+      const current = requireCurrent(session);
+      const workspaceDirectory = await safe(current.run.path + '/战斗桌', true);
+      return { moduleId: current.module.id, runId: current.run.id, name: current.run.name,
+        workspaceDirectory, campaignDirectory: join(workspaceDirectory, '本团战斗') };
+    },
     async playerRelations(actor) {
       const { state, data, session } = await snapshot(actor, false); requireDm(session);
       return playerRelationOverview(data.playerTree, data, state);

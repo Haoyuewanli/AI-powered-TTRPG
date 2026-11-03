@@ -1,4 +1,5 @@
 import { snapObject } from '/map-placement.mjs';
+import { baseBlockBrush } from '/creative-building.mjs';
 const $ = id => document.getElementById(id);
 const presets = { tile: { name: '地图地板', size: [10, 10, .5] }, wall: { name: '墙', size: [15, 1, 8], blocks: true }, hill: { name: '隆起', size: [15, 15, 5] },
   floor: { name: '二楼平台', size: [20, 20, 1], y: 9 }, stairs: { name: '楼梯', size: [5, 15, 10] }, prop: { name: '道具', size: [3, 3, 3], blocks: true } };
@@ -87,6 +88,22 @@ export function terrainPanel({ action, getState, notify, canEdit }) {
   for(const operation of ['group','ungroup']) $(`map-${operation}`).addEventListener('click',guard(async()=>{if(!canEdit()||dirty)throw new Error('请先保存表单'); const ids=multi.length?multi:selected?idsFor(selected):[];await action('transform-objects',{operation,ids});}));
   document.addEventListener('keydown',event=>{if(event.key==='Escape')$('map-stamp').checked=false;});
   return { render,
+    buildBrush(unit) { return baseBlockBrush(unit, values()); },
+    async buildPlace(item, context) {
+      if (!canEdit() || dirty) throw new Error('请先保存或放弃地形表单编辑');
+      const state = getState();
+      if (state?.viewRole !== 'dm') throw new Error('只有DM可搭建战斗平台');
+      if (state.battleId !== context.battleId || state.campaignId !== context.campaignId || state.revision !== context.revision) throw new Error('局面已更新，请重新瞄准');
+      await action('add-object', item, context.revision);
+    },
+    async buildRemove(id, context) {
+      if (!canEdit() || dirty) throw new Error('请先保存或放弃地形表单编辑');
+      const state = getState();
+      if (state?.viewRole !== 'dm') throw new Error('只有DM可改变战斗平台');
+      if (state.battleId !== context.battleId || state.campaignId !== context.campaignId || state.revision !== context.revision) throw new Error('局面已更新，请重新瞄准');
+      if (!state.objects.some(object => object.id === id)) throw new Error('这个物件已不存在');
+      await action('remove-object', { objectId: id }, context.revision);
+    },
     editing,
     accepts(item) { return editing() && ($('map-layer').value==='all' || ($('map-layer').value==='tile')===(item.type==='tile')); },
     select: selectObject,

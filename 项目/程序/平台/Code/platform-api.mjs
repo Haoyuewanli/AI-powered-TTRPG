@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { openProjectFiles } from './project-files.mjs';
 import { createCoverApi } from './cover-api.mjs';
 import { createModuleRuntime } from './module-runtime.mjs';
+import { createLibraryStore } from './library-store.mjs';
 
 const problem = (status, message) => Object.assign(new Error(message), { status });
 export async function readJsonBody(request) {
@@ -19,6 +20,7 @@ export async function readJsonBody(request) {
 export async function createProjectApi({ root, battle }) {
   const files = await openProjectFiles({ root });
   const runtime = createModuleRuntime({ root });
+  const library = createLibraryStore({ root });
   const sessions = new Map();
   const covers = createCoverApi({ modulesRoot: process.env.RPG_MODULES_ROOT || join(root, '模组/预处理/故事') });
   async function modules() {
@@ -65,7 +67,10 @@ export async function createProjectApi({ root, battle }) {
     if (session?.role !== 'dm' || Date.now() - session.created > 8 * 3600000) throw problem(403, '真实文件与战斗管理只对本机DM开放；Player入口当前为公共预览');
     if (path.startsWith('/api/module-covers')) return covers.handle(request, url, send, sendImage);
     const body = request.method === 'POST' ? await readJsonBody(request) : {};
-    if (path === '/api/battle/start' && request.method === 'POST') return send(200, await battle.start());
+    if (path === '/api/battle/start' && request.method === 'POST') {
+      const target = body.useLibrary ? await library.battleTarget({ role: 'dm' }) : null;
+      return send(200, await battle.start(target ? { library: { ...target, create: body.create === true } } : {}));
+    }
     if (path === '/api/battle/stop' && request.method === 'POST') { await battle.close(); return send(200, { stopped: true }); }
     if (path === '/api/battle/status' && request.method === 'GET') return send(200, battle.status());
     if (path === '/api/project/status' && request.method === 'GET') return send(200, { ...await files.manifest(), selected: session.selected });

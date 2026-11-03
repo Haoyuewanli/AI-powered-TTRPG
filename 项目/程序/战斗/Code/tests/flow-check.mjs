@@ -41,7 +41,8 @@ try {
   await page.locator('#campaign-select option').first().waitFor({ state: 'attached' });
   const first = app.workspace.selection; checks.push('免口令DM入口与步骤引导');
   await tool('setup');
-  await changed(() => page.locator('#clone-actor').click());
+  await page.getByRole('button', { name: '添加参战者', exact: true }).click();
+  await changed(() => page.getByRole('button', { name: '复制当前选中参战者', exact: true }).click());
   const copied = app.store.state.actors.at(-1); assert.equal(copied.confirmed, false);
   await page.locator('#place-x').fill('42.5'); await page.locator('#place-z').fill('42.5'); await changed(() => page.locator('#place-actor').click());
   assert.equal(app.store.state.actors.at(-1).position.x, 42.5);
