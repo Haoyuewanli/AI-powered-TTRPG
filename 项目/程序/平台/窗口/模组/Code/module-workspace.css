@@ -35,3 +35,41 @@
 #platform-covers .module-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--quiet);text-align:center}
 @media(max-width:760px){#platform-covers .module-ring{height:230px;min-height:230px}#platform-covers .module-workspace{padding-inline:0}#platform-covers .module-heading,#platform-covers .module-runs,#platform-covers .module-extra{padding-inline:2px}}
 @media(prefers-reduced-motion:reduce){#platform-covers .module-workspace *{scroll-behavior:auto;transition:none}}
+#platform-covers .module-workspace{gap:8px;padding:0 12px 20px;overflow:auto;max-height:100%;scrollbar-gutter:stable}
+#platform-covers .module-segments{order:0;max-width:100%;justify-content:flex-start;margin:0;min-height:42px}
+#platform-covers .module-toolbar{min-height:34px;align-items:center}
+#platform-covers .module-stage{position:relative;min-height:490px;isolation:isolate;overflow:hidden;border-radius:6px}
+#platform-covers .module-ring{height:390px;min-height:390px;transition:opacity .4s;touch-action:pan-y}
+#platform-covers .module-ring .p-cover{top:46%}
+#platform-covers .module-backdrop{position:absolute;inset:0;background-position:center;background-size:cover;filter:blur(28px);opacity:0;transform:scale(.8);transition:opacity 1000ms,transform 1000ms;z-index:-2}
+#platform-covers .module-stage:after{content:'';position:absolute;inset:0;pointer-events:none;z-index:-1;background:color-mix(in srgb,var(--paper) 84%,transparent);opacity:0;transition:opacity 1000ms}
+#platform-covers .module-stage.is-open:after,#platform-covers .module-stage.is-open .module-backdrop{opacity:1}
+#platform-covers .module-stage.is-open .module-backdrop{transform:scale(1.15)}
+#platform-covers .module-stage.is-open>.module-ring,#platform-covers .module-stage.is-open>.p-ring-controls{display:none}
+#platform-covers .module-detail{display:grid;grid-template-columns:220px minmax(0,1fr);gap:32px;padding:28px 20px;min-height:490px;align-items:start}
+#platform-covers .module-detail[hidden]{display:none}
+#platform-covers .module-small-cover{padding:10px;background:var(--paper);box-shadow:8px 16px 24px #39406724;max-width:220px;min-width:0;transform-origin:top left}
+#platform-covers .module-small-cover>img{width:100%;height:260px;object-fit:contain;display:block}
+#platform-covers .module-small-cover>img[hidden]{display:none}
+#platform-covers .module-small-cover h3{font:20px/1.5 SimSun,serif;margin:12px 0;overflow-wrap:anywhere}
+#platform-covers .module-cover-actions{display:grid;gap:8px;margin-top:16px}
+#platform-covers .module-runs{padding:0}
+#platform-covers .module-runs>h4{font:21px SimSun,serif;margin:3px 0 18px}
+#platform-covers .module-run-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:15px;padding:18px;margin-bottom:13px;border:1px solid color-mix(in srgb,var(--shadow) 25%,transparent);background:color-mix(in srgb,var(--paper) 90%,transparent);border-radius:4px}
+#platform-covers .module-run-row h4{font-size:16px;margin:0 0 9px}
+#platform-covers .module-run-overview{padding:0;background:none}
+#platform-covers .module-run-overview small{display:none}
+#platform-covers .module-run-actions{display:flex;flex-direction:column;gap:7px;justify-content:center}
+#platform-covers .module-action-dialog{color:var(--ink);background:var(--paper);padding:26px;border:1px solid var(--shadow);border-radius:5px;max-width:min(450px,90vw);min-width:280px;box-shadow:0 24px 80px #20263d44}
+#platform-covers .module-action-dialog::backdrop{background:#27305055;backdrop-filter:blur(4px)}
+#platform-covers .module-action-dialog form{display:grid;gap:16px;margin:18px 0}
+#platform-covers .module-action-dialog>img{display:block;margin:16px auto}
+#platform-covers .module-action-dialog input{width:100%;padding:10px;background:var(--paper);color:var(--ink);border:1px solid var(--shadow)}
+@media(max-width:700px){#platform-covers .module-detail{grid-template-columns:150px minmax(0,1fr);gap:15px;padding:18px 8px}#platform-covers .module-small-cover>img{height:180px}#platform-covers .module-run-row{grid-template-columns:1fr;padding:12px}#platform-covers .module-run-actions{flex-direction:row;flex-wrap:wrap}}
+@media(max-width:440px){#platform-covers .module-detail{grid-template-columns:1fr}#platform-covers .module-small-cover{margin:auto;width:180px}}
+
+#platform-covers .module-segments>.p-segment{flex:0 0 auto;min-width:100px}
+#platform-covers .module-segments{background:transparent}
+#platform-covers .module-small-cover:has(>img[hidden]){min-height:300px;display:flex;flex-direction:column;justify-content:space-between}
+
+#platform-covers .module-small-cover>img{object-fit:cover}

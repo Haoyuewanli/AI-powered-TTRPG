@@ -65,6 +65,43 @@
 #dialogue-workspace .dialogue-map figcaption{font-size:11px;color:var(--dialogue-quiet);line-height:1.8;align-self:stretch}
 #dialogue-workspace .dialogue-status{font-size:11px;color:var(--dialogue-quiet);margin:0;line-height:1.8;overflow-wrap:anywhere;min-height:20px}
 @media(max-width:1000px){#dialogue-workspace .dialogue-body{grid-template-columns:112px minmax(0,1fr);gap:10px}#dialogue-workspace .dialogue-pane-controls{gap:3px;padding:4px}#dialogue-workspace .dialogue-pane-controls .dialogue-button{padding:3px 5px}#dialogue-workspace .dialogue-resource{padding:16px}}
-@media(max-width:759px){#dialogue-workspace{height:min(76vh,720px);min-height:480px;gap:9px}#dialogue-workspace .dialogue-toolbar{gap:9px}#dialogue-workspace .dialogue-heading{width:100%;margin:0}#dialogue-workspace .dialogue-region-picker{display:flex}#dialogue-workspace .dialogue-field{font-size:11px;gap:5px}#dialogue-workspace .dialogue-field select{padding:5px;max-width:124px}#dialogue-workspace .dialogue-body{grid-template-columns:84px minmax(0,1fr);gap:8px}#dialogue-workspace .dialogue-sources{gap:7px;padding:6px 0}#dialogue-workspace .dialogue-source{font-size:11px;padding:6px;min-height:39px}#dialogue-workspace .dialogue-source-note{font-size:10px}#dialogue-workspace .dialogue-panes{grid-template-areas:"pane1"!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important}#dialogue-workspace .dialogue-pane{grid-area:pane1!important}#dialogue-workspace .dialogue-pane[data-dialogue-active=false]{display:none}#dialogue-workspace .dialogue-pane-number{padding:10px 5px}#dialogue-workspace .dialogue-tab{max-width:160px;padding:7px 6px;font-size:11px}#dialogue-workspace .dialogue-tab-close{min-width:24px}#dialogue-workspace .dialogue-pane-controls{justify-content:flex-start}#dialogue-workspace .dialogue-messages{padding:10px 8px}#dialogue-workspace .dialogue-message{max-width:96%;padding:7px 8px}#dialogue-workspace .dialogue-chat-form{padding:7px}#dialogue-workspace .dialogue-resource{padding:12px}#dialogue-workspace .dialogue-resource h3{font-size:21px}#dialogue-workspace .dialogue-map{padding:9px}}
 @media(prefers-reduced-motion:reduce){#dialogue-workspace .dialogue-button{transition:none}#dialogue-workspace .dialogue-button:not(:disabled):hover,#dialogue-workspace .dialogue-button:not(:disabled):focus-visible{transform:none}}
-@media(max-width:759px){#dialogue-workspace .dialogue-panes{min-height:280px!important}}
+#platform-root[data-page=dialogue] #platform-covers .p-heading,#platform-root[data-page=maps] #platform-covers .p-heading{display:none}
+#platform-root[data-page=dialogue] #platform-covers .p-context,#platform-covers .p-dialogue-view>.platform-demo-boundary{display:none}
+#platform-covers .p-dialogue-view{padding:0;overflow:hidden;min-height:0}
+#platform-covers [data-dialogue-host]{height:100%;min-height:0;min-width:0;flex:1}
+#dialogue-workspace{display:flex;flex-direction:column;gap:0;height:100%;min-height:420px;background:var(--paper,#f7f8fb)}
+#dialogue-workspace .dialogue-body{flex:1;grid-template-columns:minmax(0,1fr);gap:0;overflow:hidden}
+#dialogue-workspace.has-sidebar .dialogue-body{grid-template-columns:220px minmax(0,1fr)}
+#dialogue-workspace .dialogue-sources{padding:16px;gap:15px;background:#eef0f8;border-right:1px solid #cdd0df}
+#dialogue-workspace .dialogue-sources[hidden]{display:none}
+#dialogue-workspace .dialogue-panes{gap:5px;min-height:0!important}
+#dialogue-workspace .dialogue-pane{position:relative;grid-template-rows:auto minmax(0,1fr);overflow:hidden}
+#dialogue-workspace .dialogue-pane-header{min-height:43px}
+#dialogue-workspace .dialogue-tabs{flex:1;padding:0;align-items:stretch}
+#dialogue-workspace .dialogue-tab-item{margin-right:0;border-right:1px solid #d4d7e4;max-width:240px}
+#dialogue-workspace .dialogue-tab{font-size:12px;min-height:43px;max-width:210px}
+#dialogue-workspace .dialogue-new-tab{font-size:22px;padding:0 15px;background:transparent;flex:none}
+#dialogue-workspace .dialogue-sidebar-toggle{min-width:38px;background:transparent}
+#dialogue-workspace .dialogue-button:hover{transform:none}
+#dialogue-workspace .dialogue-panel{height:100%;padding:0;overflow:auto;min-height:0}
+#dialogue-workspace .dialogue-resource-tab{height:100%;min-height:0;min-width:0;overflow:hidden}
+#dialogue-workspace .dialogue-launcher{padding:clamp(20px,7%,80px);max-width:850px;margin:auto;display:flex;flex-direction:column;gap:22px}
+#dialogue-workspace .dialogue-launcher h3{font:24px SimSun,serif;color:#535876;margin:20px 0 0}
+#dialogue-workspace .dialogue-search{display:flex;gap:8px}
+#dialogue-workspace .dialogue-search input{min-width:0;flex:1;padding:12px;border:1px solid #c7cadd;background:#fcfcff;border-radius:4px;font:13px 'Microsoft YaHei',sans-serif;color:#34374d}
+#dialogue-workspace .dialogue-launcher-choices{display:flex;flex-wrap:wrap;gap:12px}
+#dialogue-workspace .dialogue-launcher-choice{flex:1;min-width:80px;padding:20px 9px;border:1px solid #d4d7e4;background:linear-gradient(135deg,#f5f4fb,#edf9fb)}
+#dialogue-workspace .dialogue-search-results{display:flex;flex-direction:column;gap:8px}
+#dialogue-workspace .dialogue-search-results>button{text-align:left}
+#dialogue-workspace .dialogue-status{font-size:10px;flex:none;padding:4px 10px;margin:0;color:#686d85;background:#eef0f7}
+#dialogue-workspace .dialogue-split-preview{pointer-events:none;position:absolute;z-index:100;inset:44px 0 0;display:grid;place-items:center;background:#b7dcf380;border:2px solid #768fab;border-radius:5px;color:#344963;font-size:13px;backdrop-filter:blur(1px)}
+#dialogue-workspace .dialogue-split-preview[data-split-zone=left]{right:50%}
+#dialogue-workspace .dialogue-split-preview[data-split-zone=right]{left:50%}
+#dialogue-workspace .dialogue-split-preview[data-split-zone=top]{bottom:50%}
+#dialogue-workspace .dialogue-split-preview[data-split-zone=bottom]{top:50%}
+#dialogue-workspace .dialogue-split-preview[data-split-zone=top-left]{right:50%;bottom:50%}
+#dialogue-workspace .dialogue-split-preview[data-split-zone=top-right]{left:50%;bottom:50%}
+#dialogue-workspace .dialogue-split-preview[data-split-zone=bottom-left]{right:50%;top:50%}
+#dialogue-workspace .dialogue-split-preview[data-split-zone=bottom-right]{left:50%;top:50%}
+@media(max-width:600px){#dialogue-workspace.has-sidebar .dialogue-body{grid-template-columns:150px minmax(0,1fr)}#dialogue-workspace .dialogue-sources{padding:8px}#dialogue-workspace .dialogue-launcher{padding:16px;gap:14px}}

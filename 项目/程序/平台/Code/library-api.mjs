@@ -30,6 +30,7 @@ export function createLibraryApi({ root, sessionResolver = () => null }) {
       if (method === 'GET') {
         const query = Object.fromEntries(url.searchParams);
         if (route === 'cover') send(200, await store.moduleCover(session,query.moduleId));
+        else if (route === 'chat') send(200, await store.chat(session));
         else if (route === 'context') send(200, await store.context(session));
         else if (route === 'catalog') send(200, await store.catalog(session, query));
         else if (route === 'read') send(200, await store.read(session, query.resourceId || query.id));
@@ -44,6 +45,9 @@ export function createLibraryApi({ root, sessionResolver = () => null }) {
           send(200, { opened: process.platform === 'win32', projectPath: target.projectPath });
         }
         else if (route === 'select') send(200, await store.select(session, body));
+        else if (route === 'manage-run') send(200, await store.manageRun(session, body));
+        else if (route === 'cover') send(200, await store.changeCover(session, body));
+        else if (route === 'chat') send(200, await store.chat(session, body));
         else if (route === 'runs') send(201, await store.createRun(session, body));
         else if (route === 'characters') send(201, await store.addCharacter(session, body));
         else if (route === 'shares') send(200, await store.setShares(session, body));

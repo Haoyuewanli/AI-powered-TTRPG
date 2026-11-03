@@ -7,8 +7,23 @@ const node = (tag, text, className) => {
 const button = (text, action, className = 'p-secondary p-button') => {
   const value = node('button', text, className); value.type = 'button'; value.addEventListener('click', action); return value;
 };
-const kinds = ['角色', 'NPC', '怪物', '地图', '故事', '规则', '物品'];
-const englishKinds = ['CHARACTER', 'NPC', 'CREATURE', 'MAP', 'STORY', 'RULE', 'ITEM'];
+
+function categoryIcon(kind) {
+  const paths = {
+    all: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+    book: 'M12 6v15 M12 6C9 3 5 3 2 4v15c4-1 7-1 10 2 3-3 6-3 10-2V4c-3-1-7-1-10 2Z',
+    person: 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 8 0 0 1 16 0v2',
+    monster: 'M9 18H7a2 2 0 0 1-2-2v-2a8 8 0 1 1 14 0v2a2 2 0 0 1-2 2h-2v3H9z M8 10h1 M15 10h1 M12 14v1',
+    map: 'm3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Z M9 3v16 M15 5v16',
+    magic: 'm4 20 12-12 4 4L8 24 M14 3v4 M12 5h4 M4 3v4 M2 5h4 M19 19v4 M17 21h4',
+    shield: 'M12 3 3 7v6c0 5 9 9 9 9s9-4 9-9V7Z M9 12l2 2 4-4',
+    globe: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M12 3c-5 5-5 13 0 18 5-5 5-13 0-18',
+    item: 'm12 3 9 5v9l-9 5-9-5V8Z M3 8l9 5 9-5 M12 13v9',
+  };
+  const key = !kind ? 'all' : kind === '模组' || /规则|背景|故事/.test(kind) ? 'book' : /怪物/.test(kind) ? 'monster' : /地图/.test(kind) ? 'map' : /人物|角色|NPC|种族/.test(kind) ? 'person' : /法术/.test(kind) ? 'magic' : /世界|位面/.test(kind) ? 'globe' : /职业|专长/.test(kind) ? 'shield' : 'item';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'), path = document.createElementNS(svg.namespaceURI, 'path');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.7'); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round'); svg.setAttribute('aria-hidden', 'true'); svg.classList.add('resource-category-icon'); path.setAttribute('d', paths[key]); svg.append(path); return svg;
+}
 
 function inline(target, text, images) {
   const pattern = /!\[([^\]]*)\]\(([^\n)]+)\)|\[([^\]]+)\]\(([^\n)]+)\)|\*\*([^*]+)\*\*|`([^`]+)`|\*([^*\n]+)\*/g;
@@ -95,7 +110,7 @@ export function renderResourcePreview(value, { onOpenResource } = {}) {
   } else content.append(node('p', '此文件可通过“打开文件夹位置”查看。'));
   if (item?.availability?.status === 'module-reference-only') content.append(node('p', '模组剧情引用；不启用或换算旧版机械数值。', 'real-resource-note'));
   if (typeof item?.resolvedRuleResourceId === 'string' && onOpenResource) content.append(button('查看已核对的2024规则资料', () => onOpenResource(item.resolvedRuleResourceId)));
-  if (value.imageIssues?.length) content.append(node('p', value.imageIssues.map(entry => '图片 ' + entry.source + '：' + entry.error).join('；'), 'real-resource-note'));
+  if (value.imageIssues?.length) content.append(node('p', value.imageIssues.map(entry => '图片 ' + entry.source + '：' + (entry.reason || entry.error)).join('；'), 'real-resource-note'));
   content.append(node('p', '共享基础资料；团内受伤、状态和消耗不在此处显示。原书收录不代表已启用。', 'real-resource-note'));
   return content;
 }
@@ -118,7 +133,7 @@ function multiSelect(label, values, onChange, { emptyLabel = '全部' } = {}) {
   return { element: details, panel, summary, setOptions(next) { options = next; refresh(); }, refresh };
 }
 
-export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd-2024', getSelected = () => null, getRole = () => 'dm', onReference = async () => {}, onRelease = async () => {}, onReveal = async () => {}, onOpenContent = () => {}, onResources = () => {}, onStatus = () => {} }) {
+export function createResourceWorkspace({ root, api, onlyMaps = false, getRulesFamily = () => 'dnd-2024', getSelected = () => null, getRole = () => 'dm', onReference = async () => {}, onRelease = async () => {}, onReveal = async () => {}, onOpenContent = () => {}, onResources = () => {}, onStatus = () => {} }) {
   const host = node('section', undefined, 'real-resource-workspace'); host.hidden = true; root.append(host);
   let active = false, kind = '', query = '', offset = 0, loadId = 0, previewId = 0, navigationId = 0, opening = 0, latest = [], drawerOpen = false, expandedId = null, context = null, cards = [], categoryIndex = 0;
   const initials = new Set(), moduleIds = new Set(), rowNodes = new Map(), knownWorldKinds = new Set();
@@ -151,7 +166,7 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
   const reader = node('section', undefined, 'real-resource-reader'); reader.hidden = true; reader.setAttribute('aria-label', '资源正文阅读');
   const navigation = node('div', undefined, 'real-resource-navigation'), navigationLabel = node('span', '横向浏览目录分类');
   navigation.append(button('向左', () => step(-1)), navigationLabel, button('向右', () => step(1)));
-  browser.append(layout, navigation, pager); body.append(browser, reader); host.append(toolbar, status, body);
+  browser.append(layout, pager); body.append(browser, reader); host.append(toolbar, track, status, body); category.hidden = true; close.hidden = true;
 
   async function run(action) {
     try { await action(); } catch (error) {
@@ -165,7 +180,7 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
     cards[categoryIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
   }
   function buildCards(available) {
-    const unique = [...new Set(available.filter(value => typeof value === 'string' && value))];
+    const unique = ['', ...new Set(available.filter(value => typeof value === 'string' && value))];
     const before = cards.map(card => card.dataset.realResourceKind).join('\0');
     if (before === unique.join('\0')) { category.value = kind; return; }
     track.replaceChildren(); category.replaceChildren(); cards = [];
@@ -174,12 +189,9 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
       const option = node('option', value); option.value = value; category.append(option);
       const card = button('', () => { categoryIndex = index; kind = value; category.value = kind; offset = 0; run(() => openDrawer(true)); }, 'p-resource-card p-button cursor-interaction');
       card.dataset.realResourceKind = value; card.setAttribute('aria-expanded', String(drawerOpen && value === kind));
-      const art = node('span', undefined, 'p-cover-art ' + (value === '角色' ? 'p-person' : value === 'NPC' ? 'p-npc' : value === '怪物' ? 'p-monster' : 'real-resource-symbol'));
-      art.setAttribute('aria-hidden', 'true');
-      if (value === '角色' || value === 'NPC') art.append(node('span', undefined, 'p-drawn-head'), node('span', undefined, 'p-drawn-body'));
-      else if (value === '怪物') art.append(node('span', undefined, 'p-drawn-beast'), node('span', undefined, 'p-drawn-eyes'));
-      else art.append(node('span', value === '模组' ? '▤' : value === '地图' ? '◇' : value === '规则' ? '§' : '✧'));
-      card.append(art, node('h3', value), node('small', englishKinds[kinds.indexOf(value)] || 'LOCAL')); track.append(card); cards.push(card);
+      const art = categoryIcon(value);
+      card.append(art, node('span', value || '全部'));
+ track.append(card); cards.push(card);
     }
     category.value = kind; categoryIndex = Math.max(0, unique.indexOf(kind));
     navigationLabel.textContent = unique.length + '类本地目录';
@@ -217,22 +229,9 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
     for (const card of cards) card.setAttribute('aria-expanded', 'false'); collapse();
   }
   async function openDrawer(reload = false) {
-    const generation = ++opening, selected = cards.find(card => card.dataset.realResourceKind === kind);
-    drawer.hidden = true; drawer.classList.remove('is-visible'); layout.dataset.phase = 'moving';
-    if (selected && !drawerOpen && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      const origin = selected.getBoundingClientRect(), scene = layout.getBoundingClientRect();
-      const flight = selected.cloneNode(true); flight.removeAttribute('data-real-resource-kind'); flight.inert = true; flight.classList.add('p-resource-flight');
-      Object.assign(flight.style, { left: origin.left - scene.left + 'px', top: origin.top - scene.top + 'px', width: origin.width + 'px', height: origin.height + 'px' }); layout.append(flight);
-      layout.classList.add('is-moving', 'is-open'); selected.scrollIntoView({ block: 'nearest', inline: 'start' });
-      const destination = selected.getBoundingClientRect();
-      const animation = flight.animate([{ transform: 'translate(0,0) scale(1)' }, { transform: 'translate(' + (destination.left - origin.left) + 'px,' + (destination.top - origin.top) + 'px) scale(' + destination.width / origin.width + ',' + destination.height / origin.height + ')' }], { duration: 380, easing: 'cubic-bezier(.15,.75,.2,1)', fill: 'forwards' });
-      try { await animation.finished; } catch {}
-      flight.remove();
-    }
-    if (!active || generation !== opening) return;
-    layout.classList.remove('is-moving'); layout.classList.add('is-open'); drawerOpen = true; drawer.hidden = false; layout.dataset.phase = 'open';
-    requestAnimationFrame(() => { if (generation === opening) drawer.classList.add('is-visible'); });
-    for (const card of cards) card.setAttribute('aria-expanded', String(card.dataset.realResourceKind === kind));
+    if (!active) return;
+    drawerOpen = true; drawer.hidden = false; drawer.classList.add('is-visible'); layout.dataset.phase = 'open';
+    for (const card of cards) { card.setAttribute('aria-expanded', String(card.dataset.realResourceKind === kind)); card.setAttribute('aria-pressed', String(card.dataset.realResourceKind === kind)); }
     title.textContent = kind || '全部资料';
     if (reload) await load();
   }
@@ -245,7 +244,7 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
     const choice = multiSelect('开放给角色', values, () => { save.disabled = !eligible || !loaded || saving; }, { emptyLabel: '未开放' });
     choice.element.dataset.resourceCharacterSelect = resource.id;
     choice.summary.textContent = '开放给角色';
-    const names = (context?.characters || []).map(character => ({ id: character.id, name: character.name + (character.playerId ? ' · ' + character.playerId : '') }));
+    const names = (context?.characters || []).map(character => ({ id: character.id, name: character.name }));
     choice.setOptions(names);
     const save = button('应用开放', () => run(async () => {
       if (!eligible || !loaded || saving) return;
@@ -254,7 +253,7 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
       try {
         const current = await api('/api/library/context');
         if (!active || selectedKey(current.selected) !== selectedKey(selected)) throw new Error('当前团已变化。角色选择已保留，请刷新资源后核对所属团。');
-        const result = await api('/api/library/shares', { resourceId: resource.id, characterIds: draft, expectedRevision: revision });
+        const result = await api('/api/library/shares', { resourceId: resource.id, characterIds: draft, expectedRevision: revision, moduleId: selected.moduleId, runId: selected.runId });
         if (!active) return;
         revision = result.revision; status.textContent = draft.length ? '已更新当前团的角色开放范围。' : '已撤回当前团的角色开放。';
         onStatus(status.textContent);
@@ -295,7 +294,9 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
       if (isDM()) {
         const reference = button('引用', () => run(() => onReference(resource))); reference.dataset.projectReference = '';
         const reveal = button('打开文件夹位置', () => run(() => onReveal(resource))); reveal.dataset.projectReveal = '';
-        controls.append(reference, reveal, shareControls(resource));
+        controls.append(reference, reveal);
+        if (resource.shareable) controls.append(shareControls(resource));
+        else controls.append(node('small', resource.scope === 'world' ? '默认开放' : '仅DM可见'));
       }
       row.append(text, controls);
       if (expandedId === resource.id) row.classList.add('is-expanded');
@@ -308,7 +309,7 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
     if (!active) return;
     if (!keepReader) navigationId++;
     const request = ++loadId; status.textContent = '正在读取本地资源…';
-    const params = new URLSearchParams({ q: query, kind, initials: [...initials].join(','), modules: [...moduleIds].join(',') });
+    const params = new URLSearchParams({ q: query, kind, media: onlyMaps ? 'maps' : '', initials: [...initials].join(','), modules: [...moduleIds].join(',') });
     const [data, current] = await Promise.all([api('/api/library/catalog?' + params), api('/api/library/context')]);
     if (!active || request !== loadId) return;
     if (selectedKey(context?.selected) !== selectedKey(current.selected)) collapse();
@@ -326,7 +327,7 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
       const issues = node('details', undefined, 'real-resource-issues'); issues.append(node('summary', '部分文件需要核对（' + data.issues.length + '）'));
       for (const issue of data.issues) issues.append(node('p', typeof issue === 'string' ? issue : (issue.path || '') + '：' + (issue.error || issue.reason || '待核对'))); list.append(issues);
     }
-    if (query || kind || initials.size || moduleIds.size || drawerOpen) await openDrawer(false);
+    await openDrawer(false);
   }
   function markExpanded(resource) {
     expandedId = resource.id;
@@ -377,6 +378,7 @@ export function createResourceWorkspace({ root, api, getRulesFamily = () => 'dnd
   category.addEventListener('change', () => { kind = category.value; query = search.value.trim(); offset = 0; run(async () => { await openDrawer(false); await load(); }); });
   return {
     load, open, openResource,
+    dispose() { active = false; loadId++; previewId++; navigationId++; opening++; host.remove(); },
     setActive(value) { active = !!value; host.hidden = !active; root.classList.toggle('has-real-resources', active); if (!active) { loadId++; previewId++; closeDrawer(); list.replaceChildren(); rowNodes.clear(); knownWorldKinds.clear(); latest = []; context = null; } },
     clear() { loadId++; previewId++; closeDrawer(); list.replaceChildren(); rowNodes.clear(); knownWorldKinds.clear(); latest = []; context = null; },
   };

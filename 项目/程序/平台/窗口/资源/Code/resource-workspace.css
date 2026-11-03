@@ -73,3 +73,28 @@
   #platform-covers .real-resource-reader{padding:10px}
   #platform-covers .real-resource-drawer{padding:6px}
 }
+
+/* The standalone page and dialogue tabs share this compact library layout. */
+#platform-covers .real-resource-workspace{container-type:inline-size;gap:12px;padding:14px}
+#platform-covers .real-resource-track{display:flex;flex-direction:row;overflow-x:auto;overflow-y:hidden;gap:7px;flex:none;width:100%;height:auto;padding:2px 0 9px;scrollbar-width:thin}
+#platform-covers .real-resource-track .p-resource-card{position:static;display:inline-flex;align-items:center;justify-content:center;gap:7px;flex:0 0 auto;width:auto;min-width:75px;height:36px;min-height:36px;padding:7px 12px;transform:none;box-shadow:none;border:1px solid color-mix(in srgb,var(--shadow) 32%,transparent);font:12px 'Microsoft YaHei',sans-serif;background:var(--paper)}
+#platform-covers .real-resource-track .p-resource-card[aria-pressed=true]{background:var(--light);border-color:var(--quiet)}
+#platform-covers .resource-category-icon{display:inline-grid;place-items:center;width:18px;height:18px;font-size:18px;line-height:1}
+#platform-covers .real-resource-layout{display:flex;flex-direction:column;height:100%;min-height:0}
+#platform-covers .real-resource-drawer{position:static;transform:none;opacity:1;height:100%;padding:0;border:0;display:flex;flex-direction:column;background:transparent;box-shadow:none}
+#platform-covers .real-resource-drawer .p-drawer-head{padding:5px 8px;flex:none}
+#platform-covers .real-resource-list{display:flex;flex-direction:column;flex:1;overflow:auto;padding:8px 3px}
+#platform-covers .real-resource-row{flex:none;background:color-mix(in srgb,var(--paper) 88%,var(--light));border:1px solid color-mix(in srgb,var(--shadow) 22%,transparent);box-shadow:none}
+#platform-covers .real-resource-body{gap:14px}
+#platform-covers .real-resource-body:not(.has-reader)::after{content:'选择条目并展开，在这里阅读详情';display:grid;place-items:center;color:var(--quiet);font-size:12px;border:1px dashed color-mix(in srgb,var(--shadow) 35%,transparent)}
+#platform-covers .real-resource-body{grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)}
+#platform-covers .real-resource-body.has-reader{grid-template-columns:minmax(0,1fr) minmax(0,1.1fr)}
+#platform-covers .real-resource-toolbar>[hidden]{display:none}
+@container (max-width:600px){
+ #platform-covers .real-resource-body,#platform-covers .real-resource-body.has-reader{grid-template-columns:minmax(0,1fr)}
+ #platform-covers .real-resource-body.has-reader{grid-template-rows:minmax(120px,1fr) minmax(180px,1fr)}
+ #platform-covers .real-resource-body:not(.has-reader)::after{display:none}
+ #platform-covers .real-resource-toolbar>input{min-width:100px;flex-basis:100%}
+}
+
+#platform-covers .real-resource-track .p-resource-card{flex-direction:row;white-space:nowrap}

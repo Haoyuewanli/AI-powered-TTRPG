@@ -42,6 +42,8 @@ export function createProjectPanel({ platform, dialogue }) {
   modulesView.prepend(moduleExamples, moduleHost, blocks.get('modules').details);
   const moduleView = createModuleWorkspace({
     host: moduleHost, run, onContinue: continueModule, onCreate: createModule, onRefresh: loadModules,
+    onManageRun: async (item, action, name) => { if (!await canLeave()) throw new Error('请先保存当前草稿。'); const current = await api('/api/library/context'); await api('/api/library/manage-run', { moduleId: item.moduleId, runId: item.id, action, name, expectedRevision: current.revision }); await loadModules(); },
+    onChangeCover: async (template, base64) => { const current = await api('/api/library/context'); await api('/api/library/cover', { moduleId: template.id, base64, expectedRevision: current.revision }); await loadModules(); },
 
     onPreprocess: async source => { const value = await api('/api/project/preprocess', { sourceId: source.id }); notice.textContent = value.notes || '预处理结果已存在。'; await loadModules(); },
 
@@ -80,7 +82,7 @@ export function createProjectPanel({ platform, dialogue }) {
   function showLibraryDialogue() {
     if (!libraryReady) return;
     partyBox.hidden = role !== 'dm'; if (role === 'dm') party.setVisible(true);
-    notifications.setVisible(true); dialogue.openContent('sharing-notices', '本团分享通知', notificationContent);
+    notifications.setVisible(true);
   }
 
   const voyage = createVoyageWorkspace({
@@ -95,7 +97,7 @@ export function createProjectPanel({ platform, dialogue }) {
   trainingEntry.className = 'p-primary p-button cursor-interaction';
   root.querySelector('.p-home-actions').prepend(trainingEntry);
   window.addEventListener('beforeunload', event => {
-    if (voyage.hasDraft() || chatDraft.trim() || !mapView.canLeave()) { event.preventDefault(); event.returnValue = ''; }
+    if (voyage.hasDraft() || chatDraft.trim() || !mapView.canLeave() || !dialogue.canLeave()) { event.preventDefault(); event.returnValue = ''; }
   });
   async function loadMaps() {
     const body = blocks.get('maps').body; body.replaceChildren();
@@ -119,7 +121,7 @@ export function createProjectPanel({ platform, dialogue }) {
     moduleView.setVisible(role === 'dm');
     resourceView.setActive(libraryReady && !!role);
     blocks.get('modules').details.hidden = true; blocks.get('resources').details.hidden = true; blocks.get('maps').details.hidden = true; blocks.get('dialogue').details.hidden = true;
-    moduleExamples.hidden = role !== 'dm';
+    moduleExamples.hidden = true;
     const homeStatus = root.querySelector('#platform-current-session');
     homeStatus.textContent = selected ? '当前团：' + (selected.runName || selected.moduleName) : role === 'dm'
       ? '从本地模组清单选择资料或继续游玩团。' : libraryReady ? '已按玩家邀请加载获准资料。' : '玩家请使用DM生成的专属邀请进入。';
@@ -129,9 +131,12 @@ export function createProjectPanel({ platform, dialogue }) {
     try {
       const data = await api('/api/library/context');
       if (request !== moduleLoad) return;
-      selected = data.selected; context();
-      moduleView.render({ templates: data.modules.map(item => ({ id: item.id, name: item.name, category: '模组', reviewStatus: 'candidate', canTrain: false })),
-        categories: ['模组'], modules: data.modules.flatMap(item => item.runs.map(record => ({ ...record, templateId: item.id, moduleId: item.id, moduleName: item.name, runId: record.id }))), sources: [], issues: data.issues || [] });
+      if (selected && (selected.moduleId !== data.selected?.moduleId || selected.runId !== data.selected?.runId)) {
+        if (await canLeave()) { await resetSelected(data.selected); notice.textContent = '原模组或团已不在目录中；资料保留，请重新选择。'; }
+        else notice.textContent = '原模组或团已不在目录中，未保存标签仍保留；恢复目录后可继续保存。';
+      } else selected = data.selected; context();
+      moduleView.render({ templates: data.modules.map(item => ({ id: item.id, name: item.name, category: item.category || '未分类', reviewStatus: 'candidate', canTrain: false })),
+        categories: data.categories || ['未分类'], modules: data.modules.flatMap(item => item.runs.map(record => ({ ...record, templateId: item.id, moduleId: item.id, moduleName: item.name, runId: record.id }))), sources: [], issues: data.issues || [] });
     } finally { if (request === moduleLoad) moduleHost.setAttribute('aria-busy', 'false'); }
   }
   async function resetSelected(chosen) {
@@ -139,6 +144,7 @@ export function createProjectPanel({ platform, dialogue }) {
     notifications.clear(); party.clear();
     chatComposer?.dispose(); chatComposer = null; dialogue.clear(); mapView.clear(); voyage.clear(); resourceView.clear(); context();
     for (const page of ['resources', 'dialogue', 'maps']) { const block = blocks.get(page); block.details.open = false; block.body.replaceChildren(); }
+    if (platform.page !== 'modules') setPage(platform.page);
   }
   async function continueModule(item) {
     if (changingModule || !await canLeave()) return;
@@ -158,57 +164,58 @@ export function createProjectPanel({ platform, dialogue }) {
       notice.textContent = '新团已建立。请到对话页的本团角色与邀请中添加角色。';
     } finally { changingModule = false; }
   }
-  function openResourceContent(resource, content) {
-    const key = tabIds.get(resource.id) || 'real-' + crypto.randomUUID(); tabIds.set(resource.id, key);
-    platform.show('dialogue'); dialogue.openContent(key, resource.name, content);
+  function openResourceContent(resource) { return openResourceTab(resource); }
+  async function openResourceTab(resource, onlyMaps = false) {
+    const key = 'resource-' + crypto.randomUUID(), host = el('div', undefined, 'dialogue-resource-tab');
+    const view = createResourceWorkspace({ root: host, api, onlyMaps, getSelected: () => selected, getRole: () => role,
+      onStatus: text => { notice.textContent = text; }, onOpenContent: openResourceContent,
+      onReference: openResourceTab, onReveal: item => api('/api/library/reveal', { resourceId: item.id }) });
+    tabIds.set(key, key); platform.show('dialogue');
+    dialogue.openContent(key, resource?.name || (onlyMaps ? '地图' : '资源'), host, { dispose: () => { view.dispose(); tabIds.delete(key); } });
+    view.setActive(true);
+    try { if (resource?.id) await view.openResource(resource.id); else await view.load(); }
+    catch (error) { notice.textContent = error.message; }
   }
-  async function preview(resource) {
-    const value = await api('/api/library/read?resourceId=' + encodeURIComponent(resource.id));
-    if (!changingModule) openResourceContent(value.resource, renderResourcePreview(value, { onOpenResource: id => run(() => preview({ id })) }));
-  }
+  async function preview(resource) { return openResourceTab(resource); }
+  dialogue.configure({ sidebar: partyBox,
+    open: kind => run(async () => {
+      if (kind === 'resources') return openResourceTab();
+      if (kind === 'notifications') { notifications.setVisible(true); dialogue.openContent('sharing-notices', '共享通知', notificationContent); }
+      if (kind === 'chat') await openChat();
+      if (kind === 'maps') {
+        if (role !== 'dm') return openResourceTab(null, true);
+        const host = el('div', undefined, 'dialogue-resource-tab');
+        // Map tabs reuse the original editor through its existing workspace adapter.
+        const proxy = { root: { querySelector: () => host } };
+        const view = createMapWorkspace({ platform: proxy, api, run, getContext: () => selected || {} });
+        const key = 'map-' + crypto.randomUUID();
+        dialogue.openContent(key, '地图', host, { dispose: () => view.dispose(), canClose: () => view.canLeave() });
+        await view.load();
+      }
+    }),
+    search: async q => (await api('/api/library/catalog?' + new URLSearchParams({ q }))).resources,
+    openResource: resource => run(() => openResourceTab(resource))
+  });
   async function loadResources() { return resourceView.load(); }
   async function openChat() {
     if (chatComposer?.pending || chatLoading) return;
     chatLoading = true;
     try {
-    chatComposer?.dispose(); chatComposer = null;
-    const body = blocks.get('dialogue').body; body.replaceChildren();
-    if (!selected) { body.append(el('p', '请先在模组窗口选择所属模组。公共示例群聊继续可用。')); return; }
-    const content = el('article', undefined, 'project-chat'); content.append(el('h3', selected.moduleName + ' · 本地群聊'));
-    const log = el('div', '正在读取本地对话…', 'project-chat-log'); log.dataset.projectChatLog = ''; log.setAttribute('role', 'log');
-    const input = el('textarea'); input.rows = 3; input.placeholder = '保存一条当前模组消息'; input.dataset.projectChatInput = '';
-    input.value = chatDraft; input.addEventListener('input', () => { chatDraft = input.value; });
-    const refs = el('p', '已选引用：' + (referenceIds.length ? referenceIds.map(id => resources.find(resource => resource.id === id)?.name || id).join('、') : '无'));
-    const send = el('button', '发送到本地群聊', 'project-button'); send.type = 'button'; send.dataset.projectChatSend = '';
-    const help = el('small', 'Enter发送 · Ctrl+Enter换行');
-    chatComposer = bindChatComposer({ input, send, isEnabled: () => role === 'dm' && !!selected,
-      onDraftChange: value => { chatDraft = value; }, onError: error => { notice.textContent = error.message; },
-      onSubmit: async ({ content }) => {
-        await mutate('dialogue', { content, resourceIds: [...referenceIds] });
-        referenceIds = []; refs.textContent = '已选引用：无';
-        notice.textContent = '群聊消息及引用已保存。';
-        try { await refresh(); } catch (error) { notice.textContent = '消息已保存，读取列表失败：' + error.message; }
-      }
-    });
-    async function refresh() {
-      const value = await api('/api/project/dialogue-read'); log.replaceChildren();
-      const chunks = value.content.split(/^## (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\r?$/m);
-      const references = value.metadata?.references || [];
-      for (let index = 1; index < chunks.length; index += 2) {
-        const message = el('article', undefined, 'project-message'), time = el('time', new Date(chunks[index]).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })); time.dateTime = chunks[index];
-        const text = chunks[index + 1].replace(/^- \[([^\]]*)\]\(<(资源\/[^>]+)>\)\r?$/gm, (line, name, path) => references.some(ref => ref.path === path) ? '' : line).trim();
-        message.append(time, el('p', text));
-        for (const match of chunks[index + 1].matchAll(/^- \[([^\]]*)\]\(<(资源\/[^>]+)>\)\r?$/gm)) {
-          const ref = references.find(entry => entry.path === match[2]);
-          if (ref) message.append(button(match[1], () => run(() => preview({ id: ref.resourceId }))));
-        }
-        log.append(message);
-      }
-      if (!log.childElementCount) log.append(el('p', value.content && chunks.length === 1 ? value.content : '还没有正式群聊消息。'));
-      log.scrollTop = log.scrollHeight;
-    }
-    content.append(log, refs, input, help, send); body.append(button('打开当前模组群聊标签', () => { platform.show('dialogue'); dialogue.openContent('real-chat', selected.moduleName + ' · 群聊', content); }));
-    await refresh(); dialogue.openContent('real-chat', selected.moduleName + ' · 群聊', content); blocks.get('dialogue').details.open = false;
+      const value = await api('/api/library/chat');
+      chatComposer?.dispose(); const chosen = value.selected;
+      const content = el('article', undefined, 'project-chat');
+      const log = el('div', undefined, 'project-chat-log'); log.setAttribute('role', 'log');
+      const input = el('textarea'); input.rows = 3; input.value = chatDraft; input.placeholder = '向本团发送消息'; input.setAttribute('aria-label', '群聊消息');
+      const send = button('发送', () => {}), help = el('small', 'Enter发送 · Ctrl+Enter换行 · 保存到本团');
+      const render = messages => { log.replaceChildren(...messages.map(message => { const row = el('article', undefined, 'project-message'); row.append(el('strong', message.speaker), el('time', new Date(message.createdAt).toLocaleString('zh-CN')), el('p', message.text)); return row; })); if (!messages.length) log.append(el('p', '还没有群聊消息。')); log.scrollTop = log.scrollHeight; };
+      render(value.messages);
+      const composer = bindChatComposer({ input, send, isEnabled: () => libraryReady,
+        onDraftChange: value => { chatDraft = value; }, onError: error => { notice.textContent = error.message; },
+        onSubmit: async ({ content }) => { const result = await api('/api/library/chat', { text: content, moduleId: chosen.moduleId, runId: chosen.runId }); render(result.messages); }
+      });
+      chatComposer = composer;
+      const refresh = button('刷新群聊', () => run(async () => render((await api('/api/library/chat')).messages)));
+      content.append(refresh, log, input, help, send); dialogue.openContent('real-chat', '群聊 · ' + chosen.runName, content, { canClose: () => !composer.pending && !chatDraft.trim(), dispose: () => { composer.dispose(); if (chatComposer === composer) chatComposer = null; } });
     } finally { chatLoading = false; }
   }
   function bridge(type, payload = {}) {
@@ -223,6 +230,7 @@ export function createProjectPanel({ platform, dialogue }) {
     clearTimeout(pending.timer); waits.delete(event.data.id); pending.accept(event.data);
   });
   async function canLeave() {
+    if (!dialogue.canLeave()) { notice.textContent = '对话标签中有未保存内容，请先保存。'; return false; }
     if (!voyage.canLeave()) { notice.textContent = '试玩记录有未保存草稿或正在保存，请先保存或明确放弃草稿。'; return false; }
     if (chatComposer?.pending) { notice.textContent = '群聊正在保存，请稍候再切换。'; return false; }
     if (chatDraft.trim()) { notice.textContent = '群聊仍有未发送草稿，请先保存或清空后再切换。'; return false; }
@@ -293,7 +301,7 @@ export function createProjectPanel({ platform, dialogue }) {
       run(loadModules);
     }
     if (page === 'resources' && libraryReady && roleReady) resourcePageLoad = run(loadResources);
-    if (page === 'dialogue' && libraryReady && roleReady) showLibraryDialogue(); else notifications.setVisible(false);
+    if (page === 'dialogue' && libraryReady && roleReady) showLibraryDialogue(); else notifications.setVisible(libraryReady && role === 'player');
     if (page === 'maps' && role === 'dm' && libraryReady && roleReady) { mapView.setVisible(true); run(() => mapView.load()); } else mapView.setVisible(false);
   }
   setInterval(async () => {

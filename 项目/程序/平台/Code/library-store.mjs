@@ -1,3 +1,6 @@
+import { archiveInitial } from './project-files.mjs';
+import { moduleImageIndex } from './module-image-index.mjs';
+import { discoverModules } from './module-discovery.mjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { lstat, mkdir, open, readFile, readdir, rename, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -13,6 +16,8 @@ const list = value => (Array.isArray(value) ? value : typeof value === 'string' 
 const freshState = () => ({ schemaVersion: 1, revision: 0, selected: null, shares: {}, notifications: [], invites: {} });
 const runKey = ({ moduleId, runId }) => JSON.stringify([moduleId, runId]);
 const normalize = path => path.split(sep).join('/');
+const imageMarkdown = text => [...text.matchAll(/!\[[^\]]*\]\(\s*(?:<[^>]+>|[^\s)]+)(?:\s+[^)]*)?\)/g)].map(match => match[0]).join('\n\n');
+const pictureKinds = new Set(['地图', '地图图片', '人物', '角色', '预设角色', 'NPC', '怪物', '人物图片', '怪物图片']);
 
 export function parseLibraryMarkdown(text) {
   const match = text.replace(/^\uFEFF/, '').match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
@@ -97,16 +102,16 @@ export function createLibraryStore({ root }) {
     if (!Number.isSafeInteger(revision) || revision !== state.revision) fail('资料库已变化，请重新核对当前团与开放对象。', 409, 'revision_conflict');
   }
   async function inventory(includeResources = true) {
-    const modules = [], issues = [], resources = [], kinds = new Set();
-    for (const folder of await dirs('模组')) {
-      const path = '模组/' + folder;
+    const discovery = await discoverModules({ directories: dirs, readManifest: json });
+    const modules = [], issues = [...discovery.issues], resources = [], kinds = new Set();
+    const categories = discovery.categories;
+    for (const { path, category, meta } of discovery.modules) {
       try {
-        const meta = await json(path + '/模组.json');
         if (!validId(meta.id) || !label(meta.name)) fail('模组需要有效id和name。');
         const runs = [];
         const runRoot = path + '/游玩团';
         let runDirs = [];
-        try { runDirs = (await readdir(await safe(runRoot), { withFileTypes: true })).filter(item => item.isDirectory() && !item.isSymbolicLink()).map(item => item.name); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        try { runDirs = (await readdir(await safe(runRoot), { withFileTypes: true })).filter(item => item.isDirectory() && !item.isSymbolicLink() && !item.name.startsWith('.')).map(item => item.name); } catch (error) { if (error.code !== 'ENOENT') throw error; }
         for (const runFolder of runDirs) {
           try {
             const run = await json(runRoot + '/' + runFolder + '/团.json');
@@ -119,13 +124,13 @@ export function createLibraryStore({ root }) {
             runs.push({ ...run, path: runRoot + '/' + runFolder });
           } catch (error) { issues.push({ path: runRoot + '/' + runFolder, reason: error.message }); }
         }
-        modules.push({ id: meta.id, name: meta.name, path, runs });
+        modules.push({ id: meta.id, name: meta.name, category, path, runs });
       } catch (error) { if (error.code !== 'ENOENT') issues.push({ path, reason: error.message }); }
     }
     const duplicateModules = new Set(modules.filter((item, index) => modules.findIndex(other => other.id === item.id) !== index).map(item => item.id));
     for (const id of duplicateModules) issues.push({ id, reason: '模组ID重复，相关模组与资源不可引用。' });
     const usableModules = modules.filter(module => !duplicateModules.has(module.id));
-    if (!includeResources) return { modules: usableModules, resources: [], issues, kinds: [] };
+    if (!includeResources) return { categories, modules: usableModules, resources: [], issues, kinds: [] };
     const jobs = [], livePaths = new Set();
     async function scan(path, scope, module) {
       let entries;
@@ -142,19 +147,37 @@ export function createLibraryStore({ root }) {
           if (meta.kind !== category) fail('前置信息kind与实际分类目录不符。');
           if (module && meta.moduleId && meta.moduleId !== module.id) fail('资源moduleId与所属模组不符。');
           const item = { ...meta, name: label(meta.name), kind: category, initial: /^[A-Z]$/.test(meta.initial || '') ? meta.initial : null, scope, ...(module ? { moduleId: module.id, moduleName: module.name } : {}), path: child, scopeRoot };
-          resources.push({ resource: item, text }); kinds.add(category);
+          item.shareable = scope === 'module' && pictureKinds.has(category) && !!imageMarkdown(text); resources.push({ resource: item, text }); kinds.add(category);
         } catch (error) { issues.push({ path: child, reason: error.message }); } });
       }
     }
     await scan('资源', 'world');
     for (const module of usableModules) await scan(module.path + '/资源', 'module', module);
+    for (const module of usableModules) {
+      for (const picture of moduleImageIndex[module.id] || []) {
+        const path = module.path + '/资源/' + picture.path;
+        try { await safe(path); } catch (error) { issues.push({ path, reason: '配图文件缺失，已跳过。' }); continue; }
+        resources.push({ resource: { id: module.id + ':' + picture.id, name: picture.name, kind: picture.type, initial: picture.initial, scope: 'module', moduleId: module.id, moduleName: module.name, shareable: true, path: module.path + '/资源/图片索引.md', scopeRoot: module.path + '/资源' }, text: '![' + picture.name + '](<' + picture.path + '>)' }); kinds.add(picture.type);
+      }
+      try {
+        const pack = await json(module.path + '/地图/地图包.json');
+        if (pack.schemaVersion !== 1 || pack.moduleData?.id !== module.id) continue;
+        const assets = pack.assets || pack.assetFiles || pack.assetsMap || {};
+        for (const node of pack.moduleData.nodes || []) for (const variant of node.variants || []) {
+          const asset = assets[variant.url], path = typeof asset === 'string' ? asset : asset?.path;
+          if (typeof path !== 'string' || !validId(node.id) || !validId(variant.id) || /[<>\r\n]/.test(path)) continue;
+          const name = node.name + ' · ' + variant.label;
+          resources.push({ resource: { id: module.id + ':map:' + node.id + ':' + variant.id, name, kind: '地图', initial: /^[A-Z]$/.test(node.initial || '') ? node.initial : archiveInitial(node.name).letter, scope: 'module', moduleId: module.id, moduleName: module.name, shareable: true, path: module.path + '/地图/图片索引.md', scopeRoot: module.path + '/地图' }, text: '![' + name.replace(/[\[\]]/g, '') + '](<' + path + '>)' }); kinds.add('地图');
+        }
+      } catch (error) { if (error.code !== 'ENOENT') issues.push({ path: module.path + '/地图/地图包.json', reason: error.message }); }
+    }
     let nextJob = 0;
     await Promise.all(Array.from({ length: Math.min(12, jobs.length) }, async () => { while (nextJob < jobs.length) await jobs[nextJob++](); }));
     for (const path of markdownCache.keys()) if (!livePaths.has(path)) markdownCache.delete(path);
     const counts = new Map(); for (const item of resources) counts.set(item.resource.id, (counts.get(item.resource.id) || 0) + 1);
     const duplicateIds = new Set([...counts].filter(([, count]) => count > 1).map(([id]) => id));
     for (const id of duplicateIds) issues.push({ id, reason: '资源ID重复，禁止读取或分享。' });
-    return { modules: usableModules, resources: resources.filter(item => !duplicateIds.has(item.resource.id)), issues, kinds: [...kinds].sort() };
+    return { categories, modules: usableModules, resources: resources.filter(item => !duplicateIds.has(item.resource.id)), issues, kinds: [...kinds].sort() };
   }
   function selectedRun(data, selected) {
     const module = data.modules.find(item => item.id === selected?.moduleId), run = module?.runs.find(item => item.id === selected?.runId);
@@ -170,6 +193,8 @@ export function createLibraryStore({ root }) {
   }
   function permitted(item, session, state) {
     if (session.role === 'dm') return true;
+    if (item.scope === 'world') return true;
+    if (!item.shareable) return false;
     const current = session.current;
     if (item.scope === 'module' && item.moduleId !== current.module.id) return false;
     const granted = state.shares[runKey(current.selection)]?.[item.id] || [];
@@ -178,13 +203,13 @@ export function createLibraryStore({ root }) {
   const publicResource = (resource, full = false) => {
     const { scopeRoot, ...value } = resource; if (full) return value;
     const source = resource.source || {}, edition = resource.edition || {};
-    return { id: resource.id, name: resource.name, kind: resource.kind, initial: resource.initial, scope: resource.scope, path: resource.path,
+    return { id: resource.id, name: resource.name, kind: resource.kind, initial: resource.initial, scope: resource.scope, path: resource.path, shareable: !!resource.shareable,
       ...(resource.moduleId ? { moduleId: resource.moduleId, moduleName: resource.moduleName } : {}),
       aliases: Array.isArray(resource.aliases) ? resource.aliases.slice(0, 30).map(item => label(item)) : [], tags: Array.isArray(resource.tags) ? resource.tags.slice(0, 30).map(item => label(item)) : [],
       sourceBook: label(resource.sourceBook || source.book || source.title || source.name), sourceLabel: label(resource.sourceLabel || source.label || source.book || source.title),
       edition: typeof edition === 'object' ? { rulesFamily: edition.rulesFamily, publicationYear: edition.publicationYear, year: edition.year } : label(edition) };
   };
-  const publicModules = data => data.modules.map(({ id, name, runs }) => ({ id, name, runs: runs.map(({ id, name, characters }) => ({ id, name, characters })) }));
+  const publicModules = data => data.modules.map(({ id, name, category, runs }) => ({ id, name, category, runs: runs.map(({ path, ...run }) => run) }));
   async function snapshot(actor, includeResources = true) { const [state, data] = await Promise.all([loadState(), inventory(includeResources)]); return { state, data, session: await actorSession(actor, state, data) }; }
   function requireDm(session) { if (session.role !== 'dm') fail('只有DM可以操作。', 403); }
   function requireCurrent(session) { if (!session.current) fail('请先选择当前模组与游玩团。', 409, 'run_required'); return session.current; }
@@ -197,7 +222,7 @@ export function createLibraryStore({ root }) {
       return { directory: dirname(await safe(found.resource.path)), projectPath: found.resource.path };
     },
     async moduleCover(actor, moduleId) {
-      const { data, session } = await snapshot(actor); requireDm(session);
+      const { data, session } = await snapshot(actor, false); requireDm(session);
       const module = data.modules.find(item => item.id === moduleId); if (!module) fail('模组不存在。',404);
       const raw = await read(module.path + '/封面.jpg');
       return { mime:'image/jpeg', base64:raw.toString('base64') };
@@ -205,16 +230,16 @@ export function createLibraryStore({ root }) {
     async context(actor) {
       const { state, data, session } = await snapshot(actor, false), current = session.current;
       return { role: session.role, playerId: session.playerId, selected: current?.selection || null, characters: (current?.run.characters || []).filter(character => session.role === 'dm' || character.playerId === session.playerId),
-        modules: session.role === 'dm' ? publicModules(data) : [{ id: current.module.id, name: current.module.name, runs: [{ id: current.run.id, name: current.run.name }] }], revision: state.revision, ...(session.role === 'dm' ? { issues: data.issues } : {}) };
+        modules: session.role === 'dm' ? publicModules(data) : [{ id: current.module.id, name: current.module.name, runs: [{ id: current.run.id, name: current.run.name }] }], revision: state.revision, ...(session.role === 'dm' ? { issues: data.issues, categories: data.categories } : {}) };
     },
     async catalog(actor, query = {}) {
       const { state, data, session } = await snapshot(actor), initials = list(query.initials || query.initial).map(value => value.toUpperCase()), moduleIds = list(query.modules), q = String(query.q || '').trim().toLocaleLowerCase();
-      const visible = data.resources.filter(item => permitted(item.resource, session, state));
-      const filtered = visible.filter(({ resource, text }) => (!query.kind || (query.kind === '模组' ? resource.scope === 'module' : resource.kind === query.kind))
+      const visible = data.resources.filter(item => permitted(item.resource, session, state) && (query.media !== 'maps' || ['地图', '地图图片', '世界地图'].includes(item.resource.kind)));
+      const filtered = visible.filter(({ resource, text }) => (!query.kind || (query.kind === '模组' ? resource.scope === 'module' : resource.scope === 'world' && resource.kind === query.kind))
         && (!initials.length || initials.includes(resource.initial)) && (!moduleIds.length || resource.scope === 'world' || moduleIds.includes(resource.moduleId))
-        && (!q || JSON.stringify([resource.name, resource.aliases, resource.tags, resource.source, text]).toLocaleLowerCase().includes(q)));
-      return { resources: filtered.map(({ resource }) => publicResource(resource)), total: filtered.length, kinds: [...new Set(visible.map(item => item.resource.kind))].sort(),
-        modules: session.role === 'dm' ? publicModules(data) : [{ id: session.current.module.id, name: session.current.module.name }], revision: state.revision, ...(session.role === 'dm' ? { issues: data.issues } : {}) };
+        && (!q || JSON.stringify(session.role === 'player' && resource.scope === 'module' ? [resource.name, imageMarkdown(text)] : [resource.name, resource.aliases, resource.tags, resource.source, text]).toLocaleLowerCase().includes(q)));
+      return { resources: filtered.map(({ resource }) => publicResource(resource)), cardKinds: [...new Set(visible.filter(item => item.resource.scope === 'world').map(item => item.resource.kind)), ...(data.modules.length ? ['模组'] : [])].sort(), total: filtered.length, kinds: [...new Set(visible.map(item => item.resource.kind))].sort(),
+        modules: session.role === 'dm' ? publicModules(data) : [{ id: session.current.module.id, name: session.current.module.name }], revision: state.revision, ...(session.role === 'dm' ? { issues: data.issues, categories: data.categories } : {}) };
     },
     async read(actor, id) {
       const { state, data, session } = await snapshot(actor), found = findResource(data, id);
@@ -235,13 +260,15 @@ export function createLibraryStore({ root }) {
           images.push({ source, path, mime, base64: bytes.toString('base64') });
         } catch (error) { imageIssues.push({ source, reason: error.code === 'ENOENT' ? '图片文件缺失。' : error.message }); }
       }
-      return { resource: publicResource(found.resource, true), text: found.text, images, issues: imageIssues, imageIssues };
+      const projected = session.role === 'player' && found.resource.scope === 'module';
+      return { resource: publicResource(found.resource, !projected), text: projected ? imageMarkdown(found.text) : found.text, images, issues: imageIssues, imageIssues };
     },
     async select(actor, { moduleId, runId, expectedRevision }) {
       return transaction(async state => {
         const data = await inventory(false), session = await actorSession(actor, state, data); requireDm(session);
         if (expectedRevision !== undefined) expected(state, expectedRevision);
         const current = selectedRun(data, { moduleId, runId }); if (!current) fail('所选模组或游玩团不存在。', 404);
+        const { path, ...record } = current.run; await atomic(path + '/团.json', { ...record, lastPlayedAt: new Date().toISOString() });
         state.selected = { moduleId, runId }; return { selected: current.selection, characters: current.run.characters };
       });
     },
@@ -251,13 +278,76 @@ export function createLibraryStore({ root }) {
         if (expectedRevision !== undefined) expected(state, expectedRevision);
         const module = data.modules.find(item => item.id === moduleId); if (!module) fail('模组不存在。', 404);
         if (!label(name) || !Array.isArray(characters) || characters.length > 100) fail('需要团名和有效角色列表。');
-        const id = 'run-' + randomUUID(), run = { id, name: label(name), moduleId, characters: characters.map(character => {
+        const id = 'run-' + randomUUID(), run = { id, name: label(name), moduleId, createdAt: new Date().toISOString(), status: 'preparing', characters: characters.map(character => {
           if (!label(character.name)) fail('角色需要名称。');
           return { id: 'character-' + randomUUID(), name: label(character.name), playerId: 'player-' + randomUUID(), ...(label(character.playerName) ? { playerName: label(character.playerName) } : {}) };
         }) };
         await atomic(module.path + '/游玩团/' + id + '/团.json', run);
         state.selected = { moduleId, runId: id }; return { run, selected: { moduleId, runId: id, moduleName: module.name, runName: run.name } };
       });
+    },
+    async manageRun(actor, { moduleId, runId, action, name, expectedRevision }) {
+      return transaction(async state => {
+        const data = await inventory(false), session = await actorSession(actor, state, data); requireDm(session);
+        expected(state, expectedRevision);
+        const current = selectedRun(data, { moduleId, runId }); if (!current) fail('团已移动或删除，请刷新目录。', 404);
+        const { path, ...record } = current.run;
+        if (action === 'rename') {
+          if (!label(name)) fail('请输入团名。');
+          await atomic(path + '/团.json', { ...record, name: label(name) });
+        } else if (action === 'copy') {
+          const id = 'run-' + randomUUID(), destination = current.module.path + '/游玩团/' + id;
+          const pending = current.module.path + '/游玩团/.copy-' + id;
+          // Read every copied record before publishing the new run directory.
+          const files = [];
+          for (const filename of ['画布.json', '群聊.json']) {
+            try { files.push([filename, await json(path + '/' + filename)]); }
+            catch (error) { if (error.code !== 'ENOENT') throw error; }
+          }
+          await atomic(pending + '/团.json', { ...record, id, name: label(name, record.name + ' · 副本'), copiedFrom: record.id });
+          for (const [filename, value] of files) await atomic(pending + '/' + filename, filename === '画布.json' ? { ...value, runId: id, revision: 1 } : value);
+          await rename(await safe(pending), await safe(destination, true));
+        } else if (action === 'archive') {
+          // Keep every file intact; archived runs can be restored in the file manager.
+          const target = current.module.path + '/已归档团/' + runId + '-' + randomUUID();
+          await mkdir(dirname(await safe(target, true)), { recursive: true });
+          await rename(await safe(path), await safe(target, true));
+          if (state.selected?.moduleId === moduleId && state.selected?.runId === runId) state.selected = null;
+          for (const invite of Object.values(state.invites)) if (invite.moduleId === moduleId && invite.runId === runId) invite.revoked = true;
+        } else fail('团操作无效。');
+        return { action };
+      });
+    },
+    async changeCover(actor, { moduleId, base64, expectedRevision }) {
+      return transaction(async state => {
+        const data = await inventory(false), session = await actorSession(actor, state, data); requireDm(session); expected(state, expectedRevision);
+        const module = data.modules.find(item => item.id === moduleId); if (!module) fail('模组不存在。', 404);
+        if (typeof base64 !== 'string' || base64.length > 240000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) fail('请使用小于180KB的JPEG封面。');
+        const bytes = Buffer.from(base64, 'base64'); if (bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) fail('封面必须是JPEG图片。');
+        const target = await safe(module.path + '/封面.jpg', true), temporary = target + '.' + randomUUID() + '.tmp';
+        const handle = await open(temporary, 'wx');
+        try {
+          await handle.writeFile(bytes); await handle.sync(); await handle.close();
+          try { const old = await read(module.path + '/封面.jpg'); const backup = await open(await safe(module.path + '/封面备份-' + randomUUID() + '.jpg', true), 'wx'); try { await backup.writeFile(old); } finally { await backup.close(); } } catch (error) { if (error.code !== 'ENOENT') throw error; }
+          await safe(module.path + '/封面.jpg', true); await rename(temporary, target);
+        } finally { await handle.close().catch(() => {}); await unlink(temporary).catch(() => {}); }
+        return { moduleId };
+      });
+    },
+    async chat(actor, body) {
+      const operation = async state => {
+        const data = await inventory(false), session = await actorSession(actor, state, data), current = requireCurrent(session);
+        const path = current.run.path + '/群聊.json'; let messages = [];
+        try { messages = await json(path); if (!Array.isArray(messages)) fail('群聊文件格式无效，原件保留。', 409); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        if (body) {
+          if (body.moduleId !== current.module.id || body.runId !== current.run.id) fail('当前团已变化，请重新打开群聊。', 409);
+          if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 10000) fail('消息需为1至10000字。');
+          messages.push({ id: randomUUID(), speaker: session.role === 'dm' ? 'DM' : current.run.characters.filter(item => item.playerId === session.playerId).map(item => item.name).join('、'), text: body.text.trim(), createdAt: new Date().toISOString() });
+          await atomic(path, messages);
+        }
+        return { messages, selected: current.selection };
+      };
+      return body ? transaction(operation) : operation(await loadState());
     },
     async addCharacter(actor, { name, playerName, playerId, expectedRevision }) {
       return transaction(async state => {
@@ -272,6 +362,7 @@ export function createLibraryStore({ root }) {
     async shares(actor, resourceId) {
       const { state, data, session } = await snapshot(actor); requireDm(session); const current = requireCurrent(session), { resource } = findResource(data, resourceId);
       if (resource.scope === 'module' && resource.moduleId !== current.module.id) fail('不能把其他模组资料开放到当前团。', 403);
+      if (!resource.shareable) fail(resource.scope === 'world' ? '世界资源默认开放，无需逐角色授权。' : '模组仅可开放地图、人物和怪物图片。', 400);
       return { resourceId, characterIds: state.shares[runKey(current.selection)]?.[resourceId] || [], revision: state.revision, selected: current.selection };
     },
     async setShares(actor, { resourceId, characterIds, expectedRevision, moduleId, runId }) {
@@ -280,6 +371,7 @@ export function createLibraryStore({ root }) {
         if (moduleId && moduleId !== current.module.id || runId && runId !== current.run.id) fail('当前团已切换，请重新核对开放对象。', 409);
         const { resource } = findResource(data, resourceId);
         if (resource.scope === 'module' && resource.moduleId !== current.module.id) fail('不能把其他模组资料开放到当前团。', 403);
+        if (!resource.shareable) fail(resource.scope === 'world' ? '世界资源默认开放，无需逐角色授权。' : '模组仅可开放地图、人物和怪物图片。', 400);
         if (!Array.isArray(characterIds) || characterIds.length > 100 || characterIds.some(id => !current.run.characters.some(character => character.id === id))) fail('开放对象必须是当前团的角色。');
         const next = [...new Set(characterIds)].sort(), key = runKey(current.selection), before = state.shares[key]?.[resourceId] || [], created = [];
         state.shares[key] ||= {}; state.shares[key][resourceId] = next;

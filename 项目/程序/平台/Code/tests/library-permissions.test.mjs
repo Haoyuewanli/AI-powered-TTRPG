@@ -24,6 +24,11 @@ async function fixture() {
   return { root, put, store: createLibraryStore({ root }) };
 }
 
+async function addShareImage({ root, put }) {
+  await put('模组/甲模组/资源/人物/头像.md', markdown({ id: 'share-a', name: '梅洛图片', kind: '人物', initial: 'M', moduleId: 'module-a' }, '# 主持秘密正文\n未公开身份\n![梅洛图片](头像.png)'));
+  await put('模组/甲模组/资源/人物/头像.png', await readFile(join(root, '资源/怪物/M/图片/头像.png')));
+}
+
 test('固定MD前置格式、真实目录与本地图片读取', async () => {
   const { store, put } = await fixture();
   assert.throws(() => parseLibraryMarkdown('---\nid: x\n---\ntext'), /JSON/);
@@ -40,52 +45,52 @@ test('固定MD前置格式、真实目录与本地图片读取', async () => {
 });
 
 test('邀请固定玩家身份，分享和撤回逐请求过滤且通知只给接收者', async () => {
-  const { store, root } = await fixture(); await store.select(dm, { moduleId: 'module-a', runId: 'run-a' });
+  const f = await fixture(); await addShareImage(f); const { store, root } = f; await store.select(dm, { moduleId: 'module-a', runId: 'run-a' });
   const alice = await store.createInvite(dm, { playerId: 'alice' }), bob = await store.createInvite(dm, { playerId: 'bob' });
   const pa = { token: alice.token }, pb = { token: bob.token };
   assert.equal((await store.join(alice.token)).playerId, 'alice');
-  assert.equal((await store.context(pa)).modules.length, 1); assert.equal((await store.catalog(pa)).total, 0);
-  await assert.rejects(store.read(pa, 'merrow'), error => error.status === 403);
-  await assert.rejects(store.revealTarget(pa, 'merrow'), error => error.status === 403);
+  assert.equal((await store.context(pa)).modules.length, 1); assert.equal((await store.catalog(pa)).total, 1);
+  await assert.rejects(store.read(pa, 'share-a'), error => error.status === 403);
+  await assert.rejects(store.revealTarget(pa, 'share-a'), error => error.status === 403);
   await assert.rejects(store.context({ role: 'player', playerId: 'alice' }), error => error.status === 401);
   let revision = (await store.context(dm)).revision;
-  await store.setShares(dm, { resourceId: 'merrow', characterIds: ['alice-role'], expectedRevision: revision });
-  assert.equal((await store.catalog(pa)).total, 1); assert.equal((await store.catalog(pb)).total, 0);
-  assert.equal((await store.read(pa, 'merrow')).images.length, 1);
+  await store.setShares(dm, { resourceId: 'share-a', characterIds: ['alice-role'], expectedRevision: revision });
+  assert.equal((await store.catalog(pa)).total, 2); assert.equal((await store.catalog(pb)).total, 1);
+  assert.equal((await store.read(pa, 'share-a')).images.length, 1); assert(!((await store.read(pa, 'share-a')).text.includes('主持秘密'))); assert.equal((await store.read(pb, 'merrow')).resource.id, 'merrow');
   assert.equal((await store.notifications(pb)).notifications.length, 0);
   let notifications = (await store.notifications(pa)).notifications;
-  assert.equal(notifications[0].content, 'DM向你分享了【梅洛】'); assert.equal(notifications[0].canOpen, true);
+  assert.equal(notifications[0].content, 'DM向你分享了【梅洛图片】'); assert.equal(notifications[0].canOpen, true);
   const second = await store.addCharacter(dm, { name: '艾莉第二角色', playerId: 'alice' });
-  await store.setShares(dm, { resourceId: 'merrow', characterIds: ['alice-role', second.character.id], expectedRevision: second.revision });
-  await store.setShares(dm, { resourceId: 'merrow', characterIds: [second.character.id], expectedRevision: (await store.context(dm)).revision });
-  assert.equal((await store.read(pa, 'merrow')).resource.id, 'merrow');
+  await store.setShares(dm, { resourceId: 'share-a', characterIds: ['alice-role', second.character.id], expectedRevision: second.revision });
+  await store.setShares(dm, { resourceId: 'share-a', characterIds: [second.character.id], expectedRevision: (await store.context(dm)).revision });
+  assert.equal((await store.read(pa, 'share-a')).resource.id, 'share-a');
   assert.equal((await store.notifications(pa)).notifications.filter(item => item.canOpen).length, 1);
-  revision = (await store.shares(dm, 'merrow')).revision;
-  await store.setShares(dm, { resourceId: 'merrow', characterIds: [], expectedRevision: revision });
-  await assert.rejects(store.read(pa, 'merrow'), error => error.status === 403);
+  revision = (await store.shares(dm, 'share-a')).revision;
+  await store.setShares(dm, { resourceId: 'share-a', characterIds: [], expectedRevision: revision });
+  await assert.rejects(store.read(pa, 'share-a'), error => error.status === 403);
   notifications = (await store.notifications(pa)).notifications;
-  assert(notifications.every(item => item.canOpen === false)); assert.equal(notifications.at(-1).content, 'DM撤回了给你的分享【梅洛】');
+  assert(notifications.every(item => item.canOpen === false)); assert.equal(notifications.at(-1).content, 'DM撤回了给你的分享【梅洛图片】');
   assert.equal((await store.notifications(dm)).notifications.length, 4);
   const persisted = await readFile(join(root, '模组/资料库工作区.json'), 'utf8'); assert(!persisted.includes(alice.token));
-  const reopened = createLibraryStore({ root }); assert.equal((await reopened.catalog(pa)).total, 0);
+  const reopened = createLibraryStore({ root }); assert.equal((await reopened.catalog(pa)).total, 1);
 });
 
 test('跨团、跨模组、过期revision与Player写入均拒绝', async () => {
-  const { store } = await fixture(); await store.select(dm, { moduleId: 'module-a', runId: 'run-a' });
+  const f = await fixture(); await addShareImage(f); const { store } = f; await store.select(dm, { moduleId: 'module-a', runId: 'run-a' });
   const alice = await store.createInvite(dm, { playerId: 'alice' });
   let revision = (await store.context(dm)).revision;
   await assert.rejects(store.setShares(dm, { resourceId: 'secret-b', characterIds: ['alice-role'], expectedRevision: revision }), error => error.status === 403);
-  await assert.rejects(store.setShares(dm, { resourceId: 'merrow', characterIds: ['other-role'], expectedRevision: revision }), error => error.status === 400);
+  await assert.rejects(store.setShares(dm, { resourceId: 'share-a', characterIds: ['other-role'], expectedRevision: revision }), error => error.status === 400);
   await assert.rejects(store.select({ token: alice.token }, { moduleId: 'module-b', runId: 'run-b' }), error => error.status === 403);
   const results = await Promise.allSettled([
-    store.setShares(dm, { resourceId: 'merrow', characterIds: ['alice-role'], expectedRevision: revision }),
+    store.setShares(dm, { resourceId: 'share-a', characterIds: ['alice-role'], expectedRevision: revision }),
     store.setShares(dm, { resourceId: 'secret-a', characterIds: ['alice-role'], expectedRevision: revision })
   ]);
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
   assert.equal(results.find(result => result.status === 'rejected').reason.status, 409);
   await store.select(dm, { moduleId: 'module-b', runId: 'run-b' });
   revision = (await store.context(dm)).revision;
-  await assert.rejects(store.setShares(dm, { resourceId: 'merrow', characterIds: [], moduleId: 'module-a', runId: 'run-a', expectedRevision: revision }), error => error.status === 409);
+  await assert.rejects(store.setShares(dm, { resourceId: 'share-a', characterIds: [], moduleId: 'module-a', runId: 'run-a', expectedRevision: revision }), error => error.status === 409);
   assert.equal((await store.context({ token: alice.token })).selected.runId, 'run-a');
 });
 

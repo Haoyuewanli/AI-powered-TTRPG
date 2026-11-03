@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, writeFile, symlink, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, symlink, readdir, rename } from 'node:fs/promises';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -102,4 +102,18 @@ test('尚无旧画布时也按打开的地图包摘要保存，缺基准或换�
   const changed = structuredClone(f.packages.get('a')); changed.moduleData.title = '已换版地图'; await f.save('模组/a/地图/地图包.json', changed);
   assert.equal((await f.request('/api/library/canvas', body)).status, 409);
   assert.equal((await f.request('/api/library/canvas?moduleId=a&runId=run-a')).value.document, null);
+});
+
+
+test('地图跟随模组跨分类移动，移出和损坏模组不会阻断其他地图', async t => {
+  const f = await fixture(t);
+  await mkdir(join(f.root, '模组/新分类/嵌套'), { recursive: true });
+  await rename(join(f.root, '模组/a'), join(f.root, '模组/新分类/嵌套/搬家'));
+  assert.equal((await f.request('/api/library/maps')).value.packages.length, 2);
+  assert.equal((await f.request('/api/library/map-asset?moduleId=a&path=图片/图.png')).status, 200);
+  assert.equal((await f.request('/api/library/canvas?moduleId=a&runId=run-a')).status, 200);
+  await rename(join(f.root, '模组/新分类/嵌套/搬家'), join(f.root, '移出'));
+  await f.save('模组/坏模组/模组.json', { id: null, name: '坏模组' });
+  assert.deepEqual((await f.request('/api/library/maps')).value.packages.map(item => item.moduleId), ['b']);
+  assert.equal((await f.request('/api/library/canvas?moduleId=a&runId=run-a')).status, 404);
 });

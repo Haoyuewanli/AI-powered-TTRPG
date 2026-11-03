@@ -77,7 +77,7 @@ export function createMapWorkspace({ platform, api, run = operation => operation
       if (!packages.length) notice('尚无已接入的地图包；原地图资料与团内记录保持。');
     } finally { loading = false; }
   }
-  window.addEventListener('message', event => {
+  const receive = event => {
     if (event.origin !== location.origin || event.source !== iframe?.contentWindow || event.data?.channel !== CHANNEL || event.data.bridge !== bridge) return;
     const message = event.data, current = generation, expectedBridge = bridge, target = iframe.contentWindow;
     if (message.type === 'change') { const context = contextFor(activeId), state = drafts.get(keyFor(context)); if (state) { state.document = message.payload.document; state.dirty = message.payload.dirty; } return; }
@@ -92,10 +92,12 @@ export function createMapWorkspace({ platform, api, run = operation => operation
       finally { state.pending = false; }
     } : () => { throw new Error('未知地图请求'); };
     Promise.resolve().then(operation).then(value => { if (isLive(current, expectedBridge)) target.postMessage({ channel: CHANNEL, bridge: expectedBridge, id: message.id, value }, location.origin); }, error => { if (isLive(current, expectedBridge)) { notice(error.message + '；当前草稿保留。'); target.postMessage({ channel: CHANNEL, bridge: expectedBridge, id: message.id, error: error.message }, location.origin); } });
-  });
+  };
+  window.addEventListener('message', receive);
   picker.onchange = () => perform(() => show(picker.value)); refresh.onclick = () => perform(load);
   reread.onclick = () => perform(async () => { const key = keyFor(contextFor(activeId)); if (drafts.get(key)?.pending) throw new Error('画布正在保存，请稍候'); drafts.delete(key); await show(activeId); });
   return {
+    dispose() { generation++; window.removeEventListener('message', receive); iframe?.remove(); iframe = null; drafts.clear(); workspace.remove(); },
     load, canLeave: () => ![...drafts.values()].some(state => state.dirty || state.pending),
     clear() { generation++; loading = false; packages = []; selectedModules = null; activeId = null; bridge = null; iframe?.remove(); iframe = null; drafts.clear(); host.replaceChildren(); workspace.hidden = true; view.classList.remove('has-map-editor'); },
     setVisible(value) { if (value && !iframe && !loading) return perform(load); }

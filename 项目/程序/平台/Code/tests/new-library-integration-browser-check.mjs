@@ -14,9 +14,9 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR
 async function source(path, value) { const target = join(projectRoot, path), raw = Buffer.isBuffer(value) || typeof value === 'string' ? value : JSON.stringify(value, null, 2); await mkdir(dirname(target), { recursive: true }); await writeFile(target, raw); original.set(target, sha(raw)); }
 const md = (meta, body) => '---\n' + JSON.stringify(meta, null, 2) + '\n---\n' + body;
 await source('模组/合成岛/模组.json', { id: 'synthetic-island', name: '合成岛冒险', version: 'test-1' });
-await source('模组/合成岛/资源/故事/岛屿线索.md', md({ id: 'island-clue', name: '岛屿线索', kind: '故事', moduleId: 'synthetic-island', initial: 'D', aliases: ['Island Clue'], tags: ['合成'] }, '# 岛屿线索正文\n\n**只有获准角色能读到这段内容。**\n\n![合成图片](图.png)\n\n<script>window.libraryInjected=true</script>'));
-await source('模组/合成岛/资源/故事/图.png', png);
-await source('资源/规则/世界规则.md', md({ id: 'world-rule', name: '未开放世界规则', kind: '规则', initial: 'W' }, '# 只供DM查阅的规则\n未向任何角色开放。'));
+await source('模组/合成岛/资源/人物/岛屿线索.md', md({ id: 'island-clue', name: '岛屿线索', kind: '人物', moduleId: 'synthetic-island', initial: 'D', aliases: ['Island Clue'], tags: ['合成'] }, '# 岛屿线索正文\n\n**只有获准角色能读到这段内容。**\n\n![合成图片](图.png)\n\n<script>window.libraryInjected=true</script>'));
+await source('模组/合成岛/资源/人物/图.png', png);
+await source('资源/规则/世界规则.md', md({ id: 'world-rule', name: '世界通用规则', kind: '规则', initial: 'W' }, '# 世界规则\n默认对玩家开放。'));
 const mapData = { id: 'synthetic-island', title: '合成岛冒险', capabilities: { sharing: false }, players: [], nodes: [{ id: 'island', name: '合成岛', kind: 'image', parentId: null, width: 200, height: 160, imageUrl: '/assets/island', variants: [{ id: 'dm', label: '主持原图', url: '/assets/island' }], description: '合成海岸的原文描述。', sensory: '可以看见灯塔。', hotspots: [{ label: 'R1', x: .5, y: .5, targetId: 'room' }] }, { id: 'room', parentId: 'island', name: 'R1 房间', kind: 'text', description: '房间原文描述。', sensory: '桌上有一盏灯。', variants: [], hotspots: [] }] };
 await source('模组/合成岛/地图/地图包.json', { schemaVersion: 1, moduleData: mapData, assets: { '/assets/island': { path: '图片/岛.png', mime: 'image/png', sha256: sha(png) } }, sources: {} });
 await source('模组/合成岛/地图/图片/岛.png', png);
@@ -36,7 +36,7 @@ async function info(page) { return page.evaluate(async () => { const response = 
 async function playerApi(page, path) { return page.evaluate(async path => { const response = await fetch(path, { headers: { 'X-Library-Token': sessionStorage.getItem('library-token') || '' } }); return { status: response.status, value: await response.json() }; }, path); }
 async function readyPlayer(page, invite) {
   await page.goto(invite); await page.locator('#enter-player').click();
-  await page.locator('.library-notifications').waitFor();
+  await page.getByRole('button', { name: '共享通知', exact: true }).click(); await page.locator('.library-notifications').waitFor();
   await page.waitForFunction(() => !!sessionStorage.getItem('library-token'));
 }
 try {
@@ -46,14 +46,15 @@ try {
   await dm.waitForFunction(() => !!sessionStorage.getItem('platform-session'));
   await dm.locator('#platform-go-modules').click(); await dm.locator('[data-real-module-template=synthetic-island]').waitFor();
   assert.equal((await info(dm)).selected, null);
-  await dm.getByText('新开一团', { exact: true }).click(); await dm.getByLabel('新团名称').fill('自然入口合成团'); await dm.locator('[data-project-create-run=synthetic-island]').click();
+  await dm.locator('[data-real-module-template=synthetic-island]').click(); await dm.getByRole('button', { name: '新建团', exact: true }).click(); await dm.getByLabel('新建团', {exact: true}).fill('自然入口合成团'); await dm.getByRole('button', { name: '确认', exact: true }).click();
   await dm.waitForFunction(() => document.querySelector('#platform-current-session')?.textContent.includes('自然入口合成团'));
   await dm.locator('[data-real-module-host][aria-busy=false]').waitFor();
   const run = (await info(dm)).selected; assert.equal(run.moduleId, 'synthetic-island'); assert.equal(run.runName, '自然入口合成团');
-  await dm.locator('[data-real-run="' + run.runId + '"]').click(); await dm.locator('[data-project-select-module="' + run.runId + '"]').click();
+  await dm.locator('[data-project-select-module="' + run.runId + '"]').click();
   await dm.locator('[data-real-module-host][aria-busy=false]').waitFor();
   note('首页DM自然进入模组，浏览不切团，新建并明确继续真实独立团');
   await nav(dm, 'dialogue');
+  await dm.getByRole('button', { name: '标签页侧边栏', exact: true }).first().click();
   await dm.getByText('本团角色与玩家邀请', { exact: true }).click();
   const party = dm.locator('.library-party-panel'); await party.getByLabel('新角色名称').waitFor();
   for (const name of ['Alice', 'Bob']) {
@@ -86,14 +87,14 @@ try {
   assert.match(await alice.locator('.library-notifications').innerText(), /DM向你分享了【岛屿线索】/);
   assert.equal(await bob.locator('[data-shared-resource-id=island-clue]').count(), 0);
   assert.equal((await playerApi(bob, '/api/library/read?resourceId=island-clue')).status, 403);
-  assert.equal((await playerApi(alice, '/api/library/read?resourceId=world-rule')).status, 403);
-  await shot(alice, 'alice-notification'); note('独立Player会话从专属邀请进入，定向通知仅Alice可见，Bob与未开放资料均被服务端拒绝');
+  assert.equal((await playerApi(alice, '/api/library/read?resourceId=world-rule')).status, 200);
+  await shot(alice, 'alice-notification'); note('独立Player会话从专属邀请进入，定向通知仅Alice可见，Bob的未授权模组图片被拒绝，世界资料默认可读');
   await alice.locator('[data-shared-resource-id=island-clue]').click();
   try {
     await alice.locator('[data-platform-view=resources]:visible').waitFor();
     await alice.locator('[data-resource-expand=island-clue][aria-expanded=true]').waitFor();
-    await alice.locator('.real-resource-reader').getByRole('heading', { name: '岛屿线索正文', exact: true }).waitFor();
-    await shot(alice, 'alice-notification-open'); note('点击通知切到资源页并自动定位、展开正确MD资料');
+    assert.equal(await alice.locator('.real-resource-reader').getByRole('heading', { name: '岛屿线索正文', exact: true }).count(), 0); await alice.locator('.real-resource-reader img').waitFor();
+    await shot(alice, 'alice-notification-open'); note('点击通知切到资源页并自动定位、展开正确图片资料（不含主持正文）');
   } catch (error) { problems.push('分享通知未正确自动展开资源：' + error.message); await shot(alice, 'notification-open-failure'); console.error(problems.at(-1)); }
   await nav(dm, 'resources'); await dm.locator('[data-real-resource-kind="模组"]').click();
   const revokeRow = dm.locator('[data-project-resource=island-clue]'), revoke = revokeRow.locator('[data-resource-character-select=island-clue]');
@@ -103,7 +104,7 @@ try {
   assert.equal((await playerApi(alice, '/api/library/read?resourceId=island-clue')).status, 403);
   await nav(alice, 'dialogue'); await alice.locator('.library-notifications').filter({ hasText: 'DM撤回了给你的分享【岛屿线索】' }).waitFor();
   assert.equal(await alice.locator('[data-shared-resource-id=island-clue]').count(), 0);
-  await nav(alice, 'resources'); await alice.locator('.real-resource-status').filter({ hasText: '共0条' }).waitFor();
+  await nav(alice, 'resources'); await alice.locator('.real-resource-status').filter({ hasText: '共0条' }).waitFor(); await alice.locator('[data-real-resource-kind=""]').click(); await alice.locator('.real-resource-status').filter({ hasText: '共1条' }).waitFor();
   assert.equal(await alice.locator('.real-resource-reader:visible').count(), 0); note('DM撤回后Player后端立即拒读，定向撤回通知与资源列表同步清理');
   await nav(dm, 'maps'); await dm.locator('[data-map-editor]').waitFor();
   const mapFrame = dm.frameLocator('[data-map-editor]'); await dm.waitForFunction(() => document.querySelector('[data-map-editor]')?.contentWindow.mapPreview?.ready);

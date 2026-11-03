@@ -1,3 +1,4 @@
+import { discoverModules } from './module-discovery.mjs';
 import { lstat, readdir, readFile, mkdir, open, rename, unlink } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, join, dirname, extname, sep } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
@@ -38,13 +39,14 @@ export function createMapLibraryApi({ root, authorize = () => null }) {
     try { return JSON.parse(raw.toString('utf8').replace(/^\uFEFF/, '')); } catch { fail('地图JSON损坏，原文件保持：' + path, 409); }
   }
   async function catalog() {
-    let entries; try { entries = await readdir(await safe('模组'), { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return { packages: [], issues: [] }; throw error; }
-    const packages = [], issues = [], counts = new Map();
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith('.') || ['预处理', '程序', 'Code', '资料'].includes(entry.name)) continue;
-      const folder = '模组/' + entry.name;
+    const discovery = await discoverModules({ readManifest: json, directories: async path => {
+      try { return (await readdir(await safe(path), { withFileTypes: true })).filter(entry => entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith('.') && !['Code', '程序', '资料', '预处理', '游玩团'].includes(entry.name)).map(entry => entry.name).sort(); }
+      catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    } });
+    const packages = [], issues = discovery.issues.map(item => ({ ...item, error: item.reason })), counts = new Map();
+    for (const { path: folder, meta } of discovery.modules) {
       try {
-        const meta = await json(folder + '/模组.json'); if (!id(meta.id) || typeof meta.name !== 'string') fail('模组身份无效。', 409);
+        if (!id(meta.id) || typeof meta.name !== 'string') fail('模组身份无效。', 409);
         counts.set(meta.id, (counts.get(meta.id) || 0) + 1);
         let pack, packageBytes;
         try { packageBytes = await bytes(folder + '/地图/地图包.json'); pack = JSON.parse(packageBytes.toString('utf8').replace(/^\uFEFF/, '')); }
