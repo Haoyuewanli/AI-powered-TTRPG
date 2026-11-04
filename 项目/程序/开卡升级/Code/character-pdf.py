@@ -30,10 +30,10 @@ SKILLS = {
     "表演": ("Performance", "Performance"), "游说": ("Persuasion", "Persuasion"),
 }
 PANELS = {
-    "资源与恢复": (32, 518, 205, 665),
-    "专注与动作索引": (219, 518, 580, 665),
-    "能力速查": (32, 36, 205, 501),
-    "法术速查": (219, 36, 580, 501),
+    "资源与恢复": (32, 326, 289, 665),
+    "专注与动作索引": (303, 326, 580, 665),
+    "开卡设置": (32, 155, 289, 307),
+    "法术书与施法来源": (303, 155, 580, 307),
 }
 INK = (0.08, 0.14, 0.17)
 
@@ -139,34 +139,15 @@ def card_values(saved):
         "购买：" + numbers(f'{item["name"]}×{item["count"]}' for item in gear["purchases"]),
         f'余额：{gear["gold"]} GP。', *gear["notes"],
     ])
-    resources = [f'生命值上限：{s["hpMax"]}。生命骰：{s["hitDice"]}。']
-    if casting:
-        resources.append("法术位上限：" + numbers(f"{rank}环 {count}" for rank, count in enumerate(casting["slots"], 1) if count))
-    resources.extend(f'{label}：{item["max"]}。{item["recovery"]}。' for label, item in s["resourcePools"].items())
-    ability_notes = [
-        "【角色】", role, f'{origin}，{s["size"]}。', f'背景：{s["background"]}。', "",
-        "【专长】", feats,
-    ]
-    options = ("原初职能", "神圣职能", "战斗风格", "元素之怒", "受祝击", "超魔法",
-               "魔能祈唤", "野兽形态", "武器精通")
-    choices = [f'{key}：{answers[key]}。' for key in options if answers.get(key)]
-    if choices:
-        ability_notes.extend(["", "【已选能力】", *choices])
-    features = saved.get("classFeatures", [])
-    if features:
-        ability_notes.extend(["", "【职业特性】"])
-        for feature in features:
-            ability_notes.append(feature["name"] + "：" + concise_effect(feature["text"], 65))
-    if s["spellbook"]:
-        ability_notes += ["", "【法术书】", numbers(s["spellbook"])]
+    resources = resource_lines(s, new_card)
     config = saved.get("config", {})
-    if config.get("pointBuy32") or config.get("freeBackgroundAbilities"):
-        ability_notes.extend(["", "【房规】"])
-        if config.get("pointBuy32"):
-            ability_notes.append("32点购点。基础属性16花12点。")
-        if config.get("freeBackgroundAbilities"):
-            ability_notes.append("背景加值自由分配3点。单项最多加2点。")
-    ability_notes.extend(["", "【专精】", numbers(s["expertise"])])
+    setup = [f'{role} · {origin} · {s["background"]}',
+             "基础属性方式：" + answers.get("属性方式", "未记录"),
+             "背景加值：" + answers.get("背景加值", "未记录")]
+    if config.get("pointBuy32"):
+        setup.append("32点购点。基础属性16花12点。")
+    if config.get("freeBackgroundAbilities"):
+        setup.append("背景加值自由分配3点。单项最多加2点。")
     index = [casting_text]
     for label, predicate in [
         ("专注", lambda tags: "专注" in tags.get("持续时间", "")),
@@ -175,17 +156,16 @@ def card_values(saved):
         ("仪式", lambda tags: "仪式" in tags.get("施法时间", "")),
     ]:
         index.append(label + "：" + numbers(spell["name"] for spell in spells if predicate(spell["tags"])))
-    index.append("其他来源的施法属性与DC见下方。法术速查为规则节录。")
-    quick = []
-    for spell in spells:
-        tags = spell["tags"]
-        brief = "／".join(tags[k] for k in ("施法时间", "施法距离", "法术成分", "持续时间") if tags.get(k))
-        quick.extend([
-            f'{spell["name"]}（{str(spell["rank"]) + "环" if spell["rank"] else "戏法"} · {" / ".join(spell["source"])}）',
-            brief,
-            concise_effect(spell["effect"]),
-        ])
-    sections = dict(zip(PANELS, (resources, index, ability_notes, quick or ["本级无已选法术。"])))
+    index.append("能力与法术效果见文末表格。")
+    book = ["法术书：" + numbers(s["spellbook"])] if s["spellbook"] else []
+    extras = {}
+    for grant in s["grantedSpells"]:
+        key = (grant["source"], grant.get("ability"), grant.get("dc"))
+        extras.setdefault(key, []).append(grant["name"])
+    for (source, ability, dc), names in extras.items():
+        detail = (f" · {ability}" if ability else "") + (f" · DC {dc}" if dc is not None else "")
+        book.append(source + detail + "：" + numbers(names))
+    sections = dict(zip(PANELS, (resources, index, setup, book or ["本级没有额外施法来源。"])))
     values.update({name: "\n".join(lines) for name, lines in sections.items()})
     if casting or spells:
         values["Spellcasting Class 2"] = role
@@ -200,6 +180,148 @@ def card_values(saved):
                 if new_card:
                     values[f"SlotsRemaining {rank + 18}"] = "0"
     return values, checks
+
+
+def resource_lines(snapshot, fresh):
+    def fraction(maximum):
+        return f"{maximum if fresh else '___'}/{maximum}"
+
+    dice = re.fullmatch(r"(\d+)d(\d+)", snapshot["hitDice"])
+    lines = ["【当前 / 上限】", "生命值：" + fraction(snapshot["hpMax"])]
+    if dice:
+        count, sides = map(int, dice.groups())
+        con = snapshot["modifiers"]["体质"]
+        low, high = max(1, 1 + con), max(1, sides + con)
+        span = f"{low}至{high}" if low != high else str(low)
+        lines.extend([
+            f"生命骰：{fraction(count)}（d{sides}）", "",
+            f"短休：每花1枚生命骰，恢复1d{sides}{signed(con)} HP（{span} HP，最低1）。",
+        ])
+    casting = snapshot.get("spellcasting")
+    if casting:
+        slots = [f"{rank}环 {fraction(maximum)}" for rank, maximum in enumerate(casting["slots"], 1) if maximum]
+        if slots:
+            lines.extend(["", "【法术位】", numbers(slots)])
+    pools = snapshot.get("resourcePools", {})
+    if pools:
+        lines.extend(["", "【其他已记录资源】"])
+        for label, item in pools.items():
+            lines.extend([f'{label}：{fraction(item["max"])}', item["recovery"]])
+    if not fresh:
+        lines.extend(["", "空白处填写实际当前值。"])
+    return lines
+
+
+def mage_armor_ac(snapshot):
+    if snapshot["equipment"]["armor"] != "无":
+        return None
+    shield = snapshot["equipment"]["shield"] and "盾牌" in snapshot["armorTraining"]
+    return 13 + snapshot["modifiers"]["敏捷"] + (2 if shield else 0)
+
+
+def spell_state(spell, snapshot, spell_names):
+    name = spell["name"]
+    if name == "法师护甲":
+        after = mage_armor_ac(snapshot)
+        if after is None:
+            return "目标需未穿甲。\n当前穿甲，无法套用。"
+        before = snapshot["ac"]
+        if after <= before:
+            return f"法术提供 AC {after}\n当前 AC {before} 可保留。"
+        return f"AC {signed(after-before)}\n{before} → {after}\n对自己施放，未穿甲"
+    if name == "护盾术":
+        before = snapshot["ac"]
+        state = f"AC +5\n常态 {before} → {before+5}"
+        after_armor = mage_armor_ac(snapshot) if "法师护甲" in spell_names else None
+        if after_armor is not None and after_armor > before:
+            state += f"\n已有法师护甲时\n{after_armor} → {after_armor+5}"
+        return state
+    return {
+        "交友术": "目标：魅惑\n感知豁免失败时",
+        "睡眠术": "目标：失能 → 昏迷\n两次感知豁免均失败时",
+        "神导术": "所选技能检定 +1d4\n总值取决于骰点",
+        "光亮术": "光照：20尺明亮光\n再外20尺微光",
+    }.get(name, "")
+
+
+def reference_groups(saved):
+    snapshot, answers = saved["snapshot"], saved["answers"]
+    groups = {}
+    for feature in saved.get("classFeatures", []):
+        state = ""
+        if feature["name"] == "奥术回想":
+            pool = snapshot.get("resourcePools", {}).get("奥术回想可恢复环阶")
+            if pool:
+                state = f'恢复已消耗的法术位\n环阶合计最多 {pool["max"]}\n仅限 1 至 5 环'
+        groups.setdefault(feature["category"], []).append((
+            feature["name"], concise_effect(feature["text"], 160), state
+        ))
+    for feat in saved.get("featFeatures", []):
+        groups.setdefault("专长", []).append((
+            feat["name"], f'{feat["source"]}。' + concise_effect(feat["text"], 138), ""
+        ))
+    for name in ("原初职能", "神圣职能", "战斗风格", "元素之怒", "受祝击",
+                 "超魔法", "魔能祈唤", "野兽形态", "武器精通"):
+        if value := answers.get(name):
+            groups.setdefault("已选特性", []).append((name, concise_effect(value, 160), ""))
+    spell_names = {spell["name"] for spell in saved["spells"]}
+    for spell in saved["spells"]:
+        tags = spell["tags"]
+        brief = "／".join(tags[key] for key in ("施法时间", "施法距离", "法术成分", "持续时间") if tags.get(key))
+        rank = spell["rank"]
+        category = f"{rank}环法术" if rank else "戏法"
+        details = "\n".join(filter(None, [brief, concise_effect(spell["effect"], 160)]))
+        groups.setdefault(category, []).append((
+            spell["name"] + "\n" + "／".join(spell["source"]), details, spell_state(spell, snapshot, spell_names)
+        ))
+    return groups
+
+
+def draw_reference_pages(art, font, saved):
+    x = (34, 158, 428, 578)
+    dark, border, muted = (0.12, 0.20, 0.25), (0.76, 0.80, 0.82), (0.33, 0.39, 0.42)
+    pages = []
+
+    def put(page, left, baseline, text, size, color=INK):
+        page.insert_text((left, baseline), text, fontname="CardFont", fontsize=size, color=color)
+
+    def new_page():
+        page = art.new_page(width=612, height=792)
+        page.insert_font(fontname="CardFont", fontbuffer=font.buffer)
+        pages.append(page.number)
+        put(page, x[0], 47, "能力速查", 23)
+        put(page, x[0], 68, f'{saved["snapshot"]["name"]} · {saved["snapshot"]["level"]}级 · 2024规则', 10, muted)
+        put(page, x[0], 85, "按类别查找。右栏写明可核对的变化，多个效果能否叠加按各自条件判定。", 8.5, muted)
+        page.draw_rect(fitz.Rect(x[0], 98, x[3], 121), color=None, fill=dark)
+        for i, label in enumerate(("能力 / 来源", "使用方式与效果", "可能改变的状态")):
+            put(page, x[i]+8, 113, label, 9.5, (1, 1, 1))
+        put(page, x[0], 761, "规则节录。遇到特殊条件，以对应完整条文为准。", 8, muted)
+        put(page, x[3]-73, 761, f"速查 第 {len(pages)} 页", 8, muted)
+        return page
+
+    def category_bar(page, y, label):
+        page.draw_rect(fitz.Rect(x[0], y, x[3], y+21), color=border, fill=(0.91, 0.94, 0.95), width=.55)
+        put(page, x[0]+8, y+14.5, label, 10)
+        return y+21
+
+    page, y = None, 0
+    for category, entries in reference_groups(saved).items():
+        for index, row in enumerate(entries):
+            sizes = (9.6, 9.2, 9.6)
+            columns = [wrapped(text or "—", x[i+1]-x[i]-16, sizes[i], font) for i, text in enumerate(row)]
+            height = max(35, 15 + max(map(len, columns))*13)
+            new = page is None or y + height + (21 if index == 0 else 0) > 739
+            if new:
+                page, y = new_page(), 121
+            if new or index == 0:
+                y = category_bar(page, y, category + ("（续）" if index else ""))
+            for i, lines in enumerate(columns):
+                fill = (0.95, 0.98, 0.96) if i == 2 and row[2] else (1, 1, 1)
+                page.draw_rect(fitz.Rect(x[i], y, x[i+1], y+height), color=border, fill=fill, width=.55)
+                for line, text in enumerate(lines):
+                    put(page, x[i]+8, y+15+line*13, text, sizes[i])
+            y += height
+    return pages
 
 
 def widgets(page):
@@ -348,6 +470,7 @@ def preview(template, output, saved):
             page.insert_text((40, 48), saved["snapshot"]["name"] + " · 角色卡补充", fontname="CardFont", fontsize=15, color=INK)
             for index, line in enumerate(lines[start:start+43]):
                 page.insert_text((40, 80+index*15), line, fontname="CardFont", fontsize=10, color=INK)
+    extra_pages.extend(draw_reference_pages(art, font, saved))
     art.subset_fonts()
     drawing = PdfReader(io.BytesIO(art.tobytes(garbage=4, deflate=True)))
     writer.pages[1].merge_page(drawing.pages[0])

@@ -30,14 +30,26 @@ function spellRows(lib, snapshot) {
 }
 
 function classFeatures(lib, snapshot) {
-  const entries = [lib.find('classes', snapshot.className), lib.find('subclasses', snapshot.subclass)].filter(Boolean);
-  return entries.flatMap(entry => {
+  const entries = [
+    ['职业能力', lib.find('classes', snapshot.className)],
+    ['子职能力', lib.find('subclasses', snapshot.subclass)]
+  ].filter(([, entry]) => entry);
+  return entries.flatMap(([category, entry]) => {
     const sections = [...entry.body.matchAll(/^(\d+)级[：:]([^\n]*)\n([\s\S]*?)(?=^\d+级[：:]|(?![\s\S]))/gm)];
     return sections.filter(section => Number(section[1]) <= snapshot.level).map(section => ({
-      name: section[2].split(/[A-Za-z]/)[0].trim(),
+      category, name: section[2].split(/[A-Za-z]/)[0].trim(),
       text: section[3].split('\n').map(line => line.trim()).find(line => /^[\u3400-\u9fff]/.test(line)) || ''
     }));
   }).filter(feature => feature.name);
+}
+
+function featFeatures(lib, snapshot) {
+  return snapshot.feats.map(feat => {
+    const entry = lib.find('feats', feat.name);
+    const lines = entry?.body.split('\n').map(line => line.trim()).filter(Boolean) || [];
+    const benefit = lines.slice(1).findIndex(line => /^[\u3400-\u9fff]/.test(line) && !/^[(（]/.test(line));
+    return { name: feat.name, source: feat.source, text: benefit < 0 ? '' : lines.slice(benefit + 1).join('\n') };
+  });
 }
 
 async function main() {
@@ -48,7 +60,10 @@ async function main() {
     throw new Error('请选择由同一版本资料生成的本级角色成果。');
   }
   const snapshot = saved.snapshot;
-  const payload = { ...saved, spells: spellRows(lib, snapshot), classFeatures: classFeatures(lib, snapshot) };
+  const payload = {
+    ...saved, spells: spellRows(lib, snapshot), classFeatures: classFeatures(lib, snapshot),
+    featFeatures: featFeatures(lib, snapshot)
+  };
   const script = fileURLToPath(new URL('./character-pdf.py', import.meta.url));
   const result = spawnSync('python', ['-X', 'utf8', script, template, output], {
     input: JSON.stringify(payload), encoding: 'utf8', maxBuffer: 1024 * 1024
