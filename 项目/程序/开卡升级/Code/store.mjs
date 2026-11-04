@@ -146,7 +146,7 @@ async function saveCompleted(lib,dir,s,result){
   for(const [filename,body] of Object.entries(pair))await atomic(join(destination,filename),body);
   await atomic(join(destination,'角色卡.txt'),summary(result.snapshot));
   if(s.base)await atomic(join(destination,'升级变化.txt'),`从${s.base.snapshot.level}级升至${result.snapshot.level}级\n\n`+Object.entries(s.answers).filter(([k,v])=>v!==s.base.answers[k]).map(([k,v])=>`${k}：${s.base.answers[k]||'无'} → ${v}`).join('\n'));
-  await atomic(path,{id:s.id,version:s.version,sourceHash:s.sourceHash,answers:s.answers,rolls:s.rolls,snapshot:result.snapshot});
+  await atomic(path,{id:s.id,version:s.version,sourceHash:s.sourceHash,config:s.config,answers:s.answers,rolls:s.rolls,snapshot:result.snapshot});
 }
 
 export async function recover(lib,dir){return locked(dir,async()=>{const s=await readState(dir);ensureVersion(lib,s);const r=resultFor(lib,s);if(s.status==='complete'&&!r.issues.length&&!r.missing.length)await saveCompleted(lib,dir,s,r);await publish(lib,dir,s,r);return {state:s,result:r};});}

@@ -77,6 +77,12 @@ function featureText(entry,level) {
   return entry.title+'\n\n'+matches.map((m,i)=>Number(m[1])<=level?entry.body.slice(m.index,matches[i+1]?.index??entry.body.length).trim():'').filter(Boolean).join('\n\n');
 }
 
+function backgroundRule(state) {
+  return state.config?.freeBackgroundAbilities===true
+    ?'房规已开启。可在六项属性中自由分配背景的3点，两项分别加2和1，或三项各加1。'
+    :'按背景指定的三项属性分配，两项分别加2和1，或三项各加1。';
+}
+
 export function renderFiles(lib,state,result,stage) {
   const files=new Map(), s=result.snapshot, free=state.mode==='自由';
   const list=(filename,entries)=>files.set(filename,overview(entries));
@@ -96,7 +102,7 @@ export function renderFiles(lib,state,result,stage) {
   const c=lib.find('classes',s.className),sub=lib.find('subclasses',s.subclass);
   files.set('职业成长总览.txt',info(c)+'\n\n'+(sub?info(sub):''));
   list('子职选项.txt',lib.subclasses.filter(e=>e.className===c.className));
-  files.set('起源与基础说明.txt',info(lib.find('species',s.species))+'\n'+info(lib.find('backgrounds',s.background))+'\n属性顺序：力量、敏捷、体质、智力、感知、魅力。\n标准数组15、14、13、12、10、8；购点预算27，各项8至15；程序掷骰为6组4d6去最低。\n背景：允许的三项中两项分别+2/+1，或者三项各+1。\n');
+  files.set('起源与基础说明.txt',info(lib.find('species',s.species))+'\n'+info(lib.find('backgrounds',s.background))+'\n属性顺序：力量、敏捷、体质、智力、感知、魅力。\n标准数组15、14、13、12、10、8各用一次。购点预算27，各项8至15。程序掷骰为6组4d6去最低。购点和掷骰允许同值。\n背景加值：'+backgroundRule(state)+'\n');
   list('专长选项.txt',lib.feats);
   for(const ref of lib.entries.filter(e=>e.kind==='class-reference'&&e.source.includes('/'+c.className+'/')&&!e.name.includes('法术列表')))files.set(ref.name+'.txt',info(ref));
   for(const q of result.questions.filter(q=>q.kind==='spell')) {
@@ -107,7 +113,7 @@ export function renderFiles(lib,state,result,stage) {
   if(s.className==='德鲁伊')list('野兽形态选项.txt',lib.beasts);
   list('装备选项.txt',lib.equipment);
   files.set('当前能力.txt',featureText(c,s.level)+'\n\n'+featureText(sub,s.level)+'\n\n'+s.feats.map(f=>info(lib.find('feats',f.name))).join('\n'));
-  files.set('规则范围.txt',`2024玩家手册核心，单职业1至20级。野兽使用该手册附录B指向的2025数据。\n规则版本：${lib.version}\n额外起始资金：${(state.config.extraGoldCp||0)/100}GP。\n完整来源与版本留在存档中，玩家不需要填写。\n`);
+  files.set('规则范围.txt',`2024玩家手册核心，单职业1至20级。野兽使用该手册附录B指向的2025数据。\n规则版本：${lib.version}\n背景加值：${backgroundRule(state)}\n额外起始资金：${(state.config.extraGoldCp||0)/100}GP。\n完整来源与版本留在存档中，玩家不需要填写。\n`);
   return files;
 }
 
@@ -117,6 +123,6 @@ export function markdownPair(lib,state,result) {
   const selectionEntries=Object.entries(state.answers).filter(([k,v])=>!state.base||state.base.answers[k]!==v);
   const choices=header+'# 本级选择\n\n## 等级与来源\n'+s.level+'级'+s.className+'，2024核心。\n\n## 新增与替换\n'+selectionEntries.map(([k,v])=>`${k}：${v}`).join('\n\n')+'\n\n## 属性、专长与骰点\n'+JSON.stringify(state.rolls,null,2)+'\n\n## 待确认\n无未填写的程序必需项。\n';
   const spellNames=[...new Set([...s.cantrips,...s.prepared,...s.grantedSpells.map(g=>g.name)])];
-  const ability=header+'# 能力与数值\n\n## 基础数值\n'+summary(s)+'\n## 能力速查\n'+featureText(lib.find('classes',s.className),s.level)+'\n\n'+featureText(lib.find('subclasses',s.subclass),s.level)+'\n\n'+s.feats.map(f=>info(lib.find('feats',f.name))).join('\n')+'\n## 法术与专注\n'+spellNames.map(n=>info(lib.find('spells',n))).join('\n\n')+'\n## 装备、房规与长期增益\n'+(state.config.notes||'按本工具核心规则配置。')+'\n\n## 待确认\n开卡计算不包含战斗中的临时状态与效果结算。\n';
+  const ability=header+'# 能力与数值\n\n## 基础数值\n'+summary(s)+'\n## 能力速查\n'+featureText(lib.find('classes',s.className),s.level)+'\n\n'+featureText(lib.find('subclasses',s.subclass),s.level)+'\n\n'+s.feats.map(f=>info(lib.find('feats',f.name))).join('\n')+'\n## 法术与专注\n'+spellNames.map(n=>info(lib.find('spells',n))).join('\n\n')+'\n## 装备、房规与长期增益\n背景加值：'+backgroundRule(state)+(state.config.notes?'\n'+state.config.notes:'')+'\n\n## 待确认\n开卡计算不包含战斗中的临时状态与效果结算。\n';
   return {'选择.md':choices,'能力.md':ability};
 }

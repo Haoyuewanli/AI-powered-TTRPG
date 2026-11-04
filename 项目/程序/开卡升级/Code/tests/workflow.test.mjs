@@ -11,6 +11,18 @@ const lib=await loadLibrary();
 const tempRoot=resolve(ROOT,'../../../开发记录/临时/开卡升级检查');await mkdir(tempRoot,{recursive:true});
 async function fixture(mode='自由',answers=druid(lib)) {const base=await mkdtemp(join(tempRoot,'run-'));return createCharacter(lib,{base,answers,mode});}
 async function replaceAnswers(dir,answers){const s=await readState(dir);const r=evaluate(lib,answers,{rolls:s.rolls,config:s.config});await writeFile(join(dir,'玩家文件','回答.txt'),answerText({...s,answers,mode:'自由'},r,0));}
+test('a house rule is shown to the player, recorded in the result and retained on upgrade',async()=>{
+  const base=await mkdtemp(join(tempRoot,'run-'));
+  const f=await createCharacter(lib,{base,mode:'自由',answers:{...druid(lib,1),背景加值:'魅力、魅力、智力'},config:{freeBackgroundAbilities:true}});
+  const read=(...parts)=>readFile(join(f.dir,...parts),'utf8');
+  assert.match(await read('玩家文件','规则范围.txt'),/房规已开启/);
+  assert.equal((await continueCharacter(lib,f.dir)).complete,true);
+  assert.equal(JSON.parse(await read('成果','01级','角色.json')).config.freeBackgroundAbilities,true);
+  assert.match(await read('成果','01级','能力.md'),/房规已开启/);
+  const upgrade=await upgradeCharacter(lib,f.dir,2);
+  assert.equal(upgrade.state.config.freeBackgroundAbilities,true);
+  assert.ok(!upgrade.result.issues.some(e=>e.key==='背景加值'));
+});
 test('free mode completes in one submission; repeated continue leaves completed snapshot unchanged',async()=>{
   const f=await fixture();const r=await continueCharacter(lib,f.dir);assert.equal(r.complete,true);
   const original=await readFile(join(f.dir,'成果','12级','角色.json'),'utf8');const again=await continueCharacter(lib,f.dir);assert.equal(again.unchanged,true);

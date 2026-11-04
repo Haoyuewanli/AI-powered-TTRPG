@@ -6,6 +6,33 @@ import { equipmentCatalog, startOptions } from '../equipment.mjs';
 import { druid, basicCharacter } from './fixtures.mjs';
 const lib=await loadLibrary();
 
+test('only the standard array requires distinct base scores, and budget and recorded dice still apply',()=>{
+  const answers=druid(lib,1);
+  const issues=(method,scores,rolls)=>evaluate(lib,{...answers,属性方式:method,基础属性:scores},{rolls}).issues.filter(e=>e.key==='基础属性');
+  assert.equal(issues('标准数组','15、14、13、12、10、8').length,0);
+  assert.match(issues('标准数组','15、15、13、12、10、8')[0].message,/各一次/);
+  assert.equal(issues('购点','15、15、15、8、8、8').length,0);
+  assert.match(issues('购点','15、15、15、9、8、8')[0].message,/27点/);
+  assert.match(issues('购点','16、8、8、8、8、8')[0].message,/8至15/);
+  const rolls={abilities:[15,15,13,12,10,8]};
+  assert.equal(issues('程序掷骰','8、15、13、15、12、10',rolls).length,0);
+  assert.match(issues('程序掷骰','8、15、13、13、12、10',rolls)[0].message,/已保存/);
+  assert.match(issues('程序掷骰','8、15、13、15、12、10')[0].message,/先运行/);
+});
+
+test('optional free background bonuses accept any ability but require three points across at least two abilities',()=>{
+  const answers=druid(lib,1),config={freeBackgroundAbilities:true};
+  const check=(bonus,context={config})=>evaluate(lib,{...answers,背景加值:bonus},context);
+  const errors=result=>result.issues.filter(e=>e.key==='背景加值');
+  assert.ok(errors(check('魅力、魅力、智力',{})).length);
+  const result=check('魅力、魅力、智力');
+  assert.equal(errors(result).length,0);
+  assert.equal(result.snapshot.scores.魅力,12);
+  assert.equal(result.snapshot.scores.智力,13);
+  assert.equal(errors(check('力量、敏捷、魅力')).length,0);
+  for(const bonus of ['魅力、魅力、魅力','魅力、智力','魅力、智力、力量、敏捷','无'])assert.ok(errors(check(bonus)).length,bonus);
+});
+
 test('all 12 classes have distinct rows for 1–20, including source Wizard row repair',()=>{
   assert.equal(lib.classes.length,12);assert.equal(lib.subclasses.length,48);
   for(const c of lib.classes)for(let n=1;n<=20;n++){assert.equal(classProgression(c,n).row[0],String(n));const cap=spellCapacity(c,n);assert.ok(cap.slots.every(v=>Number.isInteger(v)&&v>=0));}

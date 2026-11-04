@@ -57,7 +57,7 @@ export function evaluate(lib, answers, context={}) {
       });
       for(const v of values)if(!q.options.includes(v))issues.push({key,stage,message:`${key}：找不到“${v}”，请使用对应选项中的名称。`});
     }
-    if(q.multiple&&new Set(values).size!==values.length)issues.push({key,stage,message:key+'：不能重复填写同一项。'});
+    if(q.multiple&&!q.allowRepeated&&new Set(values).size!==values.length)issues.push({key,stage,message:key+'：不能重复填写同一项。'});
     if(q.count!==undefined&&values.length!==q.count)issues.push({key,stage,message:`${key}：需要${q.count}项，目前${values.length}项。`});
     if(q.number){const n=asNumber(values[0]);if(!Number.isInteger(n)||n<q.min||n>q.max)issues.push({key,stage,message:`${key}：填写${q.min}至${q.max}的整数。`});canonical[key]=String(n);return n;}
     canonical[key]=q.multiple?(values.join('、')||'无'):values[0];
@@ -79,7 +79,7 @@ export function evaluate(lib, answers, context={}) {
   if(!c||!species||!background||!Number.isInteger(level)||level<1||level>20) return {questions,issues,missing,canonical,snapshot:null};
   const sub=use(lib.find('subclasses',subName));
   const hitDie=Number(trait(c,'生命值骰').match(/D(\d+)/i)?.[1]);
-  const baseScores = many('基础属性',1,undefined,6,{help:'按力量、敏捷、体质、智力、感知、魅力顺序填写六个数，用逗号分隔。'}).map(asNumber);
+  const baseScores = many('基础属性',1,undefined,6,{allowRepeated:true,help:'按力量、敏捷、体质、智力、感知、魅力顺序填写六个数。标准数组每个数用一次，购点和掷骰允许同值。'}).map(asNumber);
   if(baseScores.length===6){
     if(baseScores.some(n=>!Number.isInteger(n)||n<3||n>18))error('基础属性','六项必须为3至18的整数。',1);
     else {
@@ -96,16 +96,18 @@ export function evaluate(lib, answers, context={}) {
     }
   }
   function addAbilities(key,stage,allowed,total,max,distinct=false){
-    const values=many(key,stage,abilities,undefined,{help:`填写属性名称，共${total}点；同一属性加2时写两次，例如感知、感知。`,allowRepeated:true});
-    // Repetition is meaningful for ability increases, unlike other multi-selects.
-    const duplicate=issues.findIndex(e=>e.key===key&&e.message.includes('不能重复'));if(duplicate>=0)issues.splice(duplicate,1);
+    const backgroundHelp=distinct?`可加属性：${allowed.join('、')}。两项分别加2和1，或三项各加1。\n`:'';
+    const values=many(key,stage,abilities,total,{help:backgroundHelp+`填写属性名称，共${total}点。同一属性加2时写两次，例如感知、感知。`,allowRepeated:true});
     if(!values.length)return;
-    if(values.length!==total||values.some(a=>!allowed.includes(a)))error(key,'加点数量或可选属性不符合要求。',stage);
+    if(values.some(a=>!allowed.includes(a)))error(key,'加点包含不允许的属性。',stage);
     const counts=Object.fromEntries(abilities.map(a=>[a,values.filter(x=>x===a).length]));
     if(distinct && (Math.max(...Object.values(counts))>2 || Object.values(counts).filter(n=>n>0).length<2))error(key,'背景加值选两项分别+2/+1，或三项各+1。',stage);
     for(const a of abilities){scores[a]+=counts[a];if(scores[a]>max)error(key,`${a}不能超过${max}。`,stage);}
   }
-  addAbilities('背景加值',1,abilities.filter(a=>line(background,'属性值').includes(a)),3,20,true);
+  const backgroundAbilities=context.config?.freeBackgroundAbilities===true
+    ?abilities
+    :abilities.filter(a=>line(background,'属性值').includes(a));
+  addAbilities('背景加值',1,backgroundAbilities,3,20,true);
   const skillOptions=Object.keys(skills).filter(s=>trait(c,'技能熟练').replaceAll('特技','体操').replaceAll('医疗','医药').includes(s));
   const skillCount=Number(trait(c,'技能熟练').match(/(\d)项/)?.[1])||2;
   for(const a of abilities)if(trait(c,'豁免熟练').includes(a))saves.add(a);
@@ -306,7 +308,6 @@ export function evaluate(lib, answers, context={}) {
     const minimum=[1,1,1,1,1,2,2,2,2,2,2,2,2,2,5,5,5,5,5,5,5,5,7,9,9,9,12,15];
     const count=Number(classProgression(c,level).row[3]);
     const inv=many('魔能祈唤',5,invocationNames,count,{allowRepeated:true});
-    const duplication=issues.findIndex(e=>e.key==='魔能祈唤'&&e.message.includes('不能重复'));if(duplication>=0)issues.splice(duplication,1);
     for(const n of new Set(inv))if(inv.filter(v=>v===n).length>1&&!['苦痛魔爆','魔能长枪','斥力魔爆','原初之一的教习'].includes(n))error('魔能祈唤',n+'不能重复选择。');
     for(const n of inv)if(minimum[invocationNames.indexOf(n)]>level)error('魔能祈唤',n+'尚未达到所需等级。');
     for(const [n,prereq] of [['魔能斩','刃之魔契'],['饥渴魔刃','刃之魔契'],['饮命者','刃之魔契'],['链主赋能','链之魔契'],['守护馈赠','书之魔契'],['灭世魔刃','饥渴魔刃']])if(inv.includes(n)&&!inv.includes(prereq))error('魔能祈唤',n+'需要'+prereq+'。');
