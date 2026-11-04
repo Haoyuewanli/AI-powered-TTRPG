@@ -1,0 +1,10 @@
+{
+  "name": "local-character-builder",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test Code/tests/*.test.mjs",
+    "build": "node Code/cli.mjs build",
+    "start": "node Code/cli.mjs"
+  }
+}
