@@ -4,6 +4,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import { startApp } from '../../../项目/程序/战斗/Code/server.mjs';
 import { fixture } from '../../../项目/程序/战斗/Code/tests/fixture.mjs';
+import {createPreviewStore} from './preview-store.mjs';
+import {spawn} from 'node:child_process';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -32,6 +34,8 @@ export async function startPreview() {
   const session = await mkdtemp(join(temp, 'session-'));
   await mkdir(join(session,'演示团'));
   const core = await startApp({ campaignDir:join(session,'演示团'), workspaceDir:join(session,'工作区'), port:0, initial:sample });
+  const preview = await createPreviewStore(join(session,'预览02.json'));
+  const files=new Map([['/','v2.html'],...['v2.css','v2.mjs','v2-view.mjs','scene-model.mjs'].map(name=>['/'+name,name])]);
   const server = createServer(async (req,res) => {
     const send = (status, value) => { res.writeHead(status, {'Content-Type':'application/json; charset=utf-8'}); res.end(JSON.stringify(value)); };
     res.setHeader('Cache-Control','no-store');
@@ -40,6 +44,19 @@ export async function startPreview() {
       if (req.headers.host !== new URL(origin).host || (req.headers.origin && req.headers.origin !== origin)) return send(403,{error:'仅允许本机预览页面访问'});
       const path = new URL(req.url, origin).pathname;
       if (path === '/health' && req.method === 'GET') return send(200,{preview:true, synthetic:true});
+      if(files.has(path)&&req.method==='GET'){
+        const name=files.get(path);
+        res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'");
+        res.writeHead(200,{'Content-Type':name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'});
+        return res.end(await readFile(join(here,name)));
+      }
+      if(path==='/v2/state'&&req.method==='GET')return send(200,preview.get());
+      if(['/v2/state','/v2/plan'].includes(path)&&req.method==='POST'){
+        if(!req.headers['content-type']?.startsWith('application/json'))return send(415,{error:'请使用JSON操作'});
+        let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>65536)return send(413,{error:'内容过长'});chunks.push(chunk);}
+        try{const body=JSON.parse(Buffer.concat(chunks).toString('utf8'));return send(200,path==='/v2/state'?await preview.dispatch(body):preview.plan(body));}
+        catch(error){return send(400,{error:error.message});}
+      }
       if (path === '/preview.css' && req.method === 'GET') { res.writeHead(200,{'Content-Type':'text/css; charset=utf-8'}); return res.end(await readFile(join(here,'preview.css'))); }
       if (path.startsWith('/api/') && !allowed.has(`${req.method} ${path}`)) return send(403,{error:'此入口留待正式整合；当前仅预览战斗界面。'});
       if (!path.startsWith('/api/') && req.method !== 'GET') return send(405,{error:'不支持此方法'});
@@ -47,11 +64,11 @@ export async function startPreview() {
       for await (const chunk of req) { size+=chunk.length; if(size>65536) return send(413,{error:'内容过长'}); chunks.push(chunk); }
       const headers = {};
       for (const name of ['content-type','authorization']) if(req.headers[name]) headers[name]=req.headers[name];
-      const upstream = await fetch(core.url + path, { method:req.method, headers, ...(req.method === 'POST' ? {body:Buffer.concat(chunks)} : {}) });
+      const upstream = await fetch(core.url + (path==='/v1'?'/':path), { method:req.method, headers, ...(req.method === 'POST' ? {body:Buffer.concat(chunks)} : {}) });
       res.statusCode=upstream.status;
       res.setHeader('Content-Type',upstream.headers.get('content-type') || 'application/octet-stream');
       res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'");
-      if(path === '/') {
+      if(path === '/v1') {
         let html = await upstream.text();
         html=html.replace('</head>','<link rel="stylesheet" href="/preview.css"></head>')
           .replace('<body>','<body><aside class="preview-banner"><strong>战斗窗口 · 预览 01</strong><span>演示数据 · 可放心试操作 · 本轮仅修改预览</span></aside>')
@@ -74,5 +91,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   const app = await startPreview();
   await writeFile(join(root,'开发记录/临时/战斗窗口预览/当前地址.txt'),app.url,'utf8');
   console.log(app.url);
+  if(process.argv.includes('--open')){
+    const browser=spawn(join(process.env['ProgramFiles(x86)']||'C:/Program Files (x86)','Microsoft/Edge/Application/msedge.exe'),['--new-window',app.url],{detached:true,stdio:'ignore',windowsHide:true});
+    browser.on('error',()=>console.log('浏览器未自动打开，请打开上方本机地址。'));browser.unref();
+  }
   for(const signal of ['SIGINT','SIGTERM']) process.once(signal,async()=>{await app.close();process.exit(0);});
 }
