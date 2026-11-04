@@ -45,13 +45,43 @@ function checkUpgrade(s,r){
   if(r.snapshot){r.snapshot.currentState=base.snapshot.currentState??null;r.snapshot.upgradedFrom=base.snapshot.level;}
 }
 
+async function referenceArchives(dir){return json(join(dir,'参考归档清单.json')).catch(e=>{if(e.code==='ENOENT')return {};throw e;});}
+async function requirePublishedReferences(dir,s){
+  if(s.archiveRound&&!(await referenceArchives(dir))[s.archiveRound]?.complete)throw new Error('上轮参考资料尚未归档完成，请先运行 recover 恢复当前文件。');
+}
+async function archiveReferences(dir,s){
+  if(!s.archiveRound)return;
+  const round=s.archiveRound;
+  if(!Number.isSafeInteger(round)||round<1)throw new Error('参考轮次记录损坏。');
+  const player=join(dir,'玩家文件'),destination=join(player,`第${round}轮参考txt`),indexPath=join(dir,'参考归档清单.json');
+  const index=await referenceArchives(dir);let entry=index[round];
+  if(entry?.complete)return;
+  await noLinks(destination);
+  if(!entry){
+    if(await exists(destination))throw new Error(`玩家文件夹中已有“第${round}轮参考txt”，已保留。请移开自有同名目录后恢复当前文件。`);
+    const previous=await json(join(dir,'生成清单.json'));
+    entry={files:previous.filter(n=>n.endsWith('.txt')&&n!=='回答.txt'),complete:false};
+    index[round]=entry;
+    // Claim the destination before moving files, so an interrupted archive can resume.
+    await atomic(indexPath,index);
+  }
+  await mkdir(destination,{recursive:true});
+  for(const filename of entry.files){
+    if(filename.includes('/')||filename.includes('\\')||!filename.endsWith('.txt')||filename==='回答.txt')throw new Error('参考归档清单损坏。');
+    const from=join(player,filename),to=join(destination,filename);await noLinks(from);await noLinks(to);
+    if(!await exists(to)&&await exists(from))await rename(from,to);
+  }
+  entry.complete=true;await atomic(indexPath,index);
+}
+
 async function publish(lib,dir,s,result){
   const player=join(dir,'玩家文件');await mkdir(player,{recursive:true});
+  await archiveReferences(dir,s);
   const candidates=[...result.issues,...result.missing];const stage=candidates.length?Math.min(...candidates.map(p=>p.stage)):6;
   const files=renderFiles(lib,s,result,stage);
   const launcher='@echo off\r\nchcp 65001 >nul\r\nnode "%~dp0..\\..\\..\\Code\\cli.mjs" continue "%~dp0.."\r\npause\r\n';
   files.set('继续.cmd',launcher);
-  const history=join(dir,'历史',pad(s.revision)+'-'+Date.now());await mkdir(history,{recursive:true});
+  const history=join(dir,'历史',pad(s.revision)+'-'+Date.now()+'-'+randomUUID());await mkdir(history,{recursive:true});
   const previous=await json(join(dir,'生成清单.json')).catch(e=>{if(e.code==='ENOENT')return [];throw e;});
   for(const filename of files.keys())if(!previous.includes(filename)&&await exists(join(player,filename)))throw new Error('玩家文件夹中存在同名自有文件，已保留：'+filename);
   // Persist ownership before writing a generation so recovery can finish partial publication.
@@ -71,14 +101,14 @@ export async function createCharacter(lib,{base=STORE,answers={},mode='引导',c
   if(!['引导','自由'].includes(mode))throw new Error('模式只能是引导或自由。');
   await noLinks(base);await mkdir(base,{recursive:true});
   const id='character-'+randomUUID(),dir=join(base,id);await mkdir(dir);
-  const s={version:VERSION,sourceHash:lib.hash,id,revision:1,mode,answers,rolls:{},config:{extraGoldCp:0,...config},status:'draft',createdAt:new Date().toISOString()};
+  const s={version:VERSION,sourceHash:lib.hash,id,revision:1,referenceRound:1,mode,answers,rolls:{},config:{extraGoldCp:0,...config},status:'draft',createdAt:new Date().toISOString()};
   await atomic(join(dir,'状态.json'),s);const result=resultFor(lib,s);await publish(lib,dir,s,result);
   return {dir,state:s,result};
 }
 
 export async function continueCharacter(lib,dir,{checkOnly=false}={}){
   return locked(dir,async()=>{
-    let s=await readState(dir);ensureVersion(lib,s);
+    let s=await readState(dir);ensureVersion(lib,s);await requirePublishedReferences(dir,s);
     const text=await readFile(join(dir,'玩家文件','回答.txt'),'utf8');
     const incoming=parseAnswers(text,s.id+'-'+s.revision);
     const resultBefore=resultFor(lib,s), known=new Set(resultBefore.questions.map(q=>q.key));
@@ -94,7 +124,11 @@ export async function continueCharacter(lib,dir,{checkOnly=false}={}){
       if(JSON.stringify(merged)!==JSON.stringify(s.answers))throw new Error('此等级已完成。请从工具入口选择“升级”，原卡保留。');
       return {state:s,result:evaluated,complete:true,unchanged:true};
     }
-    s={...revised,revision:s.revision+1,updatedAt:new Date().toISOString(),status:complete?'complete':'draft'};
+    const priorProblems=[...resultBefore.issues,...resultBefore.missing];
+    const priorStage=priorProblems.length?Math.min(...priorProblems.map(p=>p.stage)):6;
+    const advance=complete||(s.mode==='引导'&&![...evaluated.issues,...evaluated.missing].some(p=>p.stage<=priorStage));
+    const round=s.referenceRound||1;
+    s={...revised,revision:s.revision+1,referenceRound:round+(advance?1:0),archiveRound:advance?round:null,updatedAt:new Date().toISOString(),status:complete?'complete':'draft'};
     await mkdir(join(dir,'历史'),{recursive:true});
     await atomic(join(dir,'历史','输入-'+s.revision+'-'+Date.now()+'.txt'),text);
     await atomic(join(dir,'状态.json'),s);
@@ -117,17 +151,18 @@ async function saveCompleted(lib,dir,s,result){
 
 export async function recover(lib,dir){return locked(dir,async()=>{const s=await readState(dir);ensureVersion(lib,s);const r=resultFor(lib,s);if(s.status==='complete'&&!r.issues.length&&!r.missing.length)await saveCompleted(lib,dir,s,r);await publish(lib,dir,s,r);return {state:s,result:r};});}
 export async function changeMode(lib,dir,mode){if(!['引导','自由'].includes(mode))throw new Error('请选择引导或自由。');
-  return locked(dir,async()=>{let s=await readState(dir);ensureVersion(lib,s);const raw=await readFile(join(dir,'玩家文件','回答.txt'),'utf8');const input=parseAnswers(raw,s.id+'-'+s.revision);s={...s,answers:{...s.answers,...input},mode,revision:s.revision+1};await atomic(join(dir,'状态.json'),s);const r=resultFor(lib,s);await publish(lib,dir,s,r);return {state:s,result:r};});}
+  return locked(dir,async()=>{let s=await readState(dir);ensureVersion(lib,s);await requirePublishedReferences(dir,s);const raw=await readFile(join(dir,'玩家文件','回答.txt'),'utf8');const input=parseAnswers(raw,s.id+'-'+s.revision);s={...s,answers:{...s.answers,...input},mode,revision:s.revision+1};await atomic(join(dir,'状态.json'),s);const r=resultFor(lib,s);await publish(lib,dir,s,r);return {state:s,result:r};});}
 export async function rollCharacter(lib,dir){return locked(dir,async()=>{
-  const s=await readState(dir);ensureVersion(lib,s);if(s.status==='complete')throw new Error('此等级已完成，不能重新掷骰。');
+  const s=await readState(dir);ensureVersion(lib,s);await requirePublishedReferences(dir,s);if(s.status==='complete')throw new Error('此等级已完成，不能重新掷骰。');
   const input=parseAnswers(await readFile(join(dir,'玩家文件','回答.txt'),'utf8'),s.id+'-'+s.revision);s.answers={...s.answers,...input};
   ensureRolls(lib,s);
   s.revision++;await atomic(join(dir,'状态.json'),s);const r=resultFor(lib,s);await publish(lib,dir,s,r);return {state:s,result:r};
 });}
 export async function upgradeCharacter(lib,dir,target){return locked(dir,async()=>{
-  const s=await readState(dir);ensureVersion(lib,s);if(s.status!=='complete')throw new Error('先完成当前角色，再升级。');
+  const s=await readState(dir);ensureVersion(lib,s);await requirePublishedReferences(dir,s);if(s.status!=='complete')throw new Error('先完成当前角色，再升级。');
   const previous=Number(s.answers.目标等级);if(!Number.isInteger(target)||target<=previous||target>20)throw new Error('目标须高于当前等级且不超过20。');
   const base=await json(join(dir,'成果',pad(previous)+'级','角色.json'));
+  s.archiveRound=s.referenceRound||1;s.referenceRound=s.archiveRound+1;
   s.base=base;s.answers.目标等级=String(target);s.status='draft';s.revision++;
   await atomic(join(dir,'状态.json'),s);const r=resultFor(lib,s);await publish(lib,dir,s,r);return {state:s,result:r};
 });}

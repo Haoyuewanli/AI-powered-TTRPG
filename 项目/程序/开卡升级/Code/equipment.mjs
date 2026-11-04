@@ -49,7 +49,7 @@ export function equipment(lib, env) {
     }
     if(contents.includes('长棍')&&!owned.has('长棍'))add('长棍');
   }
-  const purchases=many('购买物品',stage,undefined,undefined,{help:'每项写名称*数量，例如皮甲*1、匕首*2；不买填写“无”。'});
+  const purchases=many('购买物品',stage,undefined,undefined,{candidates:Array.from(catalog.values(),i=>({name:i.name,priceCp:i.priceCp})),help:'每项写名称*数量，例如皮甲*1、匕首*2；不买填写“无”。以下列出基础单价，巧匠折扣由程序结算；物品详情见装备选项.txt。'});
   const buys=[];
   for(const input of purchases){const m=input.match(/^(.+?)(?:\s*[*×x]\s*(\d+))?$/);if(!m)continue;const item=catalog.get(m[1].trim()),count=Number(m[2]||1);
     if(!item||!Number.isSafeInteger(count)||count<1||count>10000){error('购买物品',`无法识别或数量不合法：${input}。`,stage);continue;}

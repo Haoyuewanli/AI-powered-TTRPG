@@ -140,7 +140,7 @@ export function evaluate(lib, answers, context={}) {
 
   function grant(spell,source,ability,extra={}){const e=use(lib.find('spells',spell));if(!e){error(source,'本地法术条目缺失：'+spell);return;}grants.push({name:e.name,source,ability,...extra});}
   function spellPick(key,stage,options,count,ability,source){
-    featSpellKeys.push(key);return many(key,stage,names(options),count).map(n=>{const e=use(lib.find('spells',n));if(e)grants.push({name:n,ability,source});return e;}).filter(Boolean);
+    featSpellKeys.push(key);return many(key,stage,names(options),count,{kind:'spell'}).map(n=>{const e=use(lib.find('spells',n));if(e)grants.push({name:n,ability,source});return e;}).filter(Boolean);
   }
   function feat(name,key,at,origin=false,magicClass='') {
     const f=use(lib.find('feats',name));if(!f){
@@ -279,11 +279,11 @@ export function evaluate(lib, answers, context={}) {
   let cantrips=[],prepared=[],spellbook=[];
   const classSpells=lib.spells.filter(s=>s.classes.includes(spellClass));
   const autoClass = new Set(grants.filter(g=>g.source===sub?.name||['德鲁伊语','宿敌','圣武斩','信实坐骑'].includes(g.source)).map(g=>g.name));
-  if(capacity.cantrips) cantrips=many('职业戏法',5,names(classSpells.filter(s=>s.spellLevel===0&&!autoClass.has(s.name))),capacity.cantrips).map(n=>use(lib.find('spells',n))).filter(Boolean);
+  if(capacity.cantrips) cantrips=many('职业戏法',5,names(classSpells.filter(s=>s.spellLevel===0&&!autoClass.has(s.name))),capacity.cantrips,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean);
   if(c.name==='法师'){
-    for(let at=1;at<=level;at++)spellbook.push(...many(at+'级法术书新增',5,names(classSpells.filter(s=>s.spellLevel>=1&&s.spellLevel<=spellCapacity(c,at).maxSpell)),at===1?6:2).map(n=>use(lib.find('spells',n))).filter(Boolean));
+    for(let at=1;at<=level;at++)spellbook.push(...many(at+'级法术书新增',5,names(classSpells.filter(s=>s.spellLevel>=1&&s.spellLevel<=spellCapacity(c,at).maxSpell)),at===1?6:2,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean));
     const school={防护师:'防护',预言师:'预言',塑能师:'塑能',幻术师:'幻术'}[sub?.name];
-    if(school)for(const at of [3,5,7,9,11,13,15,17].filter(n=>n<=level))spellbook.push(...many(at+'级学派法术书',5,names(classSpells.filter(s=>s.spellLevel>=1&&s.spellLevel<=spellCapacity(c,at).maxSpell&&s.school===school)),at===3?2:1).map(n=>use(lib.find('spells',n))).filter(Boolean));
+    if(school)for(const at of [3,5,7,9,11,13,15,17].filter(n=>n<=level))spellbook.push(...many(at+'级学派法术书',5,names(classSpells.filter(s=>s.spellLevel>=1&&s.spellLevel<=spellCapacity(c,at).maxSpell&&s.school===school)),at===3?2:1,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean));
     if(new Set(spellbook.map(s=>s.id)).size<spellbook.length)error('法术书','各等级新增不能重复抄入同一道法术。');
     if(level>=18)for(const rank of [1,2])spellPick('法术精通'+rank+'环',5,spellbook.filter(s=>s.spellLevel===rank&&/施法时间：动作/.test(s.body)),1,'智力','法术精通');
     if(level>=20)spellPick('招牌法术',5,spellbook.filter(s=>s.spellLevel===3),2,'智力','招牌法术');
@@ -291,7 +291,7 @@ export function evaluate(lib, answers, context={}) {
   if(capacity.prepared){
     let options=c.name==='法师'?spellbook:classSpells;
     if(c.name==='吟游诗人'&&level>=10)options=lib.spells.filter(s=>s.classes.some(c=>['吟游诗人','牧师','德鲁伊','法师'].includes(c)));
-    prepared=many('准备法术',5,names(options.filter(s=>s.spellLevel>=1&&s.spellLevel<=capacity.maxSpell&&!autoClass.has(s.name))),capacity.prepared).map(n=>use(lib.find('spells',n))).filter(Boolean);
+    prepared=many('准备法术',5,names(options.filter(s=>s.spellLevel>=1&&s.spellLevel<=capacity.maxSpell&&!autoClass.has(s.name))),capacity.prepared,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean);
     if(['吟游诗人','术士','魔契师'].includes(c.name))for(let rank=2;rank<=capacity.maxSpell;rank++){
       const unlock=Array.from({length:level},(_,i)=>i+1).find(n=>spellCapacity(c,n).maxSpell>=rank);
       const prior=unlock>1?spellCapacity(c,unlock-1).prepared:0;
@@ -314,7 +314,7 @@ export function evaluate(lib, answers, context={}) {
       const max=count-Number(classProgression(c,min-1).row[3])+level-min+1;
       if(inv.filter(n=>minimum[invocationNames.indexOf(n)]>=min).length>max)error('魔能祈唤',`${min}级以上祈唤的数量无法通过逐级获取/替换达到。`);
     }
-    for(const n of ['苦痛魔爆','魔能长枪','斥力魔爆']){const times=inv.filter(x=>x===n).length;if(times)many(n+'戏法',5,names(cantrips.filter(s=>/伤害/.test(s.body)&&(n!=='斥力魔爆'||/攻击/.test(s.body))&&(n!=='魔能长枪'||Number(s.body.match(/施法距离：(\d+)/)?.[1])>=10))),times);}
+    for(const n of ['苦痛魔爆','魔能长枪','斥力魔爆']){const times=inv.filter(x=>x===n).length;if(times)many(n+'戏法',5,names(cantrips.filter(s=>/伤害/.test(s.body)&&(n!=='斥力魔爆'||/攻击/.test(s.body))&&(n!=='魔能长枪'||Number(s.body.match(/施法距离：(\d+)/)?.[1])>=10))),times,{kind:'spell'});}
     const grantsByInvocation={'幽影护甲':'法师护甲','链之魔契':'寻获魔宠','邪魔活力':'虚假生命','千面之颜':'易容术','幻象迷踪':'无声幻影','超凡跳跃':'跳跃术','星移步法':'浮空术','深海馈赠':'水下呼吸','万形之主':'变身术','融身入影':'隐形术','坟茔殁语':'死者交谈','穹宇尽视':'秘法眼'};
     for(const n of inv)if(grantsByInvocation[n])grant(grantsByInvocation[n],n,'魅力');
     if(inv.includes('书之魔契')){
