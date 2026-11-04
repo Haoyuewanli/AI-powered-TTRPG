@@ -1,18 +1,19 @@
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import { spawn } from 'node:child_process';
-import { join, resolve } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { ROOT, loadLibrary, buildLibrary } from './library.mjs';
-import { STORE, createCharacter, continueCharacter, rollCharacter, changeMode, upgradeCharacter, recover, checkedPath, listCharacters } from './store.mjs';
+import { createCharacter, continueCharacter, rollCharacter, changeMode, upgradeCharacter, recover, checkedPath, listCharacters } from './store.mjs';
 
-function backgroundConfig(option='标准'){
-  if(!['标准','自由'].includes(option))throw new Error('背景加值模式请选择“标准”或“自由”。');
-  return {freeBackgroundAbilities:option==='自由'};
+function ruleConfig(background='标准',budget='27'){
+  if(!['标准','自由'].includes(background))throw new Error('背景加值模式请选择“标准”或“自由”。');
+  if(!['27','32'].includes(budget))throw new Error('购点预算请选择27或32。');
+  return {freeBackgroundAbilities:background==='自由',pointBuy32:budget==='32'};
 }
 
 function report(value){
   if(value.dir)console.log('玩家文件夹：'+join(value.dir,'玩家文件'));
+  if(value.namingWarning)console.log(value.namingWarning);
   if(value.complete||value.state?.status==='complete'){console.log(value.checkOnly?'检查通过，保存并继续即可生成成果。':'角色已完成，角色卡保存在本角色的“成果”文件夹。');return;}
   const r=value.result;if(!r)return;
   if(r.issues.length)console.log(r.issues.map(e=>e.message).join('\n'));
@@ -24,13 +25,14 @@ async function main(){
   if(cmd==='build'){const m=await buildLibrary(lib);console.log(`TXT库已生成：${m.files}份；12职业、${m.subclasses}子职、${m.spells}道法术、${m.beasts}种附录野兽。`);return;}
   if(cmd==='list'){console.log(JSON.stringify(await listCharacters(),null,2));return;}
   if(cmd==='new'){
-    const flags={};const tokens=[arg,...args].filter(x=>x!==undefined);for(let i=0;i<tokens.length;i+=2){if(!['--mode','--class','--level','--name','--background-abilities'].includes(tokens[i])||tokens[i+1]===undefined)throw new Error('new参数：--mode 引导|自由 --class 职业 --level 等级 --name 名称 --background-abilities 标准|自由');flags[tokens[i]]=tokens[i+1];}
+    const flags={};const tokens=[arg,...args].filter(x=>x!==undefined);for(let i=0;i<tokens.length;i+=2){if(!['--mode','--class','--level','--name','--background-abilities','--point-buy'].includes(tokens[i])||tokens[i+1]===undefined)throw new Error('new参数：--mode 引导|自由 --class 职业 --level 等级 --name 名称 --point-buy 27|32 --background-abilities 标准|自由');flags[tokens[i]]=tokens[i+1];}
     const answers={};for(const [flag,key] of [['--class','职业'],['--level','目标等级'],['--name','角色名']])if(flags[flag])answers[key]=flags[flag];
-    const config=backgroundConfig(flags['--background-abilities']);
+    const config=ruleConfig(flags['--background-abilities'],flags['--point-buy']);
     const value=await createCharacter(lib,{mode:flags['--mode']||'引导',answers,config});report(value);return;
   }
   if(cmd!=='menu'){
     if(!arg)throw new Error('请提供角色存档目录，使用list查看。');const dir=await checkedPath(arg);
+    process.chdir(ROOT);
     if(cmd==='continue')report(await continueCharacter(lib,dir));
     else if(cmd==='check')report(await continueCharacter(lib,dir,{checkOnly:true}));
     else if(cmd==='roll')report(await rollCharacter(lib,dir));
@@ -47,20 +49,22 @@ async function main(){
     if(action==='7'){const m=await buildLibrary(lib);console.log('已生成'+m.files+'份资料。');return;}
     if(action==='1'){
       const mode=(await input.question('1 分轮引导  2 自由填写：')).trim();if(!['1','2'].includes(mode))throw new Error('请选择1或2。');
-      const background=(await input.question('背景加值  1 按背景（回车默认）  2 自由分配3点：')).trim();
+      const buy=(await input.question('采用32点购点房规？  1 否（回车默认）  2 是，16花12点：')).trim();
+      if(!['','1','2'].includes(buy))throw new Error('请选择1或2。');
+      const background=(await input.question('忽视背景限制，自由分配3点？  1 否（回车默认）  2 是：')).trim();
       if(!['','1','2'].includes(background))throw new Error('请选择1或2。');
-      const config=backgroundConfig(background==='2'?'自由':'标准');
+      const config=ruleConfig(background==='2'?'自由':'标准',buy==='2'?'32':'27');
       const value=await createCharacter(lib,{mode:mode==='2'?'自由':'引导',config});report(value);reveal(value.dir);return;
     }
     const entries=await listCharacters();if(!entries.length){console.log('还没有角色，请先新建。');return;}
-    entries.forEach((e,i)=>console.log(`${i+1} ${e.name} ${e.level}级${e.className} (${e.mode})`));
+    entries.forEach((e,i)=>console.log(`${i+1} ${e.name} ${e.level||'待确认'}级${e.className||''} (${e.mode||'无法读取'}) · ${basename(e.dir)}`));
     const choice=Number(await input.question('角色编号：')),entry=entries[choice-1];if(!entry)throw new Error('编号无效。');
     const dir=await checkedPath(entry.dir);
     if(action==='2')reveal(dir);
     else if(action==='3'){report(await upgradeCharacter(lib,dir,Number(await input.question('升到几级：'))));reveal(dir);}
     else if(action==='4'){const mode=(await input.question('1 分轮引导  2 自由填写：')).trim();if(!['1','2'].includes(mode))throw new Error('请选择1或2。');report(await changeMode(lib,dir,mode==='2'?'自由':'引导'));reveal(dir);}
     else if(action==='5'){report(await rollCharacter(lib,dir));reveal(dir);}
-    else if(action==='6'){report(await recover(lib,dir));reveal(dir);}
+    else if(action==='6'){process.chdir(ROOT);const value=await recover(lib,dir);report(value);reveal(value.dir);}
     else throw new Error('请选择有效操作。');
   }finally{input.close();}
 }

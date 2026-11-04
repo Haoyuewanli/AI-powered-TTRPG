@@ -10,6 +10,12 @@ export const instruments = ['风笛','鼓','扬琴','长笛','鲁特琴','里拉
 export const artisanTools = ['炼金工具','酿酒工具','书法工具','木匠工具','制图工具','鞋匠工具','厨师工具','玻璃工工具','珠宝工具','皮匠工具','石匠工具','画家工具','陶匠工具','铁匠工具','修补工具','织布工具','木雕工具'];
 export const tools = [...artisanTools,...instruments,'草药工具','盗贼工具','易容工具','文书伪造工具','领航工具','制毒工具','骰子','龙棋','纸牌','三龙牌'];
 export const languages = ['通用手语','龙语','矮人语','精灵语','巨人语','侏儒语','地精语','半身人语','兽人语'];
+export function pointBuy(config) {
+  const expanded=config?.pointBuy32===true;
+  const costs={8:0,9:1,10:2,11:3,12:4,13:5,14:7,15:9,...(expanded?{16:12}:{})};
+  const budget=expanded?32:27, max=expanded?16:15;
+  return {costs,budget,max,description:`购点预算${budget}点，基础属性8至${max}。费用：${Object.entries(costs).map(([n,cost])=>n+'='+cost).join('、')}。允许同值。`};
+}
 const castAbility = {吟游诗人:'魅力',圣武士:'魅力',德鲁伊:'感知',术士:'魅力',法师:'智力',游侠:'感知',牧师:'感知',魔契师:'魅力'};
 const featStages = n=>n<=4?2:n<=8?3:4;
 const asNumber = x=>Number(String(x).normalize('NFKC'));
@@ -55,7 +61,10 @@ export function evaluate(lib, answers, context={}) {
         const alias=skillName(v);if(q.options.includes(alias))return alias;
         const e=lib.find('entries',v);return e&&q.options.includes(e.name)?e.name:v;
       });
-      for(const v of values)if(!q.options.includes(v))issues.push({key,stage,message:`${key}：找不到“${v}”，请使用对应选项中的名称。`});
+      for(const v of values)if(!q.options.includes(v)){
+        const blocked=q.excluded?.find(item=>item.name===v);
+        issues.push({key,stage,message:blocked?`${key}：不能选${v}（${blocked.reason}）。`:`${key}：找不到“${v}”，请使用对应选项中的名称。`});
+      }
     }
     if(q.multiple&&!q.allowRepeated&&new Set(values).size!==values.length)issues.push({key,stage,message:key+'：不能重复填写同一项。'});
     if(q.count!==undefined&&values.length!==q.count)issues.push({key,stage,message:`${key}：需要${q.count}项，目前${values.length}项。`});
@@ -65,6 +74,13 @@ export function evaluate(lib, answers, context={}) {
   }
   const one=(key,stage,options,extra={})=>question(key,stage,{options,...extra});
   const many=(key,stage,options,count,extra={})=>question(key,stage,{multiple:true,options,count,...extra});
+  const legacySelection=key=>!!context.legacyChoices?.[key]&&context.legacyChoices[key]===answers[key];
+  const chooseNew=(key,stage,options,count,reason,extra={})=>{
+    const grandfathered=legacySelection(key)?new Set(split(answers[key])):new Set();
+    const excluded=options.flatMap(name=>{const why=reason(name);return why&&!grandfathered.has(name)?[{name,reason:why}]:[];});
+    const blocked=new Set(excluded.map(item=>item.name));
+    return many(key,stage,options.filter(n=>!blocked.has(n)),count,{...extra,excluded}).filter(n=>!blocked.has(n));
+  };
   const error=(key,message,stage=5)=>issues.push({key,message:`${key}：${message}`,stage});
   const use = e=>{if(e)sourceIds.add(e.id);return e;};
   const name=question('角色名',0,{help:'角色显示名称，不用于决定内部存档身份。'});
@@ -79,15 +95,22 @@ export function evaluate(lib, answers, context={}) {
   if(!c||!species||!background||!Number.isInteger(level)||level<1||level>20) return {questions,issues,missing,canonical,snapshot:null};
   const sub=use(lib.find('subclasses',subName));
   const hitDie=Number(trait(c,'生命值骰').match(/D(\d+)/i)?.[1]);
-  const baseScores = many('基础属性',1,undefined,6,{allowRepeated:true,help:'按力量、敏捷、体质、智力、感知、魅力顺序填写六个数。标准数组每个数用一次，购点和掷骰允许同值。'}).map(asNumber);
+  const buy=pointBuy(context.config);
+  const methodHelp=abilityMethod==='购点'?buy.description:abilityMethod==='程序掷骰'?'使用存档的六个骰点，允许同值。':'标准数组15、14、13、12、10、8各用一次。';
+  const baseScores = many('基础属性',1,undefined,6,{allowRepeated:true,help:'按力量、敏捷、体质、智力、感知、魅力顺序填写六个数。'+methodHelp}).map(asNumber);
   if(baseScores.length===6){
-    if(baseScores.some(n=>!Number.isInteger(n)||n<3||n>18))error('基础属性','六项必须为3至18的整数。',1);
+    if(baseScores.some(n=>!Number.isInteger(n)))error('基础属性','六项必须是整数。',1);
+    else if(abilityMethod!=='购点'&&baseScores.some(n=>n<3||n>18))error('基础属性','六项必须在3至18之间。',1);
     else {
       scores=Object.fromEntries(abilities.map((a,i)=>[a,baseScores[i]]));
       if(abilityMethod==='标准数组'&&[...baseScores].sort((a,b)=>a-b).join(',')!=='8,10,12,13,14,15')error('基础属性','标准数组须使用15、14、13、12、10、8各一次。',1);
       if(abilityMethod==='购点') {
-        const costs={8:0,9:1,10:2,11:3,12:4,13:5,14:7,15:9},cost=baseScores.reduce((s,n)=>s+(costs[n]??100),0);
-        if(cost>27)error('基础属性',`购点超出27点或8至15范围，目前计费${cost}。`,1);
+        const outside=abilities.filter((_,i)=>!Object.hasOwn(buy.costs,baseScores[i]));
+        if(outside.length)error('基础属性',`购点范围为8至${buy.max}，超界：${outside.map(a=>a+' '+scores[a]).join('、')}。`,1);
+        else {
+          const cost=baseScores.reduce((sum,n)=>sum+buy.costs[n],0);
+          if(cost>buy.budget)error('基础属性',`购点预算${buy.budget}点，当前花费${cost}点。`,1);
+        }
       }
       if(abilityMethod==='程序掷骰'){
         if(!context.rolls?.abilities)error('基础属性','请先运行“掷骰”，再分配已保存的六个结果。',1);
@@ -97,9 +120,8 @@ export function evaluate(lib, answers, context={}) {
   }
   function addAbilities(key,stage,allowed,total,max,distinct=false){
     const backgroundHelp=distinct?`可加属性：${allowed.join('、')}。两项分别加2和1，或三项各加1。\n`:'';
-    const values=many(key,stage,abilities,total,{help:backgroundHelp+`填写属性名称，共${total}点。同一属性加2时写两次，例如感知、感知。`,allowRepeated:true});
+    const values=many(key,stage,allowed,total,{help:backgroundHelp+`填写属性名称，共${total}点。同一属性加2时写两次，例如感知、感知。`,allowRepeated:true});
     if(!values.length)return;
-    if(values.some(a=>!allowed.includes(a)))error(key,'加点包含不允许的属性。',stage);
     const counts=Object.fromEntries(abilities.map(a=>[a,values.filter(x=>x===a).length]));
     if(distinct && (Math.max(...Object.values(counts))>2 || Object.values(counts).filter(n=>n>0).length<2))error(key,'背景加值选两项分别+2/+1，或三项各+1。',stage);
     for(const a of abilities){scores[a]+=counts[a];if(scores[a]>max)error(key,`${a}不能超过${max}。`,stage);}
@@ -114,16 +136,24 @@ export function evaluate(lib, answers, context={}) {
   for(const a of ['轻甲','中甲','重甲','盾牌'])if(trait(c,'护甲受训').includes(a))trained.add(a);
   const bgSkills=Object.keys(skills).filter(s=>line(background,'技能熟练').replaceAll('特技','体操').replaceAll('医疗','医药').includes(s));
   bgSkills.forEach(s=>skillsKnown.add(s));
-  const pickedSkills=many('职业技能',1,skillOptions.length?skillOptions:Object.keys(skills),skillCount);
-  let overlap=0;for(const s of pickedSkills){if(skillsKnown.has(s))overlap++;else skillsKnown.add(s);}
-  if(overlap)many('重复技能补选',1,Object.keys(skills).filter(s=>!skillsKnown.has(s)),overlap).forEach(s=>skillsKnown.add(s));
+  const skillReason=n=>bgSkills.includes(n)?`背景「${background.name}」已提供熟练`:skillsKnown.has(n)?'角色已拥有该技能熟练':'';
+  const toolReason=n=>toolKnown.has(n)?'角色已拥有该工具熟练':'';
+  const classSkills=skillOptions.length?skillOptions:Object.keys(skills);
+  const pickedSkills=legacySelection('职业技能')&&split(answers.职业技能).some(n=>bgSkills.includes(n))
+    ?many('职业技能',1,classSkills,skillCount)
+    :chooseNew('职业技能',1,classSkills,skillCount,skillReason);
+  let overlap=0;
+  for(const skill of pickedSkills){if(skillsKnown.has(skill))overlap++;else skillsKnown.add(skill);}
+  if(overlap)chooseNew('重复技能补选',1,Object.keys(skills),overlap,skillReason).forEach(s=>skillsKnown.add(s));
   const chosenLanguages=many('额外语言',1,languages,2);
   let weaponTraining=trait(c,'武器熟练'), classTools=trait(c,'工具熟练');
-  if(classTools.includes('任选3'))many('职业工具',1,instruments,3).forEach(x=>toolKnown.add(x));
-  else if(classTools.includes('选择1'))many('职业工具',1,[...artisanTools,...instruments],1).forEach(x=>toolKnown.add(x));
-  else if(classTools)toolKnown.add(classTools);
   const bgTool=line(background,'工具熟练');
-  if(bgTool.includes('选择'))many('背景工具',1,bgTool.includes('乐器')?instruments:bgTool.includes('赌具')?['骰子','龙棋','纸牌','三龙牌']:artisanTools,1).forEach(x=>toolKnown.add(x));
+  const fixedBackgroundTool=bgTool&&!bgTool.includes('选择')?bgTool:'';
+  const backgroundToolReason=n=>n===fixedBackgroundTool?`背景「${background.name}」已提供熟练`:'';
+  if(classTools.includes('任选3'))chooseNew('职业工具',1,instruments,3,backgroundToolReason).forEach(x=>toolKnown.add(x));
+  else if(classTools.includes('选择1'))chooseNew('职业工具',1,[...artisanTools,...instruments],1,backgroundToolReason).forEach(x=>toolKnown.add(x));
+  else if(classTools)toolKnown.add(classTools);
+  if(bgTool.includes('选择'))chooseNew('背景工具',1,bgTool.includes('乐器')?instruments:bgTool.includes('赌具')?['骰子','龙棋','纸牌','三龙牌']:artisanTools,1,toolReason).forEach(x=>toolKnown.add(x));
   else if(bgTool)toolKnown.add(bgTool);
   let size=species.body.match(/体型：([^（\n]+)/)?.[1]||'中型';
   if(size.includes('或'))size=one('体型',1,['中型','小型']);
@@ -131,8 +161,8 @@ export function evaluate(lib, answers, context={}) {
   const lineages={精灵:['卓尔','高等精灵','木精灵'],侏儒:['森林侏儒','岩石侏儒'],提夫林:['深渊','幽冥','炼狱'],歌利亚:['云巨人','火巨人','霜巨人','山丘巨人','石巨人','风暴巨人'],龙裔:['白龙','黑龙','绿龙','蓝龙','红龙','黄铜龙','赤铜龙','青铜龙','银龙','金龙']};
   if(lineages[species.name])lineage=one('种族分支',1,lineages[species.name]);
   if(['精灵','侏儒','提夫林'].includes(species.name))speciesCasting=one('种族施法属性',1,['智力','感知','魅力']);
-  if(species.name==='人类')many('人类技能',1,Object.keys(skills).filter(s=>!skillsKnown.has(s)),1).forEach(s=>skillsKnown.add(s));
-  if(species.name==='精灵')many('精灵技能',1,['洞悉','察觉','求生'].filter(s=>!skillsKnown.has(s)),1).forEach(s=>skillsKnown.add(s));
+  if(species.name==='人类')chooseNew('人类技能',1,Object.keys(skills),1,skillReason).forEach(s=>skillsKnown.add(s));
+  if(species.name==='精灵')chooseNew('精灵技能',1,['洞悉','察觉','求生'],1,skillReason).forEach(s=>skillsKnown.add(s));
   if(species.name==='矮人')hpBonusPerLevel++;
   let primal='',divine='',elemental='',land='';
   if(c.name==='德鲁伊'){primal=one('原初职能',1,['术师','卫士']);if(primal==='卫士'){trained.add('中甲');weaponTraining='简易和军用武器';}if(level>=7)elemental=one('元素之怒',3,['强力施法','原力蛮击']);}
@@ -141,8 +171,8 @@ export function evaluate(lib, answers, context={}) {
   if(sub?.name==='星辰结社')one('星图外观',1,['卷轴','石板','枭熊皮','星图集','水晶','玻璃圆盘']);
 
   function grant(spell,source,ability,extra={}){const e=use(lib.find('spells',spell));if(!e){error(source,'本地法术条目缺失：'+spell);return;}grants.push({name:e.name,source,ability,...extra});}
-  function spellPick(key,stage,options,count,ability,source){
-    featSpellKeys.push(key);return many(key,stage,names(options),count,{kind:'spell'}).map(n=>{const e=use(lib.find('spells',n));if(e)grants.push({name:n,ability,source});return e;}).filter(Boolean);
+  function spellPick(key,stage,options,count,ability,source,reason=()=> ''){
+    featSpellKeys.push(key);return chooseNew(key,stage,names(options),count,reason,{kind:'spell'}).map(n=>{const e=use(lib.find('spells',n));if(e)grants.push({name:n,ability,source});return e;}).filter(Boolean);
   }
   function feat(name,key,at,origin=false,magicClass='') {
     const f=use(lib.find('feats',name));if(!f){
@@ -176,13 +206,13 @@ export function evaluate(lib, answers, context={}) {
     if(f.name==='轻甲运用')trained.add('轻甲');if(f.name==='中甲运用')trained.add('中甲');if(f.name==='重甲运用')trained.add('重甲');
     if(f.name==='军用武器训练')weaponTraining='简易和军用武器';
     if(f.name==='飙速跑者')speedBonus+=10;if(f.name==='神行无拘之恩惠')speedBonus+=30;
-    if(f.name==='熟习')many(key+'熟练',stage,[...Object.keys(skills),...tools].filter(s=>!skillsKnown.has(s)&&!toolKnown.has(s)),3).forEach(s=>(skills[s]?skillsKnown:toolKnown).add(s));
-    if(f.name==='巧匠')many(key+'工具',stage,artisanTools,3).forEach(s=>toolKnown.add(s));
-    if(f.name==='音乐家')many(key+'乐器',stage,instruments,3).forEach(s=>toolKnown.add(s));
+    if(f.name==='熟习')chooseNew(key+'熟练',stage,[...Object.keys(skills),...tools],3,n=>skillReason(n)||toolReason(n)).forEach(s=>(skills[s]?skillsKnown:toolKnown).add(s));
+    if(f.name==='巧匠')chooseNew(key+'工具',stage,artisanTools,3,toolReason).forEach(s=>toolKnown.add(s));
+    if(f.name==='音乐家')chooseNew(key+'乐器',stage,instruments,3,toolReason).forEach(s=>toolKnown.add(s));
     if(f.name==='大厨')toolKnown.add('厨师工具');
     if(f.name==='技艺专家'){
-      many(key+'技能',stage,Object.keys(skills).filter(s=>!skillsKnown.has(s)),1).forEach(s=>skillsKnown.add(s));
-      many(key+'专精',stage,[...skillsKnown].filter(s=>!expertise.has(s)),1).forEach(s=>expertise.add(s));
+      chooseNew(key+'技能',stage,Object.keys(skills),1,skillReason).forEach(s=>skillsKnown.add(s));
+      chooseNew(key+'专精',stage,[...skillsKnown],1,n=>expertise.has(n)?'该技能已有专精':'').forEach(s=>expertise.add(s));
     }
     if(['敏锐心灵','观察力'].includes(f.name)){
       const options=f.name==='敏锐心灵'?['奥秘','历史','调查']:['洞悉','察觉','求生'];
@@ -216,16 +246,16 @@ export function evaluate(lib, answers, context={}) {
     if(extra===style)spellPick('战斗风格戏法',5,lib.spells.filter(s=>s.spellLevel===0&&s.classes.includes(c.name==='游侠'?'德鲁伊':'牧师')),2,castAbility[c.name],'战斗风格');else feat(style,'战斗风格',c.name==='战士'?1:2);
     if(sub?.name==='勇士'&&level>=7){const s=one('勇士战斗风格',3,names(styles).filter(n=>n!==style));feat(s,'勇士战斗风格',7);}
   }
-  if(c.name==='野蛮人'&&level>=3)many('原初学识技能',2,skillOptions.filter(s=>!skillsKnown.has(s)),1).forEach(s=>skillsKnown.add(s));
+  if(c.name==='野蛮人'&&level>=3)chooseNew('原初学识技能',2,skillOptions,1,skillReason).forEach(s=>skillsKnown.add(s));
   const scheduledFeats=featLevels(c,level);
   for(let at=2;at<=level;at++) {
     if(at===3&&sub?.name==='勇气学院'){trained.add('中甲');trained.add('盾牌');weaponTraining='简易和军用武器';}
-    if(at===3&&sub?.name==='逸闻学院')many('逸闻技能',2,Object.keys(skills).filter(s=>!skillsKnown.has(s)),3).forEach(s=>skillsKnown.add(s));
-    if(at===3&&sub?.name==='妖精漫游者')many('妖冶娴都技能',2,['欺瞒','表演','游说'].filter(s=>!skillsKnown.has(s)),1).forEach(s=>skillsKnown.add(s));
+    if(at===3&&sub?.name==='逸闻学院')chooseNew('逸闻技能',2,Object.keys(skills),3,skillReason).forEach(s=>skillsKnown.add(s));
+    if(at===3&&sub?.name==='妖精漫游者')chooseNew('妖冶娴都技能',2,['欺瞒','表演','游说'],1,skillReason).forEach(s=>skillsKnown.add(s));
     if(at===3&&sub?.name==='命流武者'){skillsKnown.add('洞悉');skillsKnown.add('医药');toolKnown.add('草药工具');}
     if(at===3&&sub?.name==='战斗大师'){
-      many('战争学者工具',2,artisanTools,1).forEach(s=>toolKnown.add(s));
-      many('战争学者技能',2,skillOptions.filter(s=>!skillsKnown.has(s)),1).forEach(s=>skillsKnown.add(s));
+      chooseNew('战争学者工具',2,artisanTools,1,toolReason).forEach(s=>toolKnown.add(s));
+      chooseNew('战争学者技能',2,skillOptions,1,skillReason).forEach(s=>skillsKnown.add(s));
     }
     if(at===7&&sub?.name==='幽域追猎者'){
       if(saves.has('感知')){const a=one('钢铁意志豁免',3,['智力','魅力'].filter(a=>!saves.has(a)));if(a)saves.add(a);}else saves.add('感知');
@@ -280,8 +310,9 @@ export function evaluate(lib, answers, context={}) {
   if(lineage==='岩石侏儒'){grant('修复术','种族',speciesCasting);grant('魔法伎俩','种族',speciesCasting);}
   let cantrips=[],prepared=[],spellbook=[];
   const classSpells=lib.spells.filter(s=>s.classes.includes(spellClass));
-  const autoClass = new Set(grants.filter(g=>g.source===sub?.name||['德鲁伊语','宿敌','圣武斩','信实坐骑'].includes(g.source)).map(g=>g.name));
-  if(capacity.cantrips) cantrips=many('职业戏法',5,names(classSpells.filter(s=>s.spellLevel===0&&!autoClass.has(s.name))),capacity.cantrips,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean);
+  const autoClass = new Map(grants.filter(g=>g.source===sub?.name||['德鲁伊语','宿敌','圣武斩','信实坐骑'].includes(g.source)).map(g=>[g.name,g.source]));
+  const spellReason=n=>autoClass.has(n)?`「${autoClass.get(n)}」已自动提供，不占本题名额`:'';
+  if(capacity.cantrips) cantrips=chooseNew('职业戏法',5,names(classSpells.filter(s=>s.spellLevel===0)),capacity.cantrips,spellReason,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean);
   if(c.name==='法师'){
     for(let at=1;at<=level;at++)spellbook.push(...many(at+'级法术书新增',5,names(classSpells.filter(s=>s.spellLevel>=1&&s.spellLevel<=spellCapacity(c,at).maxSpell)),at===1?6:2,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean));
     const school={防护师:'防护',预言师:'预言',塑能师:'塑能',幻术师:'幻术'}[sub?.name];
@@ -293,7 +324,7 @@ export function evaluate(lib, answers, context={}) {
   if(capacity.prepared){
     let options=c.name==='法师'?spellbook:classSpells;
     if(c.name==='吟游诗人'&&level>=10)options=lib.spells.filter(s=>s.classes.some(c=>['吟游诗人','牧师','德鲁伊','法师'].includes(c)));
-    prepared=many('准备法术',5,names(options.filter(s=>s.spellLevel>=1&&s.spellLevel<=capacity.maxSpell&&!autoClass.has(s.name))),capacity.prepared,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean);
+    prepared=chooseNew('准备法术',5,names(options.filter(s=>s.spellLevel>=1&&s.spellLevel<=capacity.maxSpell)),capacity.prepared,spellReason,{kind:'spell'}).map(n=>use(lib.find('spells',n))).filter(Boolean);
     if(['吟游诗人','术士','魔契师'].includes(c.name))for(let rank=2;rank<=capacity.maxSpell;rank++){
       const unlock=Array.from({length:level},(_,i)=>i+1).find(n=>spellCapacity(c,n).maxSpell>=rank);
       const prior=unlock>1?spellCapacity(c,unlock-1).prepared:0;
@@ -319,8 +350,8 @@ export function evaluate(lib, answers, context={}) {
     const grantsByInvocation={'幽影护甲':'法师护甲','链之魔契':'寻获魔宠','邪魔活力':'虚假生命','千面之颜':'易容术','幻象迷踪':'无声幻影','超凡跳跃':'跳跃术','星移步法':'浮空术','深海馈赠':'水下呼吸','万形之主':'变身术','融身入影':'隐形术','坟茔殁语':'死者交谈','穹宇尽视':'秘法眼'};
     for(const n of inv)if(grantsByInvocation[n])grant(grantsByInvocation[n],n,'魅力');
     if(inv.includes('书之魔契')){
-      spellPick('书之魔契戏法',5,lib.spells.filter(s=>s.spellLevel===0&&!cantrips.some(c=>c.id===s.id)),3,'魅力','书之魔契');
-      spellPick('书之魔契仪式',5,lib.spells.filter(s=>s.spellLevel===1&&/仪式/.test(s.body.split('持续时间')[0])&&!prepared.some(c=>c.id===s.id)),2,'魅力','书之魔契');
+      spellPick('书之魔契戏法',5,lib.spells.filter(s=>s.spellLevel===0),3,'魅力','书之魔契',n=>cantrips.some(c=>c.name===n)?'已选为职业戏法':'');
+      spellPick('书之魔契仪式',5,lib.spells.filter(s=>s.spellLevel===1&&/仪式/.test(s.body.split('持续时间')[0])),2,'魅力','书之魔契',n=>prepared.some(c=>c.name===n)?'已准备该法术':'');
     }
     const lessons=inv.filter(n=>n==='原初之一的教习').length;
     if(lessons){const selected=many('教习起源专长',5,names(lib.feats.filter(f=>f.body.includes('起源专长'))),lessons);for(const n of selected)feat(n,'教习'+n,2,true);}

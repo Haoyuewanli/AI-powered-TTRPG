@@ -6,6 +6,28 @@ import { equipmentCatalog, startOptions } from '../equipment.mjs';
 import { druid, basicCharacter } from './fixtures.mjs';
 const lib=await loadLibrary();
 
+test('32-point buy prices 16 at 12 and identifies out-of-range ability scores separately',()=>{
+  const answers={...druid(lib,1),属性方式:'购点',基础属性:'8、14、13、16、10、13'};
+  const check=(scores,config)=>evaluate(lib,{...answers,基础属性:scores},{config}).issues.filter(e=>e.key==='基础属性');
+  assert.match(check(answers.基础属性,{}).at(0).message,/智力 16/);
+  const expanded={pointBuy32:true};
+  assert.equal(check(answers.基础属性,expanded).length,0);
+  assert.equal(check('9、14、13、16、10、13',expanded).length,0);
+  assert.match(check('10、14、13、16、10、13',expanded).at(0).message,/预算32点，当前花费33点/);
+  assert.match(check('8、14、13、17、10、13',expanded).at(0).message,/智力 17/);
+});
+
+test('a new skill or class spell cannot reuse an automatic grant in its candidate range',()=>{
+  const a={...druid(lib,1),职业技能:'自然、宗教',准备法术:'动物交谈、纠缠术'};
+  const r=evaluate(lib,a);
+  for(const [key,name,source] of [['职业技能','自然','农民'],['准备法术','动物交谈','德鲁伊语']]){
+    const question=r.questions.find(q=>q.key===key);
+    assert.ok(!question.options.includes(name));
+    assert.ok(question.excluded.some(x=>x.name===name&&x.reason.includes(source)));
+    assert.ok(r.issues.some(e=>e.key===key&&e.message.includes('不能选'+name)&&e.message.includes(source)));
+  }
+});
+
 test('only the standard array requires distinct base scores, and budget and recorded dice still apply',()=>{
   const answers=druid(lib,1);
   const issues=(method,scores,rolls)=>evaluate(lib,{...answers,属性方式:method,基础属性:scores},{rolls}).issues.filter(e=>e.key==='基础属性');

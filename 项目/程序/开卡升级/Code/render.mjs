@@ -1,5 +1,5 @@
 import { abilities, info, overview, pad } from './library.mjs';
-import { STAGES } from './rules.mjs';
+import { STAGES, pointBuy } from './rules.mjs';
 
 export function parseAnswers(text, expectedToken) {
   const lines=text.replace(/^\uFEFF/,'').replace(/\r/g,'').split('\n');
@@ -15,21 +15,26 @@ export function parseAnswers(text, expectedToken) {
   return answers;
 }
 
+export function visibleQuestions(state,result,stage) {
+  return result.questions.filter(q=>state.mode==='自由'||q.stage===stage);
+}
+
 export function answerText(state,result,stage) {
   const lines=[`角色回答 · ${state.id}-${state.revision}`,'','# 把答案填在冒号后。多项用顿号或逗号分开，保存后双击“继续”。',''];
   const s=result.snapshot;
-  const questions=result.questions.filter(q=>state.mode==='自由'||q.stage===stage);
+  const questions=visibleQuestions(state,result,stage);
   let group=-1;
   for(const q of questions){
     if(q.stage!==group){group=q.stage;lines.push('【'+STAGES[group]+'】');}
     if(q.help)lines.push('# '+q.help.replace(/\n/g,'\n# '));
+    if(q.excluded?.length)lines.push('# 不能选：'+q.excluded.map(({name,reason})=>name+'（'+reason+'）').join('、')+'。');
     if(q.options){
       lines.push('# 候选范围：');
       if(!q.options.length)lines.push('# 暂无候选；先填写相关的前置选择，再继续刷新。');
       for(let i=0;i<q.options.length;i+=6)lines.push('# '+q.options.slice(i,i+6).map((v,j)=>`${i+j+1}.${v}`).join('  '));
     }
     if(q.candidates){lines.push('# 可购买范围（单价）：');for(const item of q.candidates)lines.push(`# ${item.name}（${item.priceCp/100}GP）`);}
-    if(q.kind==='spell')lines.push('# 详细说明见“'+spellReferenceName(q)+'”。');
+    if(q.kind==='spell'&&state.status!=='complete')lines.push('# 详细说明见“'+spellReferenceName(q)+'”。');
     if(q.count!==undefined)lines.push('# 选择'+q.count+'项。');
     if(s){
       const armor='护甲受训：'+(s.armorTraining.filter(n=>n!=='盾牌').join('、')||'无');
@@ -84,36 +89,62 @@ function backgroundRule(state) {
 }
 
 export function renderFiles(lib,state,result,stage) {
-  const files=new Map(), s=result.snapshot, free=state.mode==='自由';
-  const list=(filename,entries)=>files.set(filename,overview(entries));
+  const files=new Map();
+  const list=(filename,entries)=>{if(entries.length)files.set(filename,overview(entries));};
   files.set('回答.txt',answerText(state,result,stage));
-  const allProblems=[...result.issues,...result.missing];
-  const shown=free?allProblems:allProblems.filter(p=>p.stage===stage);
-  const rolled=state.rolls.abilities?`属性骰点：${state.rolls.abilities.join('、')}。\n`:'';
-  files.set('本轮说明.txt',`第${state.referenceRound||1}轮 · ${state.mode}模式${free?'':' · '+STAGES[stage]}\n\n阅读本文件夹中的资料，把选择写进回答.txt，保存后双击“继续”。\n${free?'可以任意顺序填写，也可以一次填完。':'本轮完成后会自动进入下一组选择；成长总览始终可以查看。'}\n${rolled}\n`+(shown.length?shown.map(p=>p.message).join('\n'):'当前检查没有缺项。')+'\n\n完整的选项名称与编号见“回答.txt”，也可查看“可选项.txt”。\n');
-  if(state.status==='complete')files.set('本轮说明.txt',`这个角色的${s?.level||state.answers.目标等级}级档案已完成。\n\n本文件夹保留答案和资料供查看。\n角色卡在上一级目录的“成果”文件夹内。\n以后升级，请打开工具入口，选择“升级”。\n`);
-  files.set('当前角色.txt',(allProblems.length?'这是随答案计算的草稿，未填部分还会变化。\n\n':'')+summary(s));
-  files.set('使用说明.txt','阅读多个TXT，答案只填回答.txt。\n每道法术题的详细资料见回答处注明的“法术候选-问题名.txt”。\n保存后双击继续。更换模式、升级、掷骰或恢复文件，在工具入口操作。\n完成一轮后，该轮参考TXT保存在本文件夹的“第X轮参考txt”中。\n资料文件可以并排打开；阅读期间程序不会自动改动文件。\n');
-  const qs=result.questions.filter(q=>free||q.stage===stage);
-  files.set('可选项.txt',qs.map(q=>q.key+'\n'+(q.help||'')+'\n'+(q.options?q.options.map((n,i)=>`${i+1}. ${n}`).join('\n'):q.candidates?q.candidates.map(i=>`${i.name}（${i.priceCp/100}GP）`).join('\n'):'按回答.txt中的说明填写。')).join('\n\n'));
-  list('职业总览.txt',lib.classes);
-  list('种族选项.txt',lib.species);list('背景选项.txt',lib.backgrounds);
-  if(!s){list('专长选项.txt',lib.feats);return files;}
-  const c=lib.find('classes',s.className),sub=lib.find('subclasses',s.subclass);
-  files.set('职业成长总览.txt',info(c)+'\n\n'+(sub?info(sub):''));
-  list('子职选项.txt',lib.subclasses.filter(e=>e.className===c.className));
-  files.set('起源与基础说明.txt',info(lib.find('species',s.species))+'\n'+info(lib.find('backgrounds',s.background))+'\n属性顺序：力量、敏捷、体质、智力、感知、魅力。\n标准数组15、14、13、12、10、8各用一次。购点预算27，各项8至15。程序掷骰为6组4d6去最低。购点和掷骰允许同值。\n背景加值：'+backgroundRule(state)+'\n');
-  list('专长选项.txt',lib.feats);
-  for(const ref of lib.entries.filter(e=>e.kind==='class-reference'&&e.source.includes('/'+c.className+'/')&&!e.name.includes('法术列表')))files.set(ref.name+'.txt',info(ref));
-  for(const q of result.questions.filter(q=>q.kind==='spell')) {
+  if(state.status==='complete'){
+    files.set('本轮说明.txt',`这个角色的${result.snapshot?.level||state.answers.目标等级}级档案已完成。\n\n角色卡在上一级目录的“成果”内。以后升级，请打开工具入口，选择“升级”。\n`);
+    return files;
+  }
+
+  const questions=visibleQuestions(state,result,stage);
+  const keys=new Set(questions.map(q=>q.key));
+  const c=lib.find('classes',result.snapshot?.className||state.answers.职业);
+  const sub=lib.find('subclasses',result.snapshot?.subclass||state.answers.子职);
+  if(keys.has('职业'))list('职业总览.txt',lib.classes);
+  if(keys.has('种族'))list('种族选项.txt',lib.species);
+  if(keys.has('背景'))list('背景选项.txt',lib.backgrounds);
+  if(keys.has('子职')&&c)list('子职选项.txt',lib.subclasses.filter(e=>e.className===c.className));
+  if(keys.has('基础属性')||keys.has('背景加值')){
+    const origin=[lib.find('species',state.answers.种族),lib.find('backgrounds',state.answers.背景)].filter(Boolean);
+    files.set('起源与基础说明.txt',origin.map(info).join('\n')+'\n'+pointBuy(state.config).description+'\n背景加值：'+backgroundRule(state)+'\n');
+  }
+  const featNames=new Set(questions.filter(q=>/专长$|战斗风格$/.test(q.key)).flatMap(q=>q.options||[]));
+  list('本轮专长候选.txt',lib.feats.filter(f=>featNames.has(f.name)));
+  const selectedFeats=result.snapshot?.feats.filter(f=>questions.some(q=>q.key!==f.source&&q.key.startsWith(f.source)))||[];
+  const featDetails=[...new Set(selectedFeats.map(f=>f.name))].map(n=>lib.find('feats',n)).filter(Boolean);
+  list('已选专长说明.txt',featDetails);
+  const classReferenceKeys={魔能祈唤:'魔能祈唤',超魔法:'超魔法'};
+  for(const [key,keyword] of Object.entries(classReferenceKeys)){
+    if(!keys.has(key)||!c)continue;
+    for(const ref of lib.entries.filter(e=>e.kind==='class-reference'&&e.source.includes('/'+c.className+'/')&&e.name.includes(keyword))){
+      files.set(ref.name+'.txt',info(ref));
+    }
+  }
+  if(sub&&[...keys].some(k=>/地形|形态|战技|形貌|猎杀技艺|防守战术|元素亲和|星图外观/.test(k)&&k!=='野兽形态')){
+    files.set('本轮子职能力.txt',featureText(sub,result.snapshot.level));
+  }
+  if(c&&[...keys].some(k=>['原初职能','神圣职能','元素之怒','受祝击'].includes(k))){
+    files.set('本轮职业能力.txt',featureText(c,result.snapshot.level));
+  }
+  for(const q of questions.filter(q=>q.kind==='spell')){
     const entries=q.options.map(n=>lib.find('spells',n));
     if(entries.some(e=>!e))throw new Error('法术候选资料缺失：'+q.key);
     files.set(spellReferenceName(q),`${q.key}\n选择${q.count}项；候选${entries.length}项。\n\n`+(entries.length?entries.map((e,i)=>`${i+1}. ${info(e)}`).join('\n\n'):'先填写相关的前置选择，再继续刷新本题候选。\n'));
   }
-  if(s.className==='德鲁伊')list('野兽形态选项.txt',lib.beasts);
-  list('装备选项.txt',lib.equipment);
-  files.set('当前能力.txt',featureText(c,s.level)+'\n\n'+featureText(sub,s.level)+'\n\n'+s.feats.map(f=>info(lib.find('feats',f.name))).join('\n'));
-  files.set('规则范围.txt',`2024玩家手册核心，单职业1至20级。野兽使用该手册附录B指向的2025数据。\n规则版本：${lib.version}\n背景加值：${backgroundRule(state)}\n额外起始资金：${(state.config.extraGoldCp||0)/100}GP。\n完整来源与版本留在存档中，玩家不需要填写。\n`);
+  const shapes=questions.find(q=>q.key==='野兽形态');
+  if(shapes)list('野兽形态选项.txt',shapes.options.map(n=>lib.find('beasts',n)).filter(Boolean));
+  if([...keys].some(k=>['购买物品','穿戴护甲','使用盾牌','常用武器','武器精通','武器大师精通'].includes(k))){
+    list('装备选项.txt',lib.equipment);
+  }
+
+  const notes=state.mode==='自由'?'自由模式可以按任意顺序填写。':'通过本轮检查后，程序会归档本轮参考并换成下一轮资料。';
+  const shown=[...result.issues,...result.missing].filter(p=>state.mode==='自由'||p.stage===stage);
+  const rolled=keys.has('基础属性')&&state.rolls.abilities?`属性骰点：${state.rolls.abilities.join('、')}。\n`:'';
+  const refs=[...files.keys()].filter(n=>n!=='回答.txt');
+  const reading=refs.length?'本轮参考（按题选读）\n'+refs.map(n=>'  '+n).join('\n')+'\n\n':'';
+  files.set('本轮说明.txt',`第${state.referenceRound||1}轮 · ${state.mode}模式${state.mode==='自由'?'':' · '+STAGES[stage]}\n\n${reading}填写回答.txt，保存后双击“继续”。\n${notes}\n${rolled}\n`+
+    (shown.length?shown.map(p=>p.message).join('\n'):'当前检查没有缺项。')+'\n\n完整资料可在工具目录的“TXT库”查看。\n');
   return files;
 }
 
@@ -123,6 +154,6 @@ export function markdownPair(lib,state,result) {
   const selectionEntries=Object.entries(state.answers).filter(([k,v])=>!state.base||state.base.answers[k]!==v);
   const choices=header+'# 本级选择\n\n## 等级与来源\n'+s.level+'级'+s.className+'，2024核心。\n\n## 新增与替换\n'+selectionEntries.map(([k,v])=>`${k}：${v}`).join('\n\n')+'\n\n## 属性、专长与骰点\n'+JSON.stringify(state.rolls,null,2)+'\n\n## 待确认\n无未填写的程序必需项。\n';
   const spellNames=[...new Set([...s.cantrips,...s.prepared,...s.grantedSpells.map(g=>g.name)])];
-  const ability=header+'# 能力与数值\n\n## 基础数值\n'+summary(s)+'\n## 能力速查\n'+featureText(lib.find('classes',s.className),s.level)+'\n\n'+featureText(lib.find('subclasses',s.subclass),s.level)+'\n\n'+s.feats.map(f=>info(lib.find('feats',f.name))).join('\n')+'\n## 法术与专注\n'+spellNames.map(n=>info(lib.find('spells',n))).join('\n\n')+'\n## 装备、房规与长期增益\n背景加值：'+backgroundRule(state)+(state.config.notes?'\n'+state.config.notes:'')+'\n\n## 待确认\n开卡计算不包含战斗中的临时状态与效果结算。\n';
+  const ability=header+'# 能力与数值\n\n## 基础数值\n'+summary(s)+'\n## 能力速查\n'+featureText(lib.find('classes',s.className),s.level)+'\n\n'+featureText(lib.find('subclasses',s.subclass),s.level)+'\n\n'+s.feats.map(f=>info(lib.find('feats',f.name))).join('\n')+'\n## 法术与专注\n'+spellNames.map(n=>info(lib.find('spells',n))).join('\n\n')+'\n## 装备、房规与长期增益\n'+pointBuy(state.config).description+'\n背景加值：'+backgroundRule(state)+(state.config.notes?'\n'+state.config.notes:'')+'\n\n## 待确认\n开卡计算不包含战斗中的临时状态与效果结算。\n';
   return {'选择.md':choices,'能力.md':ability};
 }

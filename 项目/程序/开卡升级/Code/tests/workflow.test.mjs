@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, readdir, rename } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { basename, resolve, join } from 'node:path';
 import { loadLibrary, ROOT } from '../library.mjs';
-import { createCharacter, continueCharacter, upgradeCharacter, changeMode, readState, rollCharacter, recover, checkedPath } from '../store.mjs';
+import { createCharacter, continueCharacter, upgradeCharacter, changeMode, readState, rollCharacter, recover, checkedPath, listCharacters } from '../store.mjs';
 import { parseAnswers, answerText } from '../render.mjs';
 import { evaluate } from '../rules.mjs';
 import { druid } from './fixtures.mjs';
@@ -13,14 +13,17 @@ async function fixture(mode='自由',answers=druid(lib)) {const base=await mkdte
 async function replaceAnswers(dir,answers){const s=await readState(dir);const r=evaluate(lib,answers,{rolls:s.rolls,config:s.config});await writeFile(join(dir,'玩家文件','回答.txt'),answerText({...s,answers,mode:'自由'},r,0));}
 test('a house rule is shown to the player, recorded in the result and retained on upgrade',async()=>{
   const base=await mkdtemp(join(tempRoot,'run-'));
-  const f=await createCharacter(lib,{base,mode:'自由',answers:{...druid(lib,1),背景加值:'魅力、魅力、智力'},config:{freeBackgroundAbilities:true}});
+  const f=await createCharacter(lib,{base,mode:'自由',answers:{...druid(lib,1),属性方式:'购点',基础属性:'8、14、13、16、10、13',背景加值:'魅力、魅力、智力'},config:{freeBackgroundAbilities:true,pointBuy32:true}});
   const read=(...parts)=>readFile(join(f.dir,...parts),'utf8');
-  assert.match(await read('玩家文件','规则范围.txt'),/房规已开启/);
+  assert.match(await read('玩家文件','起源与基础说明.txt'),/房规已开启/);
+  assert.match(await read('玩家文件','回答.txt'),/购点预算32点.*16=12/);
   assert.equal((await continueCharacter(lib,f.dir)).complete,true);
   assert.equal(JSON.parse(await read('成果','01级','角色.json')).config.freeBackgroundAbilities,true);
+  assert.equal(JSON.parse(await read('成果','01级','角色.json')).config.pointBuy32,true);
   assert.match(await read('成果','01级','能力.md'),/房规已开启/);
   const upgrade=await upgradeCharacter(lib,f.dir,2);
   assert.equal(upgrade.state.config.freeBackgroundAbilities,true);
+  assert.equal(upgrade.state.config.pointBuy32,true);
   assert.ok(!upgrade.result.issues.some(e=>e.key==='背景加值'));
 });
 test('free mode completes in one submission; repeated continue leaves completed snapshot unchanged',async()=>{
@@ -40,19 +43,62 @@ test('mode switching retains a partially filled answer and user files',async()=>
 });
 test('a new player can finish by filling only the currently visible questions',async()=>{
   const target=druid(lib),f=await fixture('引导',{'职业':'德鲁伊','目标等级':'12'});let done;
+  let dir=f.dir;
   const stages=[];
   for(let step=0;step<15;step++){
-    const s=await readState(f.dir),text=await readFile(join(f.dir,'玩家文件','回答.txt'),'utf8');
+    const s=await readState(dir),text=await readFile(join(dir,'玩家文件','回答.txt'),'utf8');
     const visible=parseAnswers(text,s.id+'-'+s.revision);
     const replaced=text.split('\n').map(line=>{const m=line.match(/^([^#【：]+)：/);return m&&Object.hasOwn(visible,m[1])?m[1]+'：'+(target[m[1]]||''):line;}).join('\n');
-    await writeFile(join(f.dir,'玩家文件','回答.txt'),replaced);done=await continueCharacter(lib,f.dir);stages.push(Object.keys(visible));
+    await writeFile(join(dir,'玩家文件','回答.txt'),replaced);done=await continueCharacter(lib,dir);dir=done.dir;stages.push(Object.keys(visible));
     if(done.state.referenceRound>s.referenceRound){
-      const archived=await readdir(join(f.dir,'玩家文件',`第${s.referenceRound}轮参考txt`));
+      const archived=await readdir(join(dir,'玩家文件',`第${s.referenceRound}轮参考txt`));
       assert.ok(archived.includes('本轮说明.txt'));assert.ok(!archived.includes('回答.txt'));
     }
     if(done.complete)break;
   }
   assert.equal(done.complete,true,JSON.stringify(done.result));assert.equal(done.result.snapshot.hpMax,135);assert.ok(stages.length>=7&&stages.length<=9);
+  assert.equal(basename(dir),basename(f.dir).replace('未命名角色',target.角色名));
+  assert.equal((await readState(dir)).id,f.state.id);
+  await assert.rejects(readState(f.dir),{code:'ENOENT'});
+});
+
+test('named saves are listed alongside legacy saves and never overwrite another character',async()=>{
+  const base=await mkdtemp(join(tempRoot,'run-'));
+  const a=await createCharacter(lib,{base,answers:{角色名:'莉/拉'}});
+  const b=await createCharacter(lib,{base,answers:{角色名:'莉/拉'}});
+  assert.match(basename(a.dir),/^莉_拉_\d{6}_\d{4}开始创建$/);
+  assert.notEqual(a.dir,b.dir);
+  const legacy=join(base,'character-abcd');await rename(a.dir,legacy);
+  const all=await listCharacters(base);
+  assert.equal(all.length,2);assert.ok(all.some(c=>c.dir===legacy&&c.id===a.state.id));assert.ok(all.some(c=>c.dir===b.dir));
+});
+
+test('advancing replaces the direction readings with only basis readings and preserves the original in the round folder',async()=>{
+  const f=await fixture('引导',{角色名:'合成精简'});
+  const player=join(f.dir,'玩家文件');
+  assert.deepEqual((await readdir(player)).sort(),['回答.txt','继续.cmd','本轮说明.txt','种族选项.txt','职业总览.txt','背景选项.txt'].sort());
+  const text=await readFile(join(player,'回答.txt'),'utf8');
+  const target=druid(lib,1);
+  await writeFile(join(player,'回答.txt'),text.replace(/^([^#【\r\n：]+)：[^\r\n]*/gm,(_,key)=>key+'：'+target[key]));
+  const next=await continueCharacter(lib,f.dir);
+  assert.equal(next.state.referenceRound,2);
+  const names=await readdir(player);
+  assert.ok(names.includes('起源与基础说明.txt'));assert.ok(!names.includes('职业总览.txt'));assert.ok(!names.includes('装备选项.txt'));
+  assert.ok(!names.some(n=>n.startsWith('法术候选-')));
+  assert.ok((await readdir(join(player,'第1轮参考txt'))).includes('职业总览.txt'));
+});
+
+test('submitted option numbers keep their displayed meaning when an origin choice changes',async()=>{
+  const f=await fixture('自由',druid(lib,1));
+  const path=join(f.dir,'玩家文件','回答.txt');
+  const options=f.result.questions.find(q=>q.key==='职业技能').options;
+  const index=options.indexOf('洞悉')+1;
+  assert.ok(index>0);
+  const text=(await readFile(path,'utf8')).replace(/^背景：.*$/m,'背景：侍僧').replace(/^职业技能：.*$/m,'职业技能：'+index+'、自然');
+  await writeFile(path,text);
+  const next=await continueCharacter(lib,f.dir);
+  assert.match(next.state.answers.职业技能,/^洞悉、/);
+  assert.ok(next.result.issues.some(e=>e.key==='职业技能'&&e.message.includes('不能选洞悉')));
 });
 test('failed publication can recover without losing committed answers',async()=>{
   const f=await fixture('自由',{'角色名':'合成恢复'});const s=await readState(f.dir);

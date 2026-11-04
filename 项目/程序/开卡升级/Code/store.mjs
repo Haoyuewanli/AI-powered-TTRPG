@@ -3,7 +3,7 @@ import { resolve, join, relative, isAbsolute, dirname } from 'node:path';
 import { randomUUID, randomInt } from 'node:crypto';
 import { ROOT, VERSION, pad } from './library.mjs';
 import { evaluate, split } from './rules.mjs';
-import { parseAnswers, renderFiles, markdownPair, summary } from './render.mjs';
+import { parseAnswers, renderFiles, visibleQuestions, markdownPair, summary } from './render.mjs';
 
 export const STORE = join(ROOT,'存档');
 export async function exists(path){try{await lstat(path);return true;}catch(e){if(e.code==='ENOENT')return false;throw e;}}
@@ -12,7 +12,47 @@ export async function checkedPath(path,base=STORE){const p=resolve(path),r=relat
 async function json(path){return JSON.parse(await readFile(path,'utf8'));}
 async function atomic(path,value){await noLinks(path);const temp=path+'.'+randomUUID()+'.tmp';await writeFile(temp,typeof value==='string'?value:JSON.stringify(value,null,2)+'\n',{flag:'wx'});await rename(temp,path);}
 export async function readState(dir){await noLinks(dir);return json(join(dir,'状态.json'));}
-async function locked(dir,action){const path=join(dir,'.lock');let handle;try{handle=await open(path,'wx');}catch(e){if(e.code==='EEXIST')throw new Error('这个角色正在被另一个进程处理。若上次异常退出，请在工具关闭后移走存档中的.lock文件再试。');throw e;}try{return await action();}finally{await handle.close();await unlink(path);}}
+async function locked(dir,action,filename='.lock'){
+  let lockPath=join(dir,filename);
+  try{await (await open(lockPath,'wx')).close();}
+  catch(e){if(e.code==='EEXIST')throw new Error('文件夹正在被另一个进程处理。若上次异常退出，请在工具关闭后移走锁文件再试。');throw e;}
+  try{return await action(newDir=>{lockPath=join(newDir,filename);});}
+  finally{await unlink(lockPath);}
+}
+
+function archiveName(name,createdAt,index){
+  const safe=Array.from(String(name||'').replace(/[<>:"/\\|?*\u0000-\u001f]/g,'_').trim()).slice(0,56).join('').replace(/^[. ]+|[. ]+$/g,'')||'未命名角色';
+  const d=new Date(createdAt);
+  const stamp=pad(d.getMonth()+1)+pad(d.getFullYear()%100)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes());
+  return safe+(index===1?'':`（${index}）`)+'_'+stamp+'开始创建';
+}
+
+async function availableDirectory(base,name,createdAt,current){
+  for(let index=1;;index++){
+    const target=await checkedPath(join(base,archiveName(name,createdAt,index)),base);
+    if(target===current||!await exists(target))return target;
+  }
+}
+
+async function finalizeDirectory(dir,s,relocate){
+  if(!s.namePending||!s.answers.角色名?.trim())return {dir};
+  const base=dirname(resolve(dir));
+  dir=await checkedPath(dir,base);
+  return locked(base,async()=>{
+    const target=await availableDirectory(base,s.answers.角色名,s.createdAt,dir);
+    if(target!==dir){
+      try{await rename(dir,target);}
+      catch(e){
+        if(!['EPERM','EACCES','EBUSY','ENOTEMPTY','EEXIST'].includes(e.code))throw e;
+        return {dir,namingWarning:'本轮已保存。角色目录暂不能改名，请关闭占用旧目录的编辑器或窗口，再选择“恢复当前文件”。'};
+      }
+      relocate(target);
+    }
+    s.namePending=false;
+    await atomic(join(target,'状态.json'),s);
+    return {dir:target};
+  },'.命名锁');
+}
 function ensureVersion(lib,s){if(s.version!==VERSION||s.sourceHash!==lib.hash)throw new Error('规则或本地资料版本与角色不一致。请恢复该角色原版本资料；工具不会自动改写旧角色。');}
 function ensureRolls(lib,s){
   if(s.answers.属性方式==='程序掷骰'&&!s.rolls.abilities){s.rolls.abilityDice=Array.from({length:6},()=>Array.from({length:4},()=>randomInt(1,7)));s.rolls.abilities=s.rolls.abilityDice.map(ds=>[...ds].sort((a,b)=>b-a).slice(0,3).reduce((a,b)=>a+b,0));}
@@ -22,7 +62,33 @@ function ensureRolls(lib,s){
     s.rolls.hp??=[];while(s.rolls.hp.length<level-1)s.rolls.hp.push(randomInt(1,die+1));
   }
 }
-function resultFor(lib,s){const r=evaluate(lib,s.answers,{rolls:s.rolls,config:s.config});if(s.base)checkUpgrade(s,r);return r;}
+function evaluationContext(s){
+  const legacyChoices=s.namePending===undefined
+    ?(s.base?.answers||(s.status==='complete'||s.answers.重复技能补选?s.answers:undefined))
+    :undefined;
+  return {rolls:s.rolls,config:s.config,legacyChoices};
+}
+function resultFor(lib,s){const r=evaluate(lib,s.answers,evaluationContext(s));if(s.base)checkUpgrade(s,r);return r;}
+
+async function readSubmission(dir,s,questions){
+  const text=await readFile(join(dir,'玩家文件','回答.txt'),'utf8');
+  const incoming=parseAnswers(text,s.id+'-'+s.revision);
+  const shown=await json(join(dir,'问卷选项.json')).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
+  for(const q of questions){
+    if(!q.options||!Object.hasOwn(incoming,q.key))continue;
+    const values=q.multiple?split(incoming[q.key]):[incoming[q.key].normalize('NFKC')];
+    if(!values.some(v=>/^\d+$/.test(v)))continue;
+    const options=shown?.revision===s.revision&&Object.hasOwn(shown.options,q.key)?shown.options[q.key]:null;
+    if(!options)throw new Error(`${q.key}：此问卷没有可核对的选项编号，请填写选项名称。`);
+    incoming[q.key]=values.map(v=>{
+      if(!/^\d+$/.test(v))return v;
+      const name=options[Number(v)-1];
+      if(name===undefined)throw new Error(`${q.key}：没有选项编号${v}。`);
+      return name;
+    }).join('、');
+  }
+  return {text,incoming};
+}
 function checkUpgrade(s,r){
   const base=s.base,delta=Number(s.answers.目标等级)-base.snapshot.level;
   const error=(key,message)=>r.issues.push({key,stage:0,message:key+'：'+message});
@@ -79,7 +145,7 @@ async function publish(lib,dir,s,result){
   await archiveReferences(dir,s);
   const candidates=[...result.issues,...result.missing];const stage=candidates.length?Math.min(...candidates.map(p=>p.stage)):6;
   const files=renderFiles(lib,s,result,stage);
-  const launcher='@echo off\r\nchcp 65001 >nul\r\nnode "%~dp0..\\..\\..\\Code\\cli.mjs" continue "%~dp0.."\r\npause\r\n';
+  const launcher='@echo off\r\nchcp 65001 >nul\r\nsetlocal DisableDelayedExpansion\r\n"%~dp0..\\..\\..\\打开工具.cmd" continue "%~dp0.."\r\n';
   files.set('继续.cmd',launcher);
   const history=join(dir,'历史',pad(s.revision)+'-'+Date.now()+'-'+randomUUID());await mkdir(history,{recursive:true});
   const previous=await json(join(dir,'生成清单.json')).catch(e=>{if(e.code==='ENOENT')return [];throw e;});
@@ -93,6 +159,8 @@ async function publish(lib,dir,s,result){
   }
   for(const [filename,body] of files){const path=join(player,filename);if(await exists(path))throw new Error('玩家文件夹中存在同名自有文件，已保留：'+filename);await atomic(path,body);}
   await atomic(join(dir,'生成清单.json'),[...files.keys()]);
+  const options=Object.fromEntries(visibleQuestions(s,result,stage).filter(q=>q.options).map(q=>[q.key,q.options]));
+  await atomic(join(dir,'问卷选项.json'),{revision:s.revision,options});
   await atomic(join(dir,'检查.json'),{complete:!result.issues.length&&!result.missing.length,stage,issues:result.issues,missing:result.missing,questions:result.questions.map(q=>({key:q.key,stage:q.stage,count:q.count})),revision:s.revision});
   return {stage,files:files.size};
 }
@@ -100,21 +168,25 @@ async function publish(lib,dir,s,result){
 export async function createCharacter(lib,{base=STORE,answers={},mode='引导',config={}}={}){
   if(!['引导','自由'].includes(mode))throw new Error('模式只能是引导或自由。');
   await noLinks(base);await mkdir(base,{recursive:true});
-  const id='character-'+randomUUID(),dir=join(base,id);await mkdir(dir);
-  const s={version:VERSION,sourceHash:lib.hash,id,revision:1,referenceRound:1,mode,answers,rolls:{},config:{extraGoldCp:0,...config},status:'draft',createdAt:new Date().toISOString()};
+  const id='character-'+randomUUID(),createdAt=new Date().toISOString();
+  const dir=await locked(base,async()=>{
+    const target=await availableDirectory(base,answers.角色名,createdAt);
+    await mkdir(target);
+    return target;
+  },'.命名锁');
+  const s={version:VERSION,sourceHash:lib.hash,id,revision:1,referenceRound:1,mode,answers,rolls:{},config:{extraGoldCp:0,...config},status:'draft',createdAt,namePending:!answers.角色名?.trim()};
   await atomic(join(dir,'状态.json'),s);const result=resultFor(lib,s);await publish(lib,dir,s,result);
   return {dir,state:s,result};
 }
 
 export async function continueCharacter(lib,dir,{checkOnly=false}={}){
-  return locked(dir,async()=>{
+  return locked(dir,async relocate=>{
     let s=await readState(dir);ensureVersion(lib,s);await requirePublishedReferences(dir,s);
-    const text=await readFile(join(dir,'玩家文件','回答.txt'),'utf8');
-    const incoming=parseAnswers(text,s.id+'-'+s.revision);
     const resultBefore=resultFor(lib,s), known=new Set(resultBefore.questions.map(q=>q.key));
+    const {text,incoming}=await readSubmission(dir,s,resultBefore.questions);
     const merged={...s.answers,...incoming};
     if(!checkOnly&&s.status!=='complete')ensureRolls(lib,{...s,answers:merged});
-    const result=evaluate(lib,merged,{rolls:s.rolls,config:s.config});
+    const result=evaluate(lib,merged,evaluationContext(s));
     for(const q of result.questions)known.add(q.key);
     const unknown=Object.keys(incoming).filter(k=>!known.has(k));if(unknown.length)throw new Error('无法识别问题名称：'+unknown.join('、')+'。请保留原问题名称。');
     const revised={...s,answers:{...merged,...result.canonical}};const evaluated=resultFor(lib,revised);
@@ -122,7 +194,7 @@ export async function continueCharacter(lib,dir,{checkOnly=false}={}){
     if(checkOnly){await atomic(join(dir,'检查.json'),{complete,issues:evaluated.issues,missing:evaluated.missing,revision:s.revision});return {state:revised,result:evaluated,complete,checkOnly:true};}
     if(s.status==='complete'){
       if(JSON.stringify(merged)!==JSON.stringify(s.answers))throw new Error('此等级已完成。请从工具入口选择“升级”，原卡保留。');
-      return {state:s,result:evaluated,complete:true,unchanged:true};
+      return {state:s,result:evaluated,complete:true,unchanged:true,...await finalizeDirectory(dir,s,relocate)};
     }
     const priorProblems=[...resultBefore.issues,...resultBefore.missing];
     const priorStage=priorProblems.length?Math.min(...priorProblems.map(p=>p.stage)):6;
@@ -134,7 +206,7 @@ export async function continueCharacter(lib,dir,{checkOnly=false}={}){
     await atomic(join(dir,'状态.json'),s);
     if(complete)await saveCompleted(lib,dir,s,evaluated);
     await publish(lib,dir,s,evaluated);
-    return {state:s,result:evaluated,complete};
+    return {state:s,result:evaluated,complete,...await finalizeDirectory(dir,s,relocate)};
   });
 }
 
@@ -149,12 +221,12 @@ async function saveCompleted(lib,dir,s,result){
   await atomic(path,{id:s.id,version:s.version,sourceHash:s.sourceHash,config:s.config,answers:s.answers,rolls:s.rolls,snapshot:result.snapshot});
 }
 
-export async function recover(lib,dir){return locked(dir,async()=>{const s=await readState(dir);ensureVersion(lib,s);const r=resultFor(lib,s);if(s.status==='complete'&&!r.issues.length&&!r.missing.length)await saveCompleted(lib,dir,s,r);await publish(lib,dir,s,r);return {state:s,result:r};});}
+export async function recover(lib,dir){return locked(dir,async relocate=>{const s=await readState(dir);ensureVersion(lib,s);const r=resultFor(lib,s);if(s.status==='complete'&&!r.issues.length&&!r.missing.length)await saveCompleted(lib,dir,s,r);await publish(lib,dir,s,r);return {state:s,result:r,...await finalizeDirectory(dir,s,relocate)};});}
 export async function changeMode(lib,dir,mode){if(!['引导','自由'].includes(mode))throw new Error('请选择引导或自由。');
-  return locked(dir,async()=>{let s=await readState(dir);ensureVersion(lib,s);await requirePublishedReferences(dir,s);const raw=await readFile(join(dir,'玩家文件','回答.txt'),'utf8');const input=parseAnswers(raw,s.id+'-'+s.revision);s={...s,answers:{...s.answers,...input},mode,revision:s.revision+1};await atomic(join(dir,'状态.json'),s);const r=resultFor(lib,s);await publish(lib,dir,s,r);return {state:s,result:r};});}
+  return locked(dir,async()=>{let s=await readState(dir);ensureVersion(lib,s);await requirePublishedReferences(dir,s);const {incoming}=await readSubmission(dir,s,resultFor(lib,s).questions);s={...s,answers:{...s.answers,...incoming},mode,revision:s.revision+1};await atomic(join(dir,'状态.json'),s);const r=resultFor(lib,s);await publish(lib,dir,s,r);return {state:s,result:r};});}
 export async function rollCharacter(lib,dir){return locked(dir,async()=>{
   const s=await readState(dir);ensureVersion(lib,s);await requirePublishedReferences(dir,s);if(s.status==='complete')throw new Error('此等级已完成，不能重新掷骰。');
-  const input=parseAnswers(await readFile(join(dir,'玩家文件','回答.txt'),'utf8'),s.id+'-'+s.revision);s.answers={...s.answers,...input};
+  const {incoming}=await readSubmission(dir,s,resultFor(lib,s).questions);s.answers={...s.answers,...incoming};
   ensureRolls(lib,s);
   s.revision++;await atomic(join(dir,'状态.json'),s);const r=resultFor(lib,s);await publish(lib,dir,s,r);return {state:s,result:r};
 });}
@@ -166,4 +238,4 @@ export async function upgradeCharacter(lib,dir,target){return locked(dir,async()
   s.base=base;s.answers.目标等级=String(target);s.status='draft';s.revision++;
   await atomic(join(dir,'状态.json'),s);const r=resultFor(lib,s);await publish(lib,dir,s,r);return {state:s,result:r};
 });}
-export async function listCharacters(base=STORE){if(!await exists(base))return [];const result=[];for(const name of await readdir(base)){const dir=join(base,name);if(!/^character-[a-f0-9-]+$/.test(name))continue;try{const s=await readState(dir);result.push({dir,id:s.id,name:s.answers.角色名||'未命名角色',level:s.answers.目标等级||'待填写',className:s.answers.职业||'待填写',mode:s.mode,status:s.status});}catch(e){result.push({dir,name:'无法读取：'+name,error:e.message});}}return result;}
+export async function listCharacters(base=STORE){if(!await exists(base))return [];const result=[];for(const entry of await readdir(base,{withFileTypes:true})){const {name}=entry;if(!entry.isDirectory()||!(/^character-[a-f0-9-]+$/.test(name)||/_\d{6}_\d{4}开始创建$/.test(name)))continue;const dir=join(base,name);try{const s=await readState(dir);result.push({dir,id:s.id,name:s.answers.角色名||'未命名角色',level:s.answers.目标等级||'待填写',className:s.answers.职业||'待填写',mode:s.mode,status:s.status});}catch(e){result.push({dir,name:'无法读取：'+name,error:e.message});}}return result;}

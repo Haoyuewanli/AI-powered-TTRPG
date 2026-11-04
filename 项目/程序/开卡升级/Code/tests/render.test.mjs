@@ -9,6 +9,15 @@ import { basicCharacter, druid } from './fixtures.mjs';
 const lib=await loadLibrary();
 const state=answers=>({id:'render-test',revision:1,mode:'自由',answers,rolls:{},config:{}});
 
+test('spell exclusion is printed on the question and omitted from its detailed candidate file',()=>{
+  const answers=druid(lib,1),s={...state(answers),mode:'引导'},r=evaluate(lib,answers);
+  const files=renderFiles(lib,s,r,5),text=files.get('回答.txt');
+  assert.match(text,/# 不能选：动物交谈（「德鲁伊语」已自动提供，不占本题名额）/);
+  assert.doesNotMatch(files.get('法术候选-准备法术.txt'),/^\d+\. 动物交谈/m);
+  assert.ok(!files.has('背景选项.txt'));assert.ok(!files.has('装备选项.txt'));
+  assert.ok(files.get('本轮说明.txt').includes('法术候选-准备法术.txt'));
+});
+
 test('answer file includes full spell candidates and calculated equipment training without adding input fields',()=>{
   const {answers,result}=basicCharacter(lib,'法师',1),s=state(answers),text=answerText(s,result,5);
   for(const key of ['职业戏法','1级法术书新增']){
