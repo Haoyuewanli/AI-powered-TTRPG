@@ -1,0 +1,8 @@
+/* 预览专用覆盖；正式界面保持原样。后续视觉修改集中在此。 */
+.preview-banner { min-height:38px; padding:8px 18px; display:flex; align-items:center; justify-content:space-between; gap:8px; background:#263b47; border-bottom:1px solid #88b4bc66; color:#e4f0f0; font-size:12px; }
+.preview-banner strong { color:#e8d6a5; letter-spacing:.08em; }
+.preview-banner span { color:#b9cbd3; }
+.login-screen { min-height:calc(100dvh - 38px); }
+[data-tool="sharing"], [data-tool="workspace"], [data-tool="files"], #shutdown { display:none !important; }
+@media(min-width: 761px) { #table { height:calc(100dvh - 38px); min-height:0; } }
+@media(max-width: 600px) { .preview-banner { flex-direction:column; align-items:flex-start; } }
