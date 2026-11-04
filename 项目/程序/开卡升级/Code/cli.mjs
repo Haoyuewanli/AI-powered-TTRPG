@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { basename, join } from 'node:path';
 import { ROOT, loadLibrary, buildLibrary } from './library.mjs';
 import { createCharacter, continueCharacter, rollCharacter, changeMode, upgradeCharacter, recover, checkedPath, listCharacters } from './store.mjs';
+import { exportStoredCharacter } from './export-character-pdf.mjs';
 
 function ruleConfig(background='标准',budget='27'){
   if(!['标准','自由'].includes(background))throw new Error('背景加值模式请选择“标准”或“自由”。');
@@ -14,10 +15,20 @@ function ruleConfig(background='标准',budget='27'){
 function report(value){
   if(value.dir)console.log('玩家文件夹：'+join(value.dir,'玩家文件'));
   if(value.namingWarning)console.log(value.namingWarning);
-  if(value.complete||value.state?.status==='complete'){console.log(value.checkOnly?'检查通过，保存并继续即可生成成果。':'角色已完成，角色卡保存在本角色的“成果”文件夹。');return;}
+  if(value.complete||value.state?.status==='complete'){console.log(value.checkOnly?'检查通过，保存并继续即可生成成果。':'本级角色成果已保存。');return;}
   const r=value.result;if(!r)return;
   if(r.issues.length)console.log(r.issues.map(e=>e.message).join('\n'));
   console.log(`还需填写${r.missing.length}项。按“本轮说明.txt”填写后继续。`);
+}
+async function reportSaved(lib,value) {
+  report(value);
+  if (value.state?.status!=='complete') return;
+  try {
+    console.log('角色卡PDF：'+await exportStoredCharacter(lib,value.dir));
+  } catch (error) {
+    console.warn('PDF 未导出，角色成果已保存：'+error.message);
+    console.warn('可在工具菜单选择“导出角色卡 PDF”重试。');
+  }
 }
 function reveal(dir){if(process.platform==='win32')spawn('explorer.exe',[join(dir,'玩家文件')],{detached:true,stdio:'ignore',windowsHide:true}).unref();}
 async function main(){
@@ -33,18 +44,19 @@ async function main(){
   if(cmd!=='menu'){
     if(!arg)throw new Error('请提供角色存档目录，使用list查看。');const dir=await checkedPath(arg);
     process.chdir(ROOT);
-    if(cmd==='continue')report(await continueCharacter(lib,dir));
+    if(cmd==='continue')await reportSaved(lib,await continueCharacter(lib,dir));
     else if(cmd==='check')report(await continueCharacter(lib,dir,{checkOnly:true}));
     else if(cmd==='roll')report(await rollCharacter(lib,dir));
     else if(cmd==='mode')report(await changeMode(lib,dir,args[0]));
     else if(cmd==='upgrade')report(await upgradeCharacter(lib,dir,Number(args[0])));
-    else if(cmd==='recover')report(await recover(lib,dir));
-    else throw new Error('未知操作。支持new、list、continue、check、roll、mode、upgrade、recover、build。');
+    else if(cmd==='recover')await reportSaved(lib,await recover(lib,dir));
+    else if(cmd==='pdf')console.log('角色卡PDF：'+await exportStoredCharacter(lib,dir,args[0]===undefined?undefined:Number(args[0])));
+    else throw new Error('未知操作。支持new、list、continue、check、roll、mode、upgrade、recover、pdf、build。');
     return;
   }
   const input=createInterface({input:stdin,output:stdout,terminal:false});
   try{
-    console.log('本地开卡与升级\n1 新建角色\n2 打开已有角色\n3 升级\n4 切换填写模式\n5 生成骰点\n6 恢复当前文件\n7 重建TXT库');
+    console.log('本地开卡与升级\n1 新建角色\n2 打开已有角色\n3 升级\n4 切换填写模式\n5 生成骰点\n6 恢复当前文件\n7 重建TXT库\n8 导出角色卡 PDF');
     const action=(await input.question('选择：')).trim();
     if(action==='7'){const m=await buildLibrary(lib);console.log('已生成'+m.files+'份资料。');return;}
     if(action==='1'){
@@ -64,7 +76,11 @@ async function main(){
     else if(action==='3'){report(await upgradeCharacter(lib,dir,Number(await input.question('升到几级：'))));reveal(dir);}
     else if(action==='4'){const mode=(await input.question('1 分轮引导  2 自由填写：')).trim();if(!['1','2'].includes(mode))throw new Error('请选择1或2。');report(await changeMode(lib,dir,mode==='2'?'自由':'引导'));reveal(dir);}
     else if(action==='5'){report(await rollCharacter(lib,dir));reveal(dir);}
-    else if(action==='6'){process.chdir(ROOT);const value=await recover(lib,dir);report(value);reveal(value.dir);}
+    else if(action==='6'){process.chdir(ROOT);const value=await recover(lib,dir);await reportSaved(lib,value);reveal(value.dir);}
+    else if(action==='8'){
+      const level=(await input.question('导出哪个等级？回车使用当前已完成等级：')).trim();
+      console.log('角色卡PDF：'+await exportStoredCharacter(lib,dir,level?Number(level):undefined));
+    }
     else throw new Error('请选择有效操作。');
   }finally{input.close();}
 }

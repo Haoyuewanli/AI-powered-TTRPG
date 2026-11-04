@@ -2,8 +2,10 @@
 
 import io
 import json
+import os
 import re
 import sys
+from tempfile import NamedTemporaryFile
 from pathlib import Path
 
 import fitz
@@ -520,9 +522,19 @@ def preview(template, output, saved):
         assert final_widgets[name]["/AP"]["/N"].get_data(), name
     for name in checked:
         assert canonical[name]["/V"] == final_widgets[name]["/AS"] != "/Off", name
-    with output.open("xb") as file:
-        file.write(buff.getbuffer())
-    print(output.resolve())
+    # Publish a completed file in one step without replacing an earlier export.
+    temporary = None
+    try:
+        with NamedTemporaryFile(dir=output.parent, prefix=".角色卡-", suffix=".tmp", delete=False) as file:
+            temporary = Path(file.name)
+            file.write(buff.getbuffer())
+        if os.name == "nt":
+            os.rename(temporary, output)
+        else:
+            os.link(temporary, output)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

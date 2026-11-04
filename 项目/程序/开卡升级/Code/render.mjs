@@ -93,7 +93,7 @@ export function renderFiles(lib,state,result,stage) {
   const list=(filename,entries)=>{if(entries.length)files.set(filename,overview(entries));};
   files.set('回答.txt',answerText(state,result,stage));
   if(state.status==='complete'){
-    files.set('本轮说明.txt',`这个角色的${result.snapshot?.level||state.answers.目标等级}级档案已完成。\n\n角色卡在上一级目录的“成果”内。以后升级，请打开工具入口，选择“升级”。\n`);
+    files.set('本轮说明.txt',`这个角色的${result.snapshot?.level||state.answers.目标等级}级档案已完成。\n\n角色卡在上一级目录的“成果”内。若本级没有角色卡.pdf，可从工具菜单选择“导出角色卡 PDF”。以后升级请选择“升级”。\n`);
     return files;
   }
 
