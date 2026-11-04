@@ -1,19 +1,20 @@
 import {PALETTE,DEFAULT_SETTINGS,demoStats,layerFor} from '/scene-model.mjs';
+import {CELL,clean,toFeet} from '/voxel-grid.mjs';
 import {SceneView} from '/v2-view.mjs';
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state,selected=null,mode='2d',tool='select',current='ground',layers=new Set(['ground']),priority=false,slot=0,slots=PALETTE.slice(0,9).map(p=>p.id),dirty=false,layerEditing=null,queue=Promise.resolve(),pending=0,timer;
 let settings={...DEFAULT_SETTINGS};try{const saved=JSON.parse(localStorage.getItem('battle-preview-v2-controls'));for(const k of Object.keys(settings))if(Number.isFinite(saved?.[k]))settings[k]=Math.min(k==='look'?3:60,Math.max(k==='look'?.2:2,saved[k]));}catch{}
-const view=new SceneView($('viewport'),{place:handlePlace,pick:choose,cycle:n=>{if(canLeaveEditor())chooseSlot((slot+n+9)%9);},hint:notify,candidate:p=>{$('scene-hint').textContent=`${tool==='move'?'移动落点':brush().name} → ${p.layerName} · 高度 ${p.y}尺 · (${p.x}, ${p.z})${tool==='build'?' · 点击放置':''}`;},lock:on=>{$('crosshair').hidden=!on;$('look-lock').textContent=on?'Esc 退出环视':'鼠标环视';}});
+const view=new SceneView($('viewport'),{place:handlePlace,paint:handlePaint,paintStatus:text=>{$('scene-hint').textContent=text;},pick:choose,cycle:n=>{if(canLeaveEditor())chooseSlot((slot+n+9)%9);},hint:notify,candidate:p=>{$('scene-hint').textContent=`${tool==='move'?'移动落点':brush().name} → ${p.layerName} · 高度 ${p.y} · (${p.x}, ${p.z})${tool==='build'?' · 点击放置':''}`;},lock:on=>{$('crosshair').hidden=!on;$('look-lock').textContent=on?'Esc 退出环视':'鼠标环视';}});
 const active=()=>state?.combat?.combat.phase==='active';
 const actors=()=>state.items.filter(i=>i.kind==='actor');
 const chosen=()=>state.items.find(i=>i.id===selected);
 const turn=()=>state.combat?.actors.find(a=>a.id===state.combat.combat.order[state.combat.combat.index]);
-function brush(){if(tool==='relocate'&&chosen())return chosen();if(tool==='move'&&turn())return {...PALETTE[2],width:5};return PALETTE.find(p=>p.id===slots[slot]);}
+function brush(){if(tool==='relocate'&&chosen())return chosen();if(tool==='move'&&turn())return {...PALETTE[2],width:chosen()?.width||1,depth:chosen()?.depth||1};return PALETTE.find(p=>p.id===slots[slot]);}
 function notify(message,error=false){clearTimeout(timer);$('toast').textContent=message;$('toast').className=error?'error':'';$('toast').hidden=false;timer=setTimeout(()=>$('toast').hidden=true,error?8000:3500);}
 function guard(fn){return async e=>{e?.preventDefault();try{await fn(e);}catch(error){notify(error.message,true);}};}
 async function api(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json'}:{},...(body?{body:JSON.stringify(body)}:{})});const value=await r.json();if(!r.ok)throw Error(value.error||'操作未完成');return value;}
 function send(type,payload={},extra={}){
-  if(pending&&type!=='place')return Promise.reject(Error('上一项操作正在保存，请稍候'));
+  if(pending&&!['place','paint'].includes(type))return Promise.reject(Error('上一项操作正在保存，请稍候'));
   pending++;$('save').textContent='正在保存…';
   const task=queue.then(async()=>{try{state=await api('/v2/state',{revision:state.revision,type,payload,...extra});render();return state;}catch(e){state=await api('/v2/state');render();throw e;}finally{pending--;if(!pending)$('save').textContent=`演示已保存 · ${state.revision}`;}});
   queue=task.catch(()=>{});return task;
@@ -30,16 +31,16 @@ function render(){
   $('layer-hint').textContent=mode==='2d'?'选择当前编辑层。俯视图只显示这一层。':'勾选可建造的层。实线网格表示允许落点。';
   renderLayers();renderHotbar();renderCombat();syncView();
   if(!selected||active())$('inspector').hidden=true;if(!selected)$('selection-label').hidden=true;
-  $('layer-badge').textContent=mode==='2d'?`${state.layers.find(l=>l.id===current).name} · ${state.layers.find(l=>l.id===current).height}尺 · 俯视图`:`${layers.size}层可建造${priority?' · 固定当前层':' · 按最近命中层落点'}`;
-  const hints={select:active()?'先选行动，再选择目标或落点':'点击物件编辑 · 重叠时再点切换 · 右键拖动视角',build:'点击网格放置 · 滚轮 / 1–9选积木 · 同一位置不会重复堆叠',relocate:'点击新的网格位置 · Esc取消',move:'点击移动终点 · 确认后按本地规则结算'};
+  $('layer-badge').textContent=mode==='2d'?`${state.layers.find(l=>l.id===current).name} · ${state.layers.find(l=>l.id===current).height} · 小格0.2 / 大格1`:`${layers.size}层可建造${priority?' · 固定当前层':' · 按最近命中层落点'}`;
+  const hints={select:active()?'先选行动，再选择目标或落点':'点击物件编辑 · 重叠时再点切换 · 右键拖动视角',build:'大小方块：左键单击 / 按住拖动铺设 · 小格0.2 / 大格1 · Esc取消整笔',relocate:'点击新的网格位置 · Esc取消',move:'点击移动终点 · 确认后按本地规则结算'};
   $('scene-hint').textContent=hints[tool];
 }
 function renderLayers(){
-  $('layer-list').innerHTML=state.layers.map(l=>`<div class="layer-row ${current===l.id?'current':''}"><input type="${mode==='2d'?'radio':'checkbox'}" name="layer-select" aria-label="选择${esc(l.name)}" data-layer-check="${esc(l.id)}" ${mode==='2d'?(current===l.id?'checked':''):(layers.has(l.id)?'checked':'')}><button class="layer-name" data-layer-current="${esc(l.id)}">${esc(l.name)}<small>${l.height} 尺 · ${state.items.filter(i=>i.layerId===l.id).length} 件</small></button><button class="layer-edit" data-layer-edit="${esc(l.id)}" ${active()?'disabled':''}>编辑</button></div>`).join('');
+  $('layer-list').innerHTML=state.layers.map(l=>`<div class="layer-row ${current===l.id?'current':''}"><input type="${mode==='2d'?'radio':'checkbox'}" name="layer-select" aria-label="选择${esc(l.name)}" data-layer-check="${esc(l.id)}" ${mode==='2d'?(current===l.id?'checked':''):(layers.has(l.id)?'checked':'')}><button class="layer-name" data-layer-current="${esc(l.id)}">${esc(l.name)}<small>高度 ${l.height} · ${state.items.filter(i=>i.layerId===l.id).length} 件</small></button><button class="layer-edit" data-layer-edit="${esc(l.id)}" ${active()?'disabled':''}>编辑</button></div>`).join('');
 }
-function renderHotbar(){const b=brush();$('brush-name').textContent=b.name;$('brush-detail').textContent=`${b.width} × ${b.depth} × ${b.height} 尺`;
+function renderHotbar(){const b=brush();$('brush-name').textContent=b.name;$('brush-detail').textContent=`${b.width} × ${b.depth} × ${b.height} 坐标单位`;
   $('hotbar').innerHTML=slots.map((id,n)=>{const p=PALETTE.find(x=>x.id===id);return `<button class="slot ${slot===n?'active':''}" data-slot="${n}" aria-label="${n+1} ${esc(p.name)}" aria-pressed="${slot===n}"><small>${n+1}</small><i>${p.icon}</i><span>${esc(p.name)}</span></button>`;}).join('');
-  $('inventory').innerHTML='<div class="inventory-caption">点击积木替换当前快捷格；所有积木均可在此选取。</div>'+PALETTE.map(p=>`<button data-preset="${p.id}">${p.icon} ${esc(p.name)}<small> ${p.width}尺</small></button>`).join('');
+  $('inventory').innerHTML='<div class="inventory-caption">点击积木替换当前快捷格；所有积木均可在此选取。</div>'+PALETTE.map(p=>`<button data-preset="${p.id}">${p.icon} ${esc(p.name)}<small> ${p.width}</small></button>`).join('');
 }
 function chooseSlot(n){if(active())return;$('selection-label').hidden=true;slot=n;tool='build';selected=null;dirty=false;render();$('viewport').focus();}
 function canLeaveEditor(){if(!dirty)return true;if(!confirm('编辑尚未保存，放弃这次修改？'))return false;dirty=false;return true;}
@@ -53,17 +54,18 @@ function choose(id){
 }
 function loadEditor(i){
   $('inspector-title').textContent=i.kind==='actor'?'参战者':'场景积木';$('edit-name').value=i.name;
-  $('edit-layer').innerHTML=state.layers.map(l=>`<option value="${esc(l.id)}">${esc(l.name)} · ${l.height}尺</option>`).join('');$('edit-layer').value=i.layerId;
+  $('edit-layer').innerHTML=state.layers.map(l=>`<option value="${esc(l.id)}">${esc(l.name)} · ${l.height}</option>`).join('');$('edit-layer').value=i.layerId;
   for(const k of ['width','depth','height','x','z'])$(`edit-${k}`).value=i[k];
   $('faction-wrap').hidden=i.kind!=='actor';$('stats-details').hidden=i.kind!=='actor';$('edit-faction').value=i.faction||'ally';
   for(const f of document.querySelectorAll('[data-stat]'))f.value=i.stats?.[f.dataset.stat]??'';
   $('stats-state').textContent=i.stats?'已填写':'待完善';$('stats-details').open=false;
-  $('edit-note').textContent=i.kind==='actor'?'尺寸决定俯视点的占地。数值未填写时仍可摆放。':'所有尺寸都以尺为单位，底部随所属地面层移动。';dirty=false;
+  $('edit-note').textContent=i.kind==='actor'?'尺寸决定方块化占地；位置为左下角坐标，按0.2对齐。数值可稍后填写。':'坐标以小格0.2为最小单位；位置是积木左下角，底部随地面层移动。';dirty=false;
 }
+async function handlePaint(stroke){try{await send('paint',stroke);notify(state.log.at(-1));}catch(e){notify(e.message,true);}}
 async function handlePlace(point){try{
   if(tool==='move'){
-    const a=turn(),position={x:a.position.x+Math.round((point.x-a.position.x)/5)*5,z:a.position.z+Math.round((point.z-a.position.z)/5)*5,y:point.y};
-    showAction('确认移动',`<p>${esc(a.name)} → (${position.x}, ${position.z})，高度 ${point.y}尺</p><p class="fine">预计距离 ${Math.max(Math.abs(position.x-a.position.x),Math.abs(position.z-a.position.z))}尺。碰撞、移动余量与高差由本地规则核对。</p><button id="confirm-move" class="primary wide">确认移动</button>`);
+    const a=turn(),i=state.items.find(i=>i.id===a.id),position={x:a.position.x+Math.round((toFeet(point.x+i.width/2)-a.position.x)/5)*5,z:a.position.z+Math.round((toFeet(point.z+i.depth/2)-a.position.z)/5)*5,y:toFeet(point.y)};
+    showAction('确认移动',`<p>${esc(a.name)} → (${clean(position.x/5-i.width/2)}, ${clean(position.z/5-i.depth/2)})，高度 ${point.y}</p><p class="fine">预计距离 ${Math.max(Math.abs(position.x-a.position.x),Math.abs(position.z-a.position.z))}尺。碰撞、移动余量与高差由本地规则核对。</p><button id="confirm-move" class="primary wide">确认移动</button>`);
     $('confirm-move').onclick=guard(async()=>{await battleAction('move',{actorId:a.id,position});$('action-dialog').close();tool='select';render();});return;
   }
   if(tool==='relocate'){
@@ -122,7 +124,7 @@ $('layer-toggle').onclick=()=>{$('layers-panel').hidden=!$('layers-panel').hidde
 $('layer-list').onchange=e=>{const id=e.target.dataset.layerCheck;if(!id)return;if(mode==='2d'){current=id;layers.add(id);}else{if(e.target.checked){layers.add(id);current=id;}else{layers.delete(id);if(current===id&&layers.size)current=[...layers][0];}}render();};
 $('layer-list').onclick=e=>{const b=e.target.closest('[data-layer-current]'),edit=e.target.closest('[data-layer-edit]');if(b){current=b.dataset.layerCurrent;layers.add(current);render();}if(edit)openLayer(edit.dataset.layerEdit);};
 $('layer-priority').onchange=e=>{priority=e.target.checked;render();};
-function openLayer(id){view.stop();layerEditing=id;const l=state.layers.find(l=>l.id===id);$('layer-dialog-title').textContent=l?'编辑地面层':'新建地面层';$('layer-name').value=l?.name||`地面层 ${state.layers.length+1}`;$('layer-height').value=l?.height??Math.min(90,Math.max(...state.layers.map(l=>l.height))+10);$('layer-dialog').showModal();}
+function openLayer(id){view.stop();layerEditing=id;const l=state.layers.find(l=>l.id===id);$('layer-dialog-title').textContent=l?'编辑地面层':'新建地面层';$('layer-name').value=l?.name||`地面层 ${state.layers.length+1}`;$('layer-height').value=l?.height??Math.min(18,Math.max(...state.layers.map(l=>l.height))+2);$('layer-dialog').showModal();}
 $('layer-add').onclick=()=>openLayer(null);
 $('layer-form').onsubmit=guard(async()=>{const payload={name:$('layer-name').value,height:Number($('layer-height').value)};if(layerEditing)payload.id=layerEditing;await send(layerEditing?'layer-edit':'layer-add',payload);if(!layerEditing){current=state.layers.at(-1).id;layers.add(current);}render();$('layer-dialog').close();});
 $('edit-form').oninput=()=>{dirty=true;};
@@ -148,4 +150,4 @@ $('next-turn').onclick=guard(async()=>{await battleAction('next');focusTurn();})
 $('log-open').onclick=()=>{$('log-list').innerHTML=state.log.slice().reverse().map(s=>`<p>${esc(s)}</p>`).join('');$('log-dialog').showModal();};
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>$(b.dataset.close).close());
 window.addEventListener('beforeunload',e=>{if(dirty||pending){e.preventDefault();e.returnValue='';}});
-try{state=await api('/v2/state');render();}catch(e){notify(`预览加载失败：${e.message}`,true);$('save').textContent='加载失败，请刷新';}
+try{state=await api('/v2/state');if(state.schemaVersion!==3){state=null;throw Error('此地址是旧版预览，请使用新打开的预览窗口');}render();}catch(e){notify(`预览加载失败：${e.message}`,true);$('save').textContent='加载失败，请刷新';document.querySelectorAll('button,input,select').forEach(el=>{el.disabled=true;});}

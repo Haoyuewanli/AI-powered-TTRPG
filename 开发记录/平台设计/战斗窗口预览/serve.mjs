@@ -34,8 +34,8 @@ export async function startPreview() {
   const session = await mkdtemp(join(temp, 'session-'));
   await mkdir(join(session,'演示团'));
   const core = await startApp({ campaignDir:join(session,'演示团'), workspaceDir:join(session,'工作区'), port:0, initial:sample });
-  const preview = await createPreviewStore(join(session,'预览02.json'));
-  const files=new Map([['/','v2.html'],...['v2.css','v2.mjs','v2-view.mjs','scene-model.mjs'].map(name=>['/'+name,name])]);
+  const preview = await createPreviewStore(join(session,'预览03.json'));
+  const files=new Map([['/','v2.html'],...['v2.css','v2.mjs','v2-view.mjs','scene-model.mjs','voxel-grid.mjs','voxel-view.mjs'].map(name=>['/'+name,name])]);
   const server = createServer(async (req,res) => {
     const send = (status, value) => { res.writeHead(status, {'Content-Type':'application/json; charset=utf-8'}); res.end(JSON.stringify(value)); };
     res.setHeader('Cache-Control','no-store');

@@ -1,0 +1,37 @@
+import assert from 'node:assert/strict';
+import {mkdir,mkdtemp,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {startPreview} from './serve.mjs';
+const {chromium}=await import(pathToFileURL(join(process.env.USERPROFILE,'.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs')));
+const temp=fileURLToPath(new URL('../../临时/战斗窗口预览/',import.meta.url));await mkdir(temp,{recursive:true});const output=await mkdtemp(join(temp,'paint-check-'));
+const app=await startPreview();let browser;const errors=[];
+try{
+ browser=await chromium.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
+ const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(7000);page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(app.url);await page.locator('#save').filter({hasText:'演示已保存'}).waitFor();
+ const state=async()=>await(await fetch(app.url+'/v2/state')).json();
+ const waitRevision=async revision=>page.waitForFunction(r=>Number(document.getElementById('save').textContent.split('·')[1])>r,revision);
+ const point=async(x,z)=>{const r=await page.locator('canvas').boundingBox();return {x:r.x+r.width/2+(x*5-25)*r.height/65,y:r.y+r.height/2+(z*5-25)*r.height/65};};
+ const move=async(x,z)=>{const p=await point(x,z);await page.mouse.move(p.x,p.y);};
+ const undo=async()=>{const before=await state();await page.locator('#undo').click();await waitRevision(before.revision);};
+ await page.keyboard.press('1');await move(.5,8.5);await page.mouse.down();await move(9.5,8.5);assert.equal((await state()).revision,0);
+ await page.screenshot({path:join(output,'01-held-large.png')});await page.mouse.up();await waitRevision(0);
+ let s=await state();assert.equal(s.items.length,15);assert.equal(s.revision,1);
+ assert.deepEqual(s.items.filter(i=>i.preset==='cube5').map(i=>i.x).sort((a,b)=>a-b),[0,1,2,3,4,5,6,7,8,9]);
+ await undo();assert.equal((await state()).items.length,5);
+ await page.keyboard.press('2');s=await state();await move(1.1,7.1);await page.mouse.down();await move(3.9,7.1);await page.mouse.up();await waitRevision(s.revision);
+ s=await state();assert.equal(s.items.filter(i=>i.preset==='cube1').length,15);assert(s.items.every(i=>[i.x,i.z,i.width,i.depth,i.height].every(n=>Math.abs(n/.2-Math.round(n/.2))<1e-7)));
+ const beforeRepeat=s.revision;await move(3.9,7.1);await page.mouse.down();await move(1.1,7.1);await page.mouse.up();await page.waitForTimeout(80);assert.equal((await state()).revision,beforeRepeat);
+ await move(1.1,5.1);await page.mouse.down();await move(3.9,5.1);await page.keyboard.press('Escape');await page.mouse.up();assert.equal((await state()).revision,beforeRepeat);
+ await page.keyboard.press('2');await move(1.1,5.1);await page.mouse.down();await move(3.9,5.1);await page.locator('#settings-open').focus();await page.mouse.up();assert.equal((await state()).revision,beforeRepeat);
+ await page.keyboard.press('2');await move(1.1,5.1);await page.mouse.down();await move(3.9,5.1);await page.keyboard.press('1');await page.mouse.up();assert.equal((await state()).revision,beforeRepeat);
+ await page.reload();await page.locator('#save').filter({hasText:'演示已保存'}).waitFor();assert.equal((await state()).items.filter(i=>i.preset==='cube1').length,15);
+ await page.keyboard.press('2');s=await state();await move(-.1,7.1);await page.mouse.click((await point(-.1,7.1)).x,(await point(-.1,7.1)).y);await waitRevision(s.revision);assert.equal((await state()).items.at(-1).x,-.2);
+ await page.keyboard.press('1');s=await state();await move(.5,8.5);await page.mouse.down();await move(9.5,8.5);await page.mouse.up();await waitRevision(s.revision);
+ await page.keyboard.press('7');s=await state();await move(7.1,3.1);await page.mouse.click((await point(7.1,3.1)).x,(await point(7.1,3.1)).y);await waitRevision(s.revision);
+ await page.keyboard.press('6');s=await state();await move(8.1,3.1);await page.mouse.click((await point(8.1,3.1)).x,(await point(8.1,3.1)).y);await waitRevision(s.revision);
+ await page.locator('[data-tool="select"]').click();await page.screenshot({path:join(output,'02-painted-2d.png')});await page.locator('[data-view="3d"]').click();await page.screenshot({path:join(output,'03-voxel-3d.png')});
+ assert.deepEqual(errors,[]);const checks=['大方块高速拖动补齐十格且松开才保存','整笔撤销','小方块0.2网格连续铺设','往返与原地重复不保存','Esc/失焦/换工具取消未提交整笔','刷新恢复','负坐标单击','圆柱坡块方块化三维显示'];
+ await writeFile(join(output,'result.json'),JSON.stringify({checks,errors},null,2));console.log(JSON.stringify({output,checks}));
+}finally{await browser?.close();await app.close();}
