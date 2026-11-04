@@ -18,9 +18,6 @@ export function parseAnswers(text, expectedToken) {
 export function answerText(state,result,stage) {
   const lines=[`角色回答 · ${state.id}-${state.revision}`,'','# 把答案填在冒号后。多项用顿号或逗号分开，保存后双击“继续”。',''];
   const s=result.snapshot;
-  lines.push('【装备受训情况】',s?'# 护甲受训：'+(s.armorTraining.join('、')||'无')+'；武器熟练：'+(s.weaponTraining||'无')+'。':'# 先确定职业、种族和背景，继续后显示装备受训情况。');
-  if(s)lines.push('# 工具熟练：'+(s.tools.join('、')||'无')+'。以上随已填选择更新。');
-  lines.push('');
   const questions=result.questions.filter(q=>state.mode==='自由'||q.stage===stage);
   let group=-1;
   for(const q of questions){
@@ -34,6 +31,16 @@ export function answerText(state,result,stage) {
     if(q.candidates){lines.push('# 可购买范围（单价）：');for(const item of q.candidates)lines.push(`# ${item.name}（${item.priceCp/100}GP）`);}
     if(q.kind==='spell')lines.push('# 详细说明见“'+spellReferenceName(q)+'”。');
     if(q.count!==undefined)lines.push('# 选择'+q.count+'项。');
+    if(s){
+      const armor='护甲受训：'+(s.armorTraining.filter(n=>n!=='盾牌').join('、')||'无');
+      const shield='盾牌受训：'+(s.armorTraining.includes('盾牌')?'有':'无');
+      const weapon='武器熟练：'+(s.weaponTraining||'无');
+      if(['职业装备','背景装备','购买物品'].includes(q.key))lines.push('# '+armor+'；'+shield+'；'+weapon+'。','# 工具熟练：'+(s.tools.join('、')||'无')+'。');
+      else if(q.key==='穿戴护甲')lines.push('# '+armor+'。');
+      else if(q.key==='使用盾牌')lines.push('# '+shield+'。');
+      else if(['常用武器','武器精通','武器大师精通'].includes(q.key))lines.push('# '+weapon+'。');
+      else if(['职业工具','背景工具'].includes(q.key))lines.push('# 当前工具熟练：'+(s.tools.join('、')||'无')+'。');
+    }
     lines.push(q.key+'：'+(state.answers[q.key]||''),'');
   }
   return lines.join('\r\n')+'\r\n';

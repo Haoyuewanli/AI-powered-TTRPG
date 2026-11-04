@@ -17,12 +17,26 @@ test('answer file includes full spell candidates and calculated equipment traini
     for(const [i,name] of q.options.entries())assert.ok(text.includes(`${i+1}.${name}`));
     assert.ok(text.includes(spellReferenceName(q)));
   }
-  assert.ok(text.includes('# 护甲受训：无；武器熟练：'+result.snapshot.weaponTraining));
+  assert.ok(text.includes('# 护甲受训：无；盾牌受训：无；武器熟练：'+result.snapshot.weaponTraining));
   const parsed=parseAnswers(text,'render-test-1');
   assert.deepEqual(Object.keys(parsed),result.questions.map(q=>q.key));
   assert.equal(parsed.购买物品,'无');
   const d=druid(lib,1);d.原初职能='卫士';const r=evaluate(lib,d);
   const changed=answerText(state(d),r,6);assert.ok(changed.includes('中甲'));assert.ok(changed.includes('武器熟练：简易和军用武器'));
+});
+
+test('training is directly above the matching equipment answer, with explicit trained and untrained shields',()=>{
+  for(const mode of ['引导','自由']){
+    const answers=druid(lib,1),result=evaluate(lib,answers),text=answerText({...state(answers),mode},result,6);
+    assert.ok(text.includes('# 护甲受训：轻甲。\r\n穿戴护甲：'));
+    assert.ok(text.includes('# 盾牌受训：有。\r\n使用盾牌：'));
+    assert.ok(text.includes('# 武器熟练：简易武器。\r\n常用武器：'));
+    for(const key of ['职业装备','背景装备','购买物品'])assert.match(text,new RegExp('# 护甲受训：轻甲；盾牌受训：有；武器熟练：简易武器。\\r\\n# 工具熟练：[^\\r]+\\r\\n'+key+'：'));
+    assert.ok(!text.includes('【装备受训情况】'));
+    assert.deepEqual(Object.keys(parseAnswers(text,'render-test-1')),result.questions.filter(q=>mode==='自由'||q.stage===6).map(q=>q.key));
+  }
+  const {answers,result}=basicCharacter(lib,'法师',1);
+  assert.ok(answerText(state(answers),result,6).includes('# 盾牌受训：无。\r\n使用盾牌：'));
 });
 
 test('purchase candidates match the priced catalog and quantity answers still calculate correctly',()=>{
