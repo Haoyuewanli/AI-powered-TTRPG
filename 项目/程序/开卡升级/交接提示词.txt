@@ -1,0 +1,7 @@
+我收到了一份 Windows 本地 D&D 开卡工具的 ZIP。请帮我检查包、配置缺少的环境，然后按包内提示词协助我开卡。
+
+1. 请先确认 ZIP 已解压到我有写入权限的目录。找到 项目\程序\开卡升级\打开工具.cmd，检查同级是否有 Code、角色卡底表.pdf、说明书.txt 和 提示词-本地Agent.txt。再确认同一 项目 目录下有 资源，包含职业、背景、种族、专长、法术、物品、怪物和怪物图鉴的原始资料。缺文件就告诉我具体缺哪一项，我会找发包人补齐。
+2. 在同一个终端检查 node -v 和 python --version。缺环境时，请从官方渠道下载并安装 Node.js 24 和 Python 3.12，并确认终端能通过 node 和 python 调用它们。安装程序若弹出授权窗口，请让我确认。
+3. 检查 PDF 库。运行 python -c "import fitz, pypdf; assert hasattr(pypdf.PdfWriter, 'reattach_fields')"。缺包时，用 python -m pip install PyMuPDF pypdf 安装，然后重跑检查。工具无需 API 密钥。
+4. 在「开卡升级」目录运行 node Code/cli.mjs list，确认程序能读取规则资料。第一次使用时返回 [] 是正常的。
+5. 检查通过后，读 说明书.txt 和 提示词-本地Agent.txt，再按里面的流程帮我开卡。新建前分别问我是否开启两项房规。角色完成时，请把程序实际生成的 角色卡.pdf 路径交给我。若导出失败，请报告具体错误，并用工具的补导命令重试。
